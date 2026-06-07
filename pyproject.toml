@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools]
+include-package-data = true
+
+[project]
+name = "GranumDSS"
+version = "0.0.1"
+authors = [
+    {name = "arturguerra", email="arturguerra921@hotmail.com"}
+]
+maintainers = [
+    {name = "arturguerra", email="arturguerra921@hotmail.com"}
+]
+description = "GranumDSS"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = "~=3.10.0"
+dependencies = [
+    "plotly==6.5.2",
+    "dash==4.0.0",
+    "pandas==2.3.3",
+    "openpyxl==3.1.5",
+    "dash-bootstrap-components==2.0.4",
+    "gunicorn==25.1.0",
+    "lxml==6.0.2",
+    "xlrd==2.0.2",
+    "requests==2.32.5",
+    "pyomo==6.10.0",
+    "dash[diskcache]==4.0.0",
+    "diskcache==5.6.3",
+    "multiprocess==0.70.19",
+    "psutil==7.2.2"
+]
+
+[project.scripts]
+granum-run = "src.__main__:main"

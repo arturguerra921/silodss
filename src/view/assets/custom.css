@@ -1,0 +1,441 @@
+
+/* Rule: Spacing & Rhythm (8pt Grid System) - Standardize all margins and paddings using multiples of 8px (e.g., 16px gap between inputs, 24px padding inside cards). */
+
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+body {
+    font-family: 'Roboto', sans-serif !important;
+    background-color: #F4F6F8 !important; /* APP_BACKGROUND (Cool Tech Gray) */
+    color: #7E7E65 !important;           /* UNB_GRAY_DARK */
+}
+
+/* Navbar */
+.navbar-custom {
+    background-color: #003366 !important; /* UNB_BLUE */
+    border-bottom: 4px solid #006633 !important; /* UNB_GREEN */
+}
+
+.navbar-brand-text {
+    color: #FFFFFF !important; /* WHITE */
+    font-weight: 500;
+}
+
+.navbar-subtext {
+    color: #EDEDDF !important; /* Keeping Concreto 4 for subtle text contrast if desired, or switch to white/gray */
+    font-weight: 400;
+}
+
+/* Cards */
+.card-custom {
+    border: none !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+    background-color: #FFFFFF !important; /* WHITE */
+}
+
+.card-header-custom {
+    background-color: #FFFFFF !important; /* WHITE */
+    border-bottom: none !important;
+    color: #003366 !important; /* UNB_BLUE */
+    font-weight: 700 !important;
+    font-size: 1.1rem;
+    padding-top: 24px !important;
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+}
+
+.card-body-custom {
+    padding: 24px !important;
+}
+
+/* Buttons */
+
+/* Primary */
+.btn-primary-custom {
+    background-color: #003366 !important; /* UNB_BLUE */
+    border-color: #003366 !important;
+    color: #FFFFFF !important;
+    font-weight: 500 !important;
+}
+.btn-primary-custom:hover {
+    background-color: #002244 !important; /* Darker blue */
+    border-color: #002244 !important;
+}
+
+.btn-outline-primary-custom {
+    color: #003366 !important;
+    border-color: #003366 !important;
+    border: 1px solid #003366 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-primary-custom:hover {
+    background-color: #003366 !important;
+    color: #FFFFFF !important;
+}
+
+/* Success */
+.btn-success-custom {
+    background-color: #006633 !important; /* UNB_GREEN */
+    border-color: #006633 !important;
+    color: #FFFFFF !important;
+    font-weight: 500 !important;
+}
+.btn-success-custom:hover {
+    background-color: #004422 !important; /* Darker green */
+    border-color: #004422 !important;
+}
+
+.btn-outline-success-custom {
+    color: #006633 !important;
+    border-color: #006633 !important;
+    border: 1px solid #006633 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-success-custom:hover {
+    background-color: #006633 !important;
+    color: #FFFFFF !important;
+}
+
+/* Secondary */
+.btn-secondary-custom {
+    background-color: #7E7E65 !important; /* UNB_GRAY_DARK */
+    border-color: #7E7E65 !important;
+    color: #FFFFFF !important;
+    font-weight: 500 !important;
+}
+.btn-secondary-custom:hover {
+    background-color: #5a5a48 !important; /* Darker gray */
+    border-color: #5a5a48 !important;
+}
+
+.btn-outline-secondary-custom {
+    color: #7E7E65 !important; /* UNB_GRAY_DARK */
+    border-color: #7E7E65 !important;
+    border: 1px solid #7E7E65 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-secondary-custom:hover:not(:disabled) {
+    background-color: #7E7E65 !important;
+    color: #FFFFFF !important; /* WHITE */
+}
+.btn-outline-secondary-custom:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Danger */
+.btn-danger-custom {
+    background-color: #C8102E !important; /* Red */
+    border-color: #C8102E !important;
+    color: #FFFFFF !important;
+    font-weight: 500 !important;
+}
+.btn-danger-custom:hover {
+    background-color: #9e0c24 !important; /* Darker red */
+    border-color: #9e0c24 !important;
+}
+
+.btn-outline-danger-custom {
+    color: #C8102E !important;
+    border-color: #C8102E !important;
+    border: 1px solid #C8102E !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-danger-custom:hover {
+    background-color: #C8102E !important;
+    color: #FFFFFF !important;
+}
+
+/* Info */
+.btn-info-custom {
+    background-color: #00A0A7 !important; /* UNB_BLUE_GREEN */
+    border-color: #00A0A7 !important;
+    color: #FFFFFF !important;
+    font-weight: 500 !important;
+}
+.btn-info-custom:hover {
+    background-color: #008085 !important; /* Darker blue-green */
+    border-color: #008085 !important;
+}
+
+.btn-outline-info-custom {
+    color: #00A0A7 !important;
+    border-color: #00A0A7 !important;
+    border: 1px solid #00A0A7 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-info-custom:hover {
+    background-color: #00A0A7 !important;
+    color: #FFFFFF !important;
+}
+
+/* Warning */
+.btn-warning-custom {
+    background-color: #FDCA00 !important; /* UNB_YELLOW_MED */
+    border-color: #FDCA00 !important;
+    color: #212529 !important; /* Dark text for contrast */
+    font-weight: 500 !important;
+}
+.btn-warning-custom:hover {
+    background-color: #cba200 !important; /* Darker yellow */
+    border-color: #cba200 !important;
+}
+
+.btn-outline-warning-custom {
+    color: #cba200 !important; /* Darker yellow for outline to ensure readability on white backgrounds */
+    border-color: #FDCA00 !important;
+    border: 1px solid #FDCA00 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-warning-custom:hover {
+    background-color: #FDCA00 !important;
+    color: #212529 !important;
+}
+
+/* Info */
+.btn-info-custom {
+    background-color: #00A0A7 !important; /* UNB_BLUE_GREEN */
+    border-color: #00A0A7 !important;
+    color: #FFFFFF !important;
+    font-weight: 500 !important;
+}
+.btn-info-custom:hover {
+    background-color: #008085 !important; /* Darker blue-green */
+    border-color: #008085 !important;
+}
+
+.btn-outline-info-custom {
+    color: #00A0A7 !important;
+    border-color: #00A0A7 !important;
+    border: 1px solid #00A0A7 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-info-custom:hover {
+    background-color: #00A0A7 !important;
+    color: #FFFFFF !important;
+}
+
+/* Light */
+.btn-light-custom {
+    background-color: #F4F6F8 !important; /* APP_BACKGROUND */
+    border-color: #DEE2E6 !important; /* Standard Bootstrap border for slight contrast */
+    color: #212529 !important;
+    font-weight: 500 !important;
+}
+.btn-light-custom:hover {
+    background-color: #dce1e6 !important; /* Darker light */
+    border-color: #c4c9ce !important;
+}
+
+.btn-outline-light-custom {
+    color: #F4F6F8 !important;
+    border-color: #F4F6F8 !important;
+    border: 1px solid #F4F6F8 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-light-custom:hover {
+    background-color: #F4F6F8 !important;
+    color: #212529 !important;
+}
+
+/* Dark */
+.btn-dark-custom {
+    background-color: #000000 !important; /* Black */
+    border-color: #000000 !important;
+    color: #FFFFFF !important;
+    font-weight: 500 !important;
+}
+.btn-dark-custom:hover {
+    background-color: #333333 !important; /* Dark gray */
+    border-color: #333333 !important;
+}
+
+.btn-outline-dark-custom {
+    color: #000000 !important;
+    border-color: #000000 !important;
+    border: 1px solid #000000 !important;
+    background-color: transparent !important;
+    font-weight: 500 !important;
+}
+.btn-outline-dark-custom:hover {
+    background-color: #000000 !important;
+    color: #FFFFFF !important;
+}
+
+/* Upload Component */
+.upload-box {
+    width: 100%;
+    height: 150px;
+    line-height: 1.5;
+    border-width: 2px;
+    border-style: dashed;
+    border-radius: 10px;
+    text-align: center;
+    border-color: #DEE2E6; /* BORDER_LIGHT */
+    background-color: #F8F9FA; /* Default Bootstrap Light Gray (acceptable utility) */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: border-color 0.3s;
+}
+
+.upload-box:hover {
+    border-color: #003366; /* UNB_BLUE (BORDER_UPLOAD_HOVER) */
+}
+
+/* Spacing Utilities (8pt Grid) */
+.mb-8 { margin-bottom: 8px !important; }
+.mb-16 { margin-bottom: 16px !important; }
+.mb-24 { margin-bottom: 24px !important; }
+.mb-32 { margin-bottom: 32px !important; }
+.mb-48 { margin-bottom: 48px !important; }
+
+.mt-8 { margin-top: 8px !important; }
+.mt-16 { margin-top: 16px !important; }
+.mt-24 { margin-top: 24px !important; }
+.mt-32 { margin-top: 32px !important; }
+.mt-48 { margin-top: 48px !important; }
+
+.p-24 { padding: 24px !important; }
+.gap-16 { gap: 16px !important; }
+
+/* Tabs */
+.nav-tabs .nav-link {
+    color: #7E7E65; /* UNB_GRAY_DARK */
+    font-weight: 500;
+}
+
+.nav-tabs .nav-link.active {
+    color: #003366; /* UNB_BLUE */
+    font-weight: 600;
+    border-color: #DEE2E6 #DEE2E6 #FFFFFF; /* BORDER_LIGHT */
+}
+
+/* Labels */
+label {
+    color: #7E7E65 !important; /* UNB_GRAY_DARK */
+}
+
+/* Text Muted replacement */
+.text-muted {
+    color: #7E7E65 !important; /* UNB_GRAY_DARK */
+    opacity: 0.8;
+}
+
+
+:root {
+    /* Define the base size for all small text across the application here.
+       Change this value (e.g., to 1.1rem or 16px) to globally scale small text. */
+    --font-size-small: 1rem;
+
+    /* Scale factor for all toggle switches (e.g., 1.0 is default, 1.3 is 30% larger) */
+    --switch-scale: 1.4;
+}
+
+/* Override Bootstrap's small and .small to use our custom variable */
+small, .small {
+    font-size: var(--font-size-small) !important;
+}
+
+/* Custom Alerts */
+.alert-danger-custom {
+    color: #C8102E !important; /* Red text */
+    background-color: #f8d7da !important; /* Standard alert danger bg */
+    border-color: #C8102E !important; /* Custom UnB border */
+    padding: 1rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+}
+
+.alert-warning-custom {
+    color: #212529 !important; /* Dark text for warning */
+    background-color: #fff3cd !important;
+    border-color: #FDCA00 !important; /* UNB_YELLOW_MED */
+    padding: 1rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+}
+
+.alert-info-custom {
+    color: #00A0A7 !important; /* UNB_BLUE_GREEN text */
+    background-color: #d1ecf1 !important;
+    border-color: #00A0A7 !important;
+    padding: 1rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+}
+
+/* Custom Text Colors */
+.text-primary-custom {
+    color: #003366 !important; /* UNB_BLUE */
+}
+.text-success-custom {
+    color: #006633 !important; /* UNB_GREEN */
+}
+.text-secondary-custom {
+    color: #7E7E65 !important; /* UNB_GRAY_DARK */
+}
+.text-danger-custom {
+    color: #C8102E !important; /* Red */
+}
+.text-warning-custom {
+    color: #997A00 !important; /* UNB_YELLOW_DARK */
+}
+.text-info-custom {
+    color: #00A0A7 !important; /* UNB_BLUE_GREEN */
+}
+
+/* Custom Switch for Configuração do Modelo */
+.custom-switch .form-check-input:checked {
+    background-color: #006633 !important; /* UNB_GREEN */
+    border-color: #006633 !important;
+}
+
+.custom-switch .form-check-input:focus {
+    box-shadow: 0 0 0 0.25rem rgba(0, 102, 51, 0.25) !important;
+    border-color: #006633 !important;
+}
+
+/* Custom Backgrounds */
+.bg-primary-custom {
+    background-color: #003366 !important; /* UNB_BLUE */
+    color: #FFFFFF !important;
+}
+
+.bg-info-custom {
+    background-color: #00A0A7 !important; /* UNB_BLUE_GREEN */
+    color: #FFFFFF !important;
+}
+
+/* Fix for buttons with color="none" */
+.btn-none {
+    background-color: transparent;
+    border: none;
+}
+
+/* Dynamic Switch Scaling */
+.form-switch {
+    /* Scale the padding so the label moves to the right proportionally */
+    padding-left: calc(2.5em * var(--switch-scale)) !important;
+}
+
+.form-switch .form-check-input {
+    /* Scale the switch button itself */
+    transform: scale(var(--switch-scale)) !important;
+    transform-origin: left center !important;
+    /* Move the switch button to the left proportionally */
+    margin-left: calc(-2.5em * var(--switch-scale)) !important;
+}

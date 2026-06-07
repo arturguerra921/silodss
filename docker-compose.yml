@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8050:8050"
+    environment:
+      - OSRM_URL=http://osrm:5000
+      - HOST=0.0.0.0
+    depends_on:
+      - osrm
+    volumes:
+      - ./src:/app/src  # For development: live reload if possible (needs reloading server)
+      - ./data:/app/data # Access to data files if needed
+      - ./benchmark:/app/benchmark # Map benchmark output dir to host
+      - ./scripts:/app/scripts # Make scripts accessible to execute benchmark inside container
+
+  osrm:
+    image: osrm/osrm-backend
+    # Increased max-matching-size to 10000 to allow snapping to roads further away (helps with isolated points)
+    # Increased max-table-size to 10000 to allow larger matrices in one go (though client chunks it too)
+    command: osrm-routed --algorithm mld /data/brazil-latest.osrm --max-matching-size 10000 --max-table-size 10000
+    volumes:
+      - ./data/osrm:/data
+    ports:
+      - "5000:5000"
+    restart: always
