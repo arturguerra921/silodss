@@ -13,6 +13,7 @@ from src.view.pages.results import get_tab_results_layout
 from src.logic.osrm import OSRMClient
 from src.logic.optimization import run_optimization_model
 from src.logic.i18n import translate
+from src.logic.utils import validate_and_parse_supply_data
 import dash
 import time
 from dash import DiskcacheManager
@@ -209,7 +210,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
             dbc.ModalHeader(dbc.ModalTitle([html.I(className="bi bi-info-circle-fill me-2 text-info-custom"), translate("Guia de Uso do SiloDSS", lang)]), close_button=True),
             dbc.ModalBody(
                 [
-                    html.P(translate("Bem-vindo ao SiloDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 7 nas abas para obter os resultados da operação:", lang), className="mb-4 text-muted"),
+                    html.P(translate("Bem-vindo ao SiloDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 8 nas abas para obter os resultados da operação:", lang), className="mb-4 text-muted"),
 
                     dbc.ListGroup([
                         dbc.ListGroupItem([
@@ -218,32 +219,37 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("2.", className="badge bg-info-custom rounded-pill me-2"), translate("Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("2.", className="badge bg-info-custom rounded-pill me-2"), translate("Demanda", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.P(translate("Insira a demanda por cidade. O horizonte temporal é o mesmo definido na aba de Oferta. Os produtos disponíveis são os mesmos da Oferta. Você pode marcar uma cidade como Porto (demanda infinita) para representar exportação. A visualização gráfica permite analisar a evolução por produto e cidade. No modo 'Total Geral', a agregação por produto desconsidera os nós de demanda infinita para exibir a soma finita.", lang), className="mb-0 text-muted")
+                        ], className="border-0 border-bottom py-3"),
+
+                        dbc.ListGroupItem([
+                            html.H5([html.Span("3.", className="badge bg-info-custom rounded-pill me-2"), translate("Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Gerencie os armazéns que receberão os produtos. Uma base padrão é carregada automaticamente, mas você pode visualizar e atualizar esta lista baixando dados mais recentes da Conab ou enviando uma planilha personalizada.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("3.", className="badge bg-info-custom rounded-pill me-2"), translate("Produto e Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("4.", className="badge bg-info-custom rounded-pill me-2"), translate("Produto e Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Defina a compatibilidade. Indique quais tipos de armazéns podem estocar cada tipo de produto marcando ou desmarcando as caixas na tabela.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("4.", className="badge bg-info-custom rounded-pill me-2"), translate("Custos", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("5.", className="badge bg-info-custom rounded-pill me-2"), translate("Custos", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Configure as tarifas de armazenamento (público e privado) para cada produto e o valor do frete (tonelada/km) para cada estado. Você pode usar os valores padrão ou inserir novos, e as alterações nas tabelas são salvas automaticamente.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("5.", className="badge bg-info-custom rounded-pill me-2"), translate("Matriz de Distâncias", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("6.", className="badge bg-info-custom rounded-pill me-2"), translate("Matriz de Distâncias", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("O sistema calcula todas as rotas possíveis entre as cidades de origem e os armazéns disponíveis. Clique em 'Calcular Matriz de Distâncias' para iniciar e aguarde a conclusão. Em seguida, você também pode visualizar qualquer rota diretamente no mapa interativo abaixo da tabela.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("6.", className="badge bg-info-custom rounded-pill me-2"), translate("Configuração do Modelo", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("7.", className="badge bg-info-custom rounded-pill me-2"), translate("Configuração do Modelo", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Configure as restrições da operação (como limites de recepção, regras de frete e uso do Princípio de Pareto) e rode o modelo de otimização matemática.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("7.", className="badge bg-info-custom rounded-pill me-2"), translate("Resultados", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("8.", className="badge bg-info-custom rounded-pill me-2"), translate("Resultados", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Visualize as métricas globais da operação, explore as rotas sugeridas no mapa interativo e baixe o relatório final completo (Excel).", lang), className="mb-0 text-muted")
                         ], className="border-0 py-3"),
                     ], flush=True),
@@ -264,6 +270,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
     tabs = dbc.Tabs(
         [
             dbc.Tab(label=translate("Oferta", lang), tab_id="tab-input", label_class_name="px-4"),
+            dbc.Tab(label=translate("Demanda", lang), tab_id="tab-demand", label_class_name="px-4"),
             dbc.Tab(label=translate("Armazéns", lang), tab_id="tab-warehouses", label_class_name="px-4"),
             dbc.Tab(label=translate("Produto e Armazéns", lang), tab_id="tab-prod-warehouses", label_class_name="px-4"),
             dbc.Tab(label=translate("Custos", lang), tab_id="tab-costs", label_class_name="px-4"),
@@ -686,6 +693,436 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                 ]
             ),
             confirm_clear_modal
+        ])
+
+
+    def get_tab_demand_layout():
+        # Timespan Card (Read-only, matches Supply)
+        timespan_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Horizonte Temporal", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-timespan", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("O horizonte temporal é herdado da aba de Oferta e não pode ser editado aqui.", lang),
+                            target="demand-help-timespan",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Label(translate("Ano Inicial", lang), className="fw-bold small mb-1"),
+                                dbc.Input(id="demand-input-start-year", type="number", min=2000, max=2100, value=2026, disabled=True, className="mb-16")
+                            ], width=6),
+                            dbc.Col([
+                                dbc.Label(translate("Ano Final", lang), className="fw-bold small mb-1"),
+                                dbc.Input(id="demand-input-end-year", type="number", min=2000, max=2100, value=2035, disabled=True, className="mb-16")
+                            ], width=6),
+                        ], className="g-2"),
+                        html.Div(className="d-grid", children=[
+                            dbc.Button(translate("Limpar Demanda / Iniciar Nova", lang),
+                                id='btn-clear-demand-dataset',
+                                color="none", className="btn-danger-custom"
+                            ),
+                        ])
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom h-100"
+        )
+
+        # Upload Card
+        upload_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Carregar Arquivo", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-upload", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Caso já possua uma planilha pronta (Excel .xlsx ou CSV), carregue-a aqui. Se não tiver, você pode adicionar dados manualmente abaixo.", lang),
+                            target="demand-help-upload",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dcc.Upload(
+                            id='upload-demand-data',
+                            children=html.Div([
+                                html.Div("📂", style={"fontSize": "2rem", "marginBottom": "8px"}),
+                                html.Span(translate('Arraste e solte ou ', lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}),
+                                html.A(translate('Selecione', lang), className="fw-bold text-decoration-underline", style={"color": UNB_THEME['UNB_BLUE']}),
+                                html.Div(translate("Formatos: .xlsx, .csv", lang), className="text-muted small mt-2")
+                            ]),
+                            className="upload-box",
+                            multiple=False,
+                            accept='.xlsx, .csv'
+                        )
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom h-100"
+        )
+
+        # Add Data Card
+        add_data_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Adicionar Dados", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-add", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Inserção manual de dados. Cada inserção será adicionada como uma nova linha na tabela ao lado.", lang),
+                            target="demand-help-add",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        html.P(translate("Adicione uma nova linha à planilha carregada.", lang), className="text-muted small mb-16"),
+                        dbc.Row([
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Produto", lang), className="fw-bold small me-2 mb-0"),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-product", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Nome do produto. Apenas produtos presentes na aba de Oferta podem ser selecionados.", lang),
+                                            target="demand-help-product",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dcc.Dropdown(
+                                        id="demand-input-product",
+                                        options=[],
+                                        placeholder=translate("Selecione o produto...", lang),
+                                        className="mb-16",
+                                        searchable=True
+                                    )
+                                ],
+                                width=6
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Base Peso (ton)", lang), className="fw-bold small me-2 mb-0"),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-weight", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Peso inicial para preenchimento da série histórica. Deixe vazio para demanda infinita.", lang),
+                                            target="demand-help-weight",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="demand-input-weight", type="number", placeholder=translate("Ex: 100", lang), className="mb-8"),
+                                    dbc.Checkbox(id="demand-toggle-infinite", label=translate("Demanda Infinita", lang), value=False, className="small text-muted")
+                                ],
+                                width=6
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Cidade", lang), className="fw-bold small me-2 mb-0"),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-city", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Selecione a cidade de origem/destino. Digite para filtrar as opções.", lang),
+                                            target="demand-help-city",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dcc.Dropdown(
+                                        id="demand-input-city",
+                                        options=[],
+                                        placeholder=translate("Selecione a cidade...", lang),
+                                        className="mb-16",
+                                        searchable=True
+                                    )
+                                ],
+                                width=12
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Latitude", lang), className="fw-bold small me-2 mb-0"),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-lat", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Coordenada de latitude. Preenchida automaticamente ao selecionar a cidade.", lang),
+                                            target="demand-help-lat",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="demand-input-lat", type="number", placeholder=translate("Lat", lang), className="mb-16", disabled=True)
+                                ],
+                                width=5
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Longitude", lang), className="fw-bold small me-2 mb-0"),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-lon", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Coordenada de longitude. Preenchida automaticamente ao selecionar a cidade.", lang),
+                                            target="demand-help-lon",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="demand-input-lon", type="number", placeholder=translate("Lon", lang), className="mb-16", disabled=True)
+                                ],
+                                width=5
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Button("🔒", id="btn-demand-manual-edit", color="none", className="btn-secondary-custom d-flex align-items-center justify-content-center w-100 mb-16", style={"height": "38px"}, n_clicks=0, title=translate("Editar Lat/Long manualmente", lang))
+                                ],
+                                width=2,
+                                className="d-flex align-items-end"
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Padrão de Preenchimento", lang), className="fw-bold small me-2 mb-0"),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-pattern", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Escolha como preencher a série histórica.", lang),
+                                            target="demand-help-pattern",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dcc.Dropdown(
+                                        id="demand-input-pattern",
+                                        options=[
+                                            {"label": translate("Valor Constante", lang), "value": "constant"},
+                                            {"label": translate("Crescimento/Declínio Linear", lang), "value": "linear"}
+                                        ],
+                                        value="constant",
+                                        clearable=False,
+                                        className="mb-16"
+                                    )
+                                ],
+                                width=6
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Taxa Mensal (%)", lang), id="demand-label-growth-rate", className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-growth-rate", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Taxa percentual de crescimento ou declínio a cada mês.", lang),
+                                            target="demand-help-growth-rate",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="demand-input-growth-rate", type="number", placeholder="Ex: 0.5", step=0.01, disabled=True, className="mb-16")
+                                ],
+                                width=6
+                            ),
+                        ]),
+                        html.Div(className="d-grid", children=[
+                            dbc.Button(translate("Adicionar Linha", lang),
+                                id='btn-demand-add-row',
+                                color="none", className="btn-primary-custom"
+                            ),
+                        ])
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom h-100"
+        )
+
+        # Download Card
+        download_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Exportar", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-export", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Salvar a planilha para usos futuros. Não é necessário exportar para continuar usando as funcionalidades nesta sessão.", lang),
+                            target="demand-help-export",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        html.P(translate("Baixe a planilha com os novos dados adicionados.", lang), className="text-muted small mb-16"),
+                        html.Div(className="d-grid", children=[
+                            dbc.Button(translate("Baixar Planilha (.xlsx)", lang),
+                                id='btn-demand-download',
+                                n_clicks=0,
+                                color="none", className="btn-success-custom"
+                            ),
+                        ])
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom h-100"
+        )
+
+        # Metrics Section
+        metrics_section = dbc.Row(
+            [
+                dbc.Col(
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.Div(
+                                    [
+                                        html.I(className="bi bi-box-seam-fill fs-1 me-3", style={"color": UNB_THEME['UNB_BLUE']}),
+                                        html.Div(
+                                            [
+                                                html.H6(translate("Total Demanda (ton)", lang), className="text-muted small text-uppercase fw-bold mb-1"),
+                                                html.H3(id="demand-metric-total-weight", children="0.00", className="mb-0", style={"color": UNB_THEME['UNB_BLUE']}, **{"data-raw-value": "0"})
+                                            ]
+                                        )
+                                    ],
+                                    className="d-flex align-items-center justify-content-center py-2"
+                                )
+                            ],
+                            className="p-3"
+                        ),
+                        className="shadow-sm border-0 h-100",
+                        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
+                    ),
+                    width=6
+                ),
+                dbc.Col(
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                html.Div(
+                                    [
+                                        html.I(className="bi bi-tags-fill fs-1 me-3", style={"color": UNB_THEME['UNB_GREEN']}),
+                                        html.Div(
+                                            [
+                                                html.H6(translate("Produtos Diferentes", lang), className="text-muted small text-uppercase fw-bold mb-1"),
+                                                html.H3(id="demand-metric-unique-products", children="0", className="mb-0", style={"color": UNB_THEME['UNB_GREEN']}, **{"data-raw-value": "0"})
+                                            ]
+                                        )
+                                    ],
+                                    className="d-flex align-items-center justify-content-center py-2"
+                                )
+                            ],
+                            className="p-3"
+                        ),
+                        className="shadow-sm border-0 h-100",
+                        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
+                    ),
+                    width=6
+                ),
+            ],
+            className="mt-auto pt-3 g-3"
+        )
+
+        initial_df = pd.DataFrame(columns=["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"])
+
+        data_table_card = dbc.Card(
+            [
+                dbc.CardHeader(translate("Visualização dos Dados", lang),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label(translate("Filtro por Produto", lang), className="fw-bold small mb-1"),
+                                dcc.Dropdown(id='demand-filter-product', placeholder=translate("Todos", lang), clearable=True)
+                            ], width=6, className="mb-16"),
+                            dbc.Col([
+                                html.Label(translate("Filtro por Cidade", lang), className="fw-bold small mb-1"),
+                                dcc.Dropdown(id='demand-filter-city', placeholder=translate("Todas", lang), clearable=True)
+                            ], width=6, className="mb-16"),
+                        ], className="g-3 mb-16"),
+                        html.Div(id='demand-chart-container', children=[
+                            dcc.Graph(id='demand-chart', className="mb-24", style={"borderRadius": "8px", "border": f"1px solid {UNB_THEME['BORDER_LIGHT']}"})
+                        ]),
+                        dbc.Spinner(
+                             html.Div(id='demand-table-container', children=[
+                                 dash_table.DataTable(
+                                     id='demand-editable-table',
+                                     data=initial_df.to_dict('records'),
+                                     columns=[{'name': translate(i, lang), 'id': i, 'deletable': False, 'renamable': False} for i in initial_df.columns],
+                                     editable=True,
+                                     row_deletable=True,
+                                     page_size=10,
+                                     style_table={'overflowX': 'auto', 'borderRadius': '8px', 'border': f"1px solid {UNB_THEME['BORDER_LIGHT']}"},
+                                     style_cell={
+                                         'textAlign': 'left',
+                                         'fontFamily': "'Roboto', sans-serif",
+                                         'padding': '12px',
+                                         'fontSize': 'var(--font-size-small)',
+                                         'color': UNB_THEME['UNB_GRAY_DARK']
+                                     },
+                                     style_header={
+                                         'backgroundColor': '#F8F9FA',
+                                         'color': UNB_THEME['UNB_BLUE'],
+                                         'fontWeight': 'bold',
+                                         'border': 'none',
+                                         'padding': '12px',
+                                         'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
+                                     },
+                                     style_data={
+                                         'borderBottom': f"1px solid {UNB_THEME['BORDER_LIGHT']}"
+                                     },
+                                     style_data_conditional=[
+                                         {
+                                             'if': {'row_index': 'odd'},
+                                             'backgroundColor': '#f8f9fa'
+                                         }
+                                     ]
+                                 )
+                             ], className="h-100"),
+                             spinner_class_name="text-primary-custom"
+                        ),
+                        metrics_section
+                    ],
+                    className="card-body-custom d-flex flex-column"
+                ),
+            ],
+            className="card-custom h-100",
+            style={"minHeight": "600px"}
+        )
+
+        confirm_clear_demand_modal = dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle(translate("Confirmar Limpeza da Demanda", lang)), id="confirm-clear-demand-header-title"),
+                dbc.ModalBody(translate("Aviso: Se o progresso da demanda não for salvo ele será perdido. Recomendamos baixar os dados antes de limpar.", lang)),
+                dbc.ModalFooter([
+                    dbc.Button(translate("Cancelar", lang), id="btn-cancel-clear-demand", className="me-2 btn-secondary-custom", color="secondary", n_clicks=0),
+                    dbc.Button(translate("Limpar Demanda", lang), id="btn-confirm-clear-demand", className="btn-danger-custom", color="danger", n_clicks=0)
+                ]),
+            ],
+            id="confirm-clear-demand-modal",
+            is_open=False,
+        )
+
+        # Modal to redirect if no supply data exists
+        missing_demand_data_modal = dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle(translate("Atenção", lang))),
+                dbc.ModalBody(translate("Você precisa preencher a aba 'Oferta' antes de acessar a aba 'Demanda'.", lang)),
+                dbc.ModalFooter(
+                    dbc.Button(translate("Entendi", lang), id="btn-confirm-missing-demand", className="btn-primary-custom ms-auto", n_clicks=0)
+                ),
+            ],
+            id="modal-missing-demand-data",
+            is_open=False,
+            backdrop="static",
+            keyboard=False
+        )
+
+        return html.Div([
+            dbc.Row(
+                [
+                    dbc.Col([
+                        dbc.Row([
+                            dbc.Col(timespan_card, width=12, className="mb-24"),
+                            dbc.Col(upload_card, width=12, className="mb-24"),
+                            dbc.Col(add_data_card, width=12, className="mb-24"),
+                            dbc.Col(download_card, width=12, className="mb-24")
+                        ])
+                    ], width=12, lg=3),
+
+                    dbc.Col(data_table_card, width=12, lg=9, className="mb-24"),
+                ]
+            ),
+            confirm_clear_demand_modal,
+            missing_demand_data_modal
         ])
 
     # 4. Tab Warehouses Content
@@ -1141,6 +1578,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
 
     # Pre-render all tab layouts to ensure IDs exist for callbacks
     tab1_layout = get_tab1_layout()
+    tab_demand_layout = get_tab_demand_layout()
     tab2_layout = get_tab_warehouses_layout(dropdown_base_warehouses_val)
     tab_prod_warehouses_layout = get_tab_prod_warehouses_layout()
     tab_costs_layout = get_tab_costs_layout(lang)
@@ -1151,6 +1589,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
     content_container = html.Div(
         [
             html.Div(id="tab-input-container", children=tab1_layout, style={"display": "block"}),
+            html.Div(id="tab-demand-container", children=tab_demand_layout, style={"display": "none"}),
             html.Div(id="tab-warehouses-container", children=tab2_layout, style={"display": "none"}),
             html.Div(id="tab-prod-warehouses-container", children=tab_prod_warehouses_layout, style={"display": "none"}),
             html.Div(id="tab-costs-container", children=tab_costs_layout, style={"display": "none"}),
@@ -1192,7 +1631,9 @@ initial_df = pd.DataFrame(columns=['Produto', 'Cidade', 'Latitude', 'Longitude',
 app.layout = html.Div([
     dcc.Store(id='store-lang', storage_type='memory', data='pt'),
     dcc.Store(id='stored-data', data=initial_df.to_json(date_format='iso', orient='split')),
+    dcc.Store(id='stored-demand-data', data=initial_df.to_json(date_format='iso', orient='split')),
     dcc.Store(id='metrics-store', data={'weight': 0, 'count': 0}),
+    dcc.Store(id='demand-metrics-store', data={'weight': 0, 'count': 0}),
     dcc.Store(id='store-warehouses'), # New Store for Armazéns
     dcc.Store(id='store-prod-warehouses'), # New Store for Prod x Armazens
     dcc.Store(id='store-costs-storage'), # New Store for Storage Costs
@@ -1205,6 +1646,7 @@ app.layout = html.Div([
     # Static Download Components (Prevents auto-download bug on language switch)
     dcc.Download(id='download-example-personalizada'),
     dcc.Download(id='download-dataframe-xlsx'),
+    dcc.Download(id='download-demand-xlsx'),
     dcc.Download(id='download-storage-csv'),
     dcc.Download(id='download-freight-csv'),
     dcc.Download(id='download-matrix-xlsx'),
@@ -1294,6 +1736,7 @@ def toggle_help_modal(n_open, n_close, active_tab, is_open, help_seen):
 
 @app.callback(
     [Output("tab-input-container", "style"),
+     Output("tab-demand-container", "style"),
      Output("tab-warehouses-container", "style"),
      Output("tab-prod-warehouses-container", "style"),
      Output("tab-costs-container", "style"),
@@ -1303,22 +1746,24 @@ def toggle_help_modal(n_open, n_close, active_tab, is_open, help_seen):
     Input("main-tabs", "active_tab")
 )
 def render_content(active_tab):
-    base_styles = [{"display": "none"}] * 7
+    base_styles = [{"display": "none"}] * 8
 
     if active_tab == 'tab-input':
         base_styles[0] = {"display": "block"}
-    elif active_tab == 'tab-warehouses':
+    elif active_tab == 'tab-demand':
         base_styles[1] = {"display": "block"}
-    elif active_tab == 'tab-prod-warehouses':
+    elif active_tab == 'tab-warehouses':
         base_styles[2] = {"display": "block"}
-    elif active_tab == 'tab-costs':
+    elif active_tab == 'tab-prod-warehouses':
         base_styles[3] = {"display": "block"}
-    elif active_tab == 'tab-distance-matrix':
+    elif active_tab == 'tab-costs':
         base_styles[4] = {"display": "block"}
-    elif active_tab == 'tab-config':
+    elif active_tab == 'tab-distance-matrix':
         base_styles[5] = {"display": "block"}
-    elif active_tab == 'tab-results':
+    elif active_tab == 'tab-config':
         base_styles[6] = {"display": "block"}
+    elif active_tab == 'tab-results':
+        base_styles[7] = {"display": "block"}
 
     return tuple(base_styles)
 
@@ -1633,7 +2078,10 @@ def update_store(contents, n_add, timestamp, n_close, n_confirm_clear, filename,
                 })
 
             new_rows_df = pd.DataFrame(new_rows)
-            df = pd.concat([df, new_rows_df], ignore_index=True)
+            if df.empty:
+                df = new_rows_df
+            else:
+                df = pd.concat([df, new_rows_df], ignore_index=True)
             return df.to_json(date_format='iso', orient='split'), False, no_update, no_update
         except Exception as e:
             print(f"Error adding row: {e}")
@@ -2873,7 +3321,11 @@ def manage_storage_costs(active_tab, upload_contents, n_add, timestamp, stored_d
             if not (df['Prod_Norm'] == 'outros').any():
                 # Append "Outros" row at the beginning
                 new_row = pd.DataFrame([{'Produto': 'Outros', 'Armazenar_Publico': 50, 'Armazenar_Privado': 50}])
-                df = pd.concat([new_row, df.drop(columns=['Prod_Norm'])], ignore_index=True)
+                dropped_df = df.drop(columns=['Prod_Norm'])
+                if dropped_df.empty:
+                    df = new_row
+                else:
+                    df = pd.concat([new_row, dropped_df], ignore_index=True)
             else:
                 df = df.drop(columns=['Prod_Norm'])
 
@@ -2891,7 +3343,10 @@ def manage_storage_costs(active_tab, upload_contents, n_add, timestamp, stored_d
             df = pd.DataFrame(columns=['Produto', 'Armazenar_Publico', 'Armazenar_Privado'])
 
         new_row = pd.DataFrame([{'Produto': '', 'Armazenar_Publico': 0, 'Armazenar_Privado': 0}])
-        df = pd.concat([df, new_row], ignore_index=True)
+        if df.empty:
+            df = new_row
+        else:
+            df = pd.concat([df, new_row], ignore_index=True)
         # Save to disk
         df.to_csv(STORAGE_COSTS_PATH, sep=';', index=False, encoding='iso-8859-1')
         return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
@@ -2914,7 +3369,10 @@ def manage_storage_costs(active_tab, upload_contents, n_add, timestamp, stored_d
             df = pd.DataFrame(columns=['Produto', 'Armazenar_Publico', 'Armazenar_Privado'])
 
         new_row = pd.DataFrame([{'Produto': '', 'Armazenar_Publico': 0, 'Armazenar_Privado': 0}])
-        df = pd.concat([df, new_row], ignore_index=True)
+        if df.empty:
+            df = new_row
+        else:
+            df = pd.concat([df, new_row], ignore_index=True)
         # Save to disk
         df.to_csv(STORAGE_COSTS_PATH, sep=';', index=False, encoding='iso-8859-1')
         return df.to_json(date_format='iso', orient='split'), no_update, no_update
@@ -3036,7 +3494,10 @@ def manage_freight_costs(active_tab, upload_contents, n_add, timestamp, stored_d
             df = pd.DataFrame(columns=['Estado', 'Frete Tonelada Km'])
 
         new_row = pd.DataFrame([{'Estado': '', 'Frete Tonelada Km': 0}])
-        df = pd.concat([df, new_row], ignore_index=True)
+        if df.empty:
+            df = new_row
+        else:
+            df = pd.concat([df, new_row], ignore_index=True)
         # Save to disk
         df.to_csv(FREIGHT_COSTS_PATH, sep=';', index=False, encoding='iso-8859-1')
         return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
@@ -4243,6 +4704,826 @@ app.clientside_callback(
 )
 def close_model_modal(results_data, cancel_clicks, error_text):
     return False
+
+
+# --- Demand Callbacks ---
+
+@app.callback(
+  Output("demand-input-city", "options"),
+  Input("demand-input-city", "search_value"),
+  State("demand-input-city", "value")
+)
+def update_demand_city_options(search_value, value):
+  if not search_value:
+    if value:
+      return [{'label': value, 'value': value}]
+    return []
+
+  filtered = [
+    {'label': c, 'value': c}
+    for c in CITY_OPTIONS
+    if search_value.lower() in c.lower()
+  ]
+  filtered = filtered[:50]
+
+  if value:
+    if not any(f['value'] == value for f in filtered):
+      filtered.insert(0, {'label': value, 'value': value})
+
+  return filtered
+
+
+@app.callback(
+  [Output('demand-input-lat', 'value'),
+   Output('demand-input-lon', 'value')],
+  Input('demand-input-city', 'value'),
+  prevent_initial_call=True
+)
+def update_demand_lat_lon(city_value):
+  if not city_value or city_value not in CITY_LOOKUP:
+    return no_update, no_update
+
+  data = CITY_LOOKUP[city_value]
+  return data['latitude'], data['longitude']
+
+
+@app.callback(
+  [Output('demand-input-lat', 'disabled'),
+   Output('demand-input-lon', 'disabled'),
+   Output('btn-demand-manual-edit', 'children')],
+  Input('btn-demand-manual-edit', 'n_clicks'),
+  prevent_initial_call=True
+)
+def toggle_demand_manual_edit(n_clicks):
+  if n_clicks % 2 == 1:
+    return False, False, "🔓"
+  return True, True, "🔒"
+
+
+@app.callback(
+  [Output('demand-input-weight', 'disabled'),
+   Output('demand-input-weight', 'value'),
+   Output('demand-input-pattern', 'disabled'),
+   Output('demand-input-pattern', 'value'),
+   Output('demand-input-growth-rate', 'disabled'),
+   Output('demand-input-growth-rate', 'value'),
+   Output('demand-label-growth-rate', 'style')],
+  [Input('demand-toggle-infinite', 'value'),
+   Input('demand-input-pattern', 'value')]
+)
+def handle_demand_input_states(infinite_val, pattern_val):
+  # Defaults
+  weight_disabled = False
+  weight_value = no_update
+  pattern_disabled = False
+  pattern_value = no_update
+  growth_disabled = False
+  growth_value = no_update
+  growth_style = {'color': UNB_THEME['UNB_GRAY_DARK']}
+
+  if infinite_val:
+    weight_disabled = True
+    weight_value = None
+    pattern_disabled = True
+    pattern_value = 'constant'
+    growth_disabled = True
+    growth_value = None
+    growth_style = {'color': '#9ca3af'}
+  else:
+    if pattern_val == 'linear':
+      growth_disabled = False
+      growth_style = {'color': UNB_THEME['UNB_GRAY_DARK']}
+    else:
+      growth_disabled = True
+      growth_value = None
+      growth_style = {'color': '#9ca3af'}
+
+  return weight_disabled, weight_value, pattern_disabled, pattern_value, growth_disabled, growth_value, growth_style
+
+
+@app.callback(
+  [Output('demand-input-start-year', 'value'),
+   Output('demand-input-end-year', 'value')],
+  Input('stored-data', 'data')
+)
+def sync_demand_timespan_values(stored_supply_data):
+  if stored_supply_data is None:
+    return 2026, 2035
+  try:
+    df = pd.read_json(io.StringIO(stored_supply_data), orient='split')
+    if df.empty:
+      return 2026, 2035
+    dates = pd.to_datetime(df['Data'], errors='coerce').dropna()
+    if not dates.empty:
+      return dates.min().year, dates.max().year
+    return 2026, 2035
+  except Exception as e:
+    print(f"Error in sync_demand_timespan_values: {e}")
+    return 2026, 2035
+
+
+@app.callback(
+  Output('confirm-clear-demand-modal', 'is_open'),
+  [Input('btn-clear-demand-dataset', 'n_clicks'),
+   Input('btn-cancel-clear-demand', 'n_clicks'),
+   Input('btn-confirm-clear-demand', 'n_clicks')],
+  State('confirm-clear-demand-modal', 'is_open'),
+  prevent_initial_call=True
+)
+def toggle_confirm_clear_demand_modal(n_open, n_cancel, n_confirm, is_open):
+  ctx = dash.callback_context
+  if not ctx.triggered:
+    return is_open
+  trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+  if trigger_id == 'btn-clear-demand-dataset':
+    return True
+  return False
+
+
+@app.callback(
+  Output('modal-missing-demand-data', 'is_open'),
+  Input('main-tabs', 'active_tab'),
+  State('stored-data', 'data')
+)
+def validate_demand_tab_access(active_tab, stored_supply_data):
+  if active_tab != 'tab-demand':
+    return False
+  if stored_supply_data is None:
+    return True
+  try:
+    df = pd.read_json(io.StringIO(stored_supply_data), orient='split')
+    if df.empty:
+      return True
+    return False
+  except:
+    return True
+
+
+@app.callback(
+  Output('main-tabs', 'active_tab', allow_duplicate=True),
+  Input('btn-confirm-missing-demand', 'n_clicks'),
+  prevent_initial_call=True
+)
+def redirect_to_supply_tab(n_clicks):
+  if n_clicks:
+    return 'tab-input'
+  return no_update
+
+
+@app.callback(
+  Output('demand-input-product', 'options'),
+  Input('stored-data', 'data')
+)
+def populate_demand_product_dropdown(stored_supply_data):
+  if stored_supply_data is None:
+    return []
+  try:
+    df = pd.read_json(io.StringIO(stored_supply_data), orient='split')
+    if df.empty:
+      return []
+    products = sorted(df['Produto'].dropna().unique())
+    return [{'label': p, 'value': p} for p in products]
+  except Exception as e:
+    print(f"Error populating product dropdown: {e}")
+    return []
+
+
+@app.callback(
+  [Output('stored-demand-data', 'data'),
+   Output('error-modal', 'is_open', allow_duplicate=True),
+   Output('modal-body-content', 'children', allow_duplicate=True),
+   Output('upload-demand-data', 'contents')],
+  [Input('upload-demand-data', 'contents'),
+   Input('btn-demand-add-row', 'n_clicks'),
+   Input('demand-editable-table', 'data_timestamp'),
+   Input('btn-confirm-clear-demand', 'n_clicks')],
+  [State('upload-demand-data', 'filename'),
+   State('stored-demand-data', 'data'),
+   State('demand-input-product', 'value'),
+   State('demand-input-weight', 'value'),
+   State('demand-toggle-infinite', 'value'),
+   State('demand-input-city', 'value'),
+   State('demand-input-lat', 'value'),
+   State('demand-input-lon', 'value'),
+   State('demand-editable-table', 'data'),
+   State('store-lang', 'data'),
+   State('demand-input-pattern', 'value'),
+   State('demand-input-growth-rate', 'value'),
+   State('demand-filter-product', 'value'),
+   State('demand-filter-city', 'value'),
+   State('stored-data', 'data')],
+  prevent_initial_call=True
+)
+def update_demand_store(contents, n_add, timestamp, n_confirm_clear, filename, stored_demand_data,
+                        prod_val, weight_val, infinite_val, city_val, lat_val, lon_val,
+                        table_data, lang, pattern_val, growth_val, filter_prod, filter_city, stored_supply_data):
+  ctx = dash.callback_context
+  if not ctx.triggered:
+    return no_update, no_update, no_update, no_update
+
+  trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+  if trigger_id == 'btn-confirm-clear-demand':
+    empty_df = pd.DataFrame(columns=["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"])
+    return empty_df.to_json(date_format='iso', orient='split'), False, no_update, None
+
+  if trigger_id == 'upload-demand-data':
+    if contents is None:
+      return no_update, no_update, no_update, no_update
+
+    try:
+      start_yr, end_yr, valid_products = validate_and_parse_supply_data(stored_supply_data, lang)
+    except ValueError as ve:
+      return no_update, True, str(ve), no_update
+
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    try:
+      if filename.endswith('.xlsx'):
+        df = pd.read_excel(io.BytesIO(decoded))
+      elif filename.endswith('.csv'):
+        file_bytes = io.BytesIO(decoded)
+        df = flex_read_csv(file_bytes)
+      else:
+        return no_update, True, translate("O arquivo deve ser Excel (.xlsx) ou CSV (.csv).", lang), None
+
+      expected_cols = ["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"]
+      if not all(col in df.columns for col in expected_cols):
+        return no_update, True, translate("Aviso: O arquivo carregado deve conter exatamente as colunas:", lang) + f" {', '.join(expected_cols)}.", None
+
+      df = df[expected_cols]
+      df["Produto"] = df["Produto"].fillna('').astype(str).str.title()
+
+      invalid_prods = set(df["Produto"].dropna().unique()) - valid_products
+      if invalid_prods:
+        return no_update, True, translate("O arquivo contém produtos não cadastrados na aba Oferta:", lang) + f" {', '.join(invalid_prods)}.", None
+
+      df["Data"] = pd.to_datetime(df["Data"], errors='coerce').dt.strftime('%Y-%m')
+      df["Data"] = df["Data"].fillna(f"{start_yr}-01")
+
+      def parse_demand_weight(val):
+        if pd.isna(val) or val is None or str(val).strip() == '∞' or str(val).strip() == '':
+          return None
+        return parse_brazilian_number(val)
+
+      df["Peso (ton)"] = df["Peso (ton)"].apply(parse_demand_weight)
+
+      expected_dates = pd.date_range(
+        start=f"{start_yr}-01-01", 
+        end=f"{end_yr}-12-01", 
+        freq='MS'
+      ).strftime('%Y-%m').tolist()
+
+      uploaded_dates = sorted(df["Data"].dropna().unique().tolist())
+      if uploaded_dates != expected_dates:
+        error_msg = translate("Aviso: O arquivo carregado não condiz com o horizonte temporal travado para esta sessão ({start} a {end}).", lang).format(start=start_yr, end=end_yr)
+        return no_update, True, error_msg, None
+
+      return df.to_json(date_format='iso', orient='split'), False, no_update, None
+    except Exception as e:
+      print(f"Error processing file: {e}")
+      return no_update, True, translate("Erro ao processar o arquivo. Verifique se é um arquivo válido.", lang), None
+
+  if trigger_id == 'btn-demand-add-row':
+    if not n_add:
+      return no_update, no_update, no_update, no_update
+
+    try:
+      start_yr, end_yr, valid_products = validate_and_parse_supply_data(stored_supply_data, lang)
+    except ValueError as ve:
+      return no_update, True, str(ve), no_update
+
+    if stored_demand_data:
+      df = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+      df = df.astype({
+        'Produto': 'object',
+        'Cidade': 'object',
+        'Latitude': 'float64',
+        'Longitude': 'float64',
+        'Data': 'object',
+        'Peso (ton)': 'float64'
+      })
+    else:
+      df = pd.DataFrame(columns=["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"])
+      df = df.astype({
+        'Produto': 'object',
+        'Cidade': 'object',
+        'Latitude': 'float64',
+        'Longitude': 'float64',
+        'Data': 'object',
+        'Peso (ton)': 'float64'
+      })
+
+    if not prod_val or not city_val:
+      return no_update, True, translate("Preencha Produto e Cidade para adicionar.", lang), no_update
+
+    prod_val_normalized = str(prod_val).title()
+    if prod_val_normalized not in valid_products:
+      return no_update, True, translate("Produto não encontrado na aba de Oferta.", lang), no_update
+
+    if not infinite_val:
+      if weight_val is None or str(weight_val).strip() == '':
+        return no_update, True, translate("Preencha o peso ou marque demanda infinita.", lang), no_update
+      try:
+        base_weight = float(weight_val)
+      except ValueError:
+        return no_update, True, translate("O peso deve ser um valor numérico.", lang), no_update
+    else:
+      base_weight = None
+
+    try:
+      dates_list = pd.date_range(
+        start=f"{start_yr}-01-01", 
+        end=f"{end_yr}-12-01", 
+        freq='MS'
+      ).strftime('%Y-%m').tolist()
+
+      growth_rate = 0.0
+      if pattern_val == 'linear' and growth_val is not None:
+        try:
+          growth_rate = float(growth_val) / 100.0
+        except ValueError:
+          pass
+
+      new_rows = []
+      for t, dt_str in enumerate(dates_list):
+        if base_weight is None:
+          val = None
+        elif pattern_val == 'linear':
+          val = base_weight * ((1 + growth_rate) ** t)
+          val = round(val, 2)
+        else:
+          val = round(base_weight, 2)
+
+        new_rows.append({
+          'Produto': prod_val_normalized,
+          'Cidade': city_val,
+          'Latitude': lat_val,
+          'Longitude': lon_val,
+          'Data': dt_str,
+          'Peso (ton)': val
+        })
+
+      new_rows_df = pd.DataFrame(new_rows)
+      new_rows_df = new_rows_df.astype({
+        'Produto': 'object',
+        'Cidade': 'object',
+        'Latitude': 'float64',
+        'Longitude': 'float64',
+        'Data': 'object',
+        'Peso (ton)': 'float64'
+      })
+      if df.empty:
+        df = new_rows_df
+      else:
+        df = pd.concat([df, new_rows_df], ignore_index=True)
+      return df.to_json(date_format='iso', orient='split'), False, no_update, no_update
+    except Exception as e:
+      print(f"Error adding row: {e}")
+      return no_update, True, translate("Erro ao adicionar linha:", lang) + f" {str(e)}", no_update
+
+  if trigger_id == 'demand-editable-table':
+    try:
+      if table_data is None or not stored_demand_data:
+        return no_update, no_update, no_update, no_update
+
+      full_df = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+
+      filtered_indices = full_df.index
+      if filter_prod:
+        filtered_indices = filtered_indices[full_df.loc[filtered_indices, 'Produto'] == filter_prod]
+      if filter_city:
+        filtered_indices = filtered_indices[full_df.loc[filtered_indices, 'Cidade'] == filter_city]
+
+      indices_in_table = set()
+      for row in table_data:
+        idx = row.get('_index')
+        if idx is not None:
+          indices_in_table.add(idx)
+          if idx in full_df.index:
+            full_df.at[idx, 'Produto'] = str(row.get('Produto', '')).title()
+            full_df.at[idx, 'Cidade'] = row.get('Cidade')
+            full_df.at[idx, 'Latitude'] = row.get('Latitude')
+            full_df.at[idx, 'Longitude'] = row.get('Longitude')
+            full_df.at[idx, 'Data'] = row.get('Data')
+            
+            w_raw = row.get('Peso (ton)')
+            if w_raw == '∞' or pd.isna(w_raw) or w_raw is None or str(w_raw).strip() == '':
+              full_df.at[idx, 'Peso (ton)'] = None
+            else:
+              full_df.at[idx, 'Peso (ton)'] = parse_brazilian_number(w_raw)
+
+      deleted_indices = set(filtered_indices) - indices_in_table
+      if deleted_indices:
+        full_df = full_df.drop(index=list(deleted_indices))
+
+      return full_df.to_json(date_format='iso', orient='split'), False, no_update, no_update
+    except Exception as e:
+      print(f"Error updating store from table edit: {e}")
+      return no_update, no_update, no_update, no_update
+
+  return no_update, no_update, no_update, no_update
+
+
+@app.callback(
+  [Output('demand-editable-table', 'data'),
+   Output('demand-editable-table', 'columns')],
+  [Input('stored-demand-data', 'data'),
+   Input('main-tabs', 'active_tab'),
+   Input('demand-filter-product', 'value'),
+   Input('demand-filter-city', 'value')],
+  State('store-lang', 'data')
+)
+def update_demand_table_view(stored_demand_data, active_tab, filter_prod, filter_city, lang='pt'):
+  if active_tab != 'tab-demand':
+    return no_update, no_update
+
+  if stored_demand_data is None:
+    return no_update, no_update
+
+  try:
+    df = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+    
+    df_filtered = df.copy()
+    if filter_prod:
+      df_filtered = df_filtered[df_filtered['Produto'] == filter_prod]
+    if filter_city:
+      df_filtered = df_filtered[df_filtered['Cidade'] == filter_city]
+
+    df_filtered['_index'] = df_filtered.index
+
+    records = df_filtered.to_dict('records')
+    for row in records:
+      w = row.get('Peso (ton)')
+      if pd.isna(w) or w is None or w == '':
+        row['Peso (ton)'] = '∞'
+      else:
+        row['Peso (ton)'] = round(float(w), 2)
+
+    expected_cols = ["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"]
+    columns = [{'name': translate(col, lang), 'id': col, 'deletable': False, 'renamable': False} for col in expected_cols]
+    
+    return records, columns
+  except Exception as e:
+    print(f"Error rendering table: {e}")
+    return no_update, no_update
+
+
+@app.callback(
+  [Output('demand-filter-product', 'options'),
+   Output('demand-filter-city', 'options'),
+   Output('demand-filter-product', 'value'),
+   Output('demand-filter-city', 'value')],
+  [Input('stored-demand-data', 'data'),
+   Input('demand-filter-product', 'value'),
+   Input('demand-filter-city', 'value')]
+)
+def update_demand_filter_options_and_resolve_conflicts(stored_demand_data, selected_prod, selected_city):
+  if stored_demand_data is None:
+    return [], [], None, None
+  try:
+    df = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+    if df.empty:
+      return [], [], None, None
+
+    products = sorted(df['Produto'].dropna().unique().tolist())
+    cities = sorted(df['Cidade'].dropna().unique().tolist())
+
+    prod_val = selected_prod
+    city_val = selected_city
+
+    if selected_city:
+      available_prods = df[df['Cidade'] == selected_city]['Produto'].dropna().unique().tolist()
+      prod_options = [{'label': p, 'value': p} for p in sorted(available_prods)]
+      if selected_prod and selected_prod not in available_prods:
+        prod_val = None
+    else:
+      prod_options = [{'label': p, 'value': p} for p in products]
+
+    if selected_prod:
+      available_cities = df[df['Produto'] == selected_prod]['Cidade'].dropna().unique().tolist()
+      city_options = [{'label': c, 'value': c} for c in sorted(available_cities)]
+      if selected_city and selected_city not in available_cities:
+        city_val = None
+    else:
+      city_options = [{'label': c, 'value': c} for c in cities]
+
+    return prod_options, city_options, prod_val, city_val
+  except Exception as e:
+    print(f"Error in demand cross-filtering: {e}")
+    return [], [], None, None
+
+
+@app.callback(
+  Output('demand-chart', 'figure'),
+  [Input('stored-demand-data', 'data'),
+   Input('demand-filter-product', 'value'),
+   Input('demand-filter-city', 'value')],
+  State('store-lang', 'data')
+)
+def update_demand_chart(stored_demand_data, filter_prod, filter_city, lang='pt'):
+  if stored_demand_data is None:
+    return go.Figure()
+
+  try:
+    df = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+    if df.empty:
+      return go.Figure()
+
+    df['dt_parsed'] = pd.to_datetime(df['Data'], errors='coerce')
+    df = df.dropna(subset=['dt_parsed'])
+
+    title_suffix = ""
+    traces_data = []
+
+    # Get overall unique dates sorted chronologically
+    all_dates = sorted(df['Data'].unique())
+    if not all_dates:
+      return go.Figure()
+
+    if filter_prod and filter_city:
+      df_trace = df[(df['Produto'] == filter_prod) & (df['Cidade'] == filter_city)]
+      if not df_trace.empty:
+        df_grp = df_trace.groupby('Data')['Peso (ton)'].first().reindex(all_dates).reset_index()
+        traces_data.append({
+          'name': f"{filter_prod} ({filter_city})",
+          'x': df_grp['Data'].tolist(),
+          'y_raw': df_grp['Peso (ton)'].tolist()
+        })
+      title_suffix = f" - {filter_prod} ({filter_city})"
+
+    elif filter_prod:
+      # Split by City
+      df_prod = df[df['Produto'] == filter_prod]
+      unique_cities = sorted(df_prod['Cidade'].dropna().unique())
+      for city in unique_cities:
+        df_trace = df_prod[df_prod['Cidade'] == city]
+        df_grp = df_trace.groupby('Data')['Peso (ton)'].first().reindex(all_dates).reset_index()
+        traces_data.append({
+          'name': city,
+          'x': df_grp['Data'].tolist(),
+          'y_raw': df_grp['Peso (ton)'].tolist()
+        })
+      title_suffix = f" - {filter_prod}"
+
+    elif filter_city:
+      # Split by Product
+      df_city = df[df['Cidade'] == filter_city]
+      unique_prods = sorted(df_city['Produto'].dropna().unique())
+      for prod in unique_prods:
+        df_trace = df_city[df_city['Produto'] == prod]
+        df_grp = df_trace.groupby('Data')['Peso (ton)'].first().reindex(all_dates).reset_index()
+        traces_data.append({
+          'name': prod,
+          'x': df_grp['Data'].tolist(),
+          'y_raw': df_grp['Peso (ton)'].tolist()
+        })
+      title_suffix = f" - {filter_city}"
+
+    else:
+      # Total Geral: Split by Product, summing only finite values
+      unique_prods = sorted(df['Produto'].dropna().unique())
+      for prod in unique_prods:
+        df_trace = df[df['Produto'] == prod]
+
+        # For "Total Geral", we exclude infinite (None/NaN) nodes from the sum.
+        # If all cities have infinite demand for a date, the sum will be None.
+        def sum_excluding_infinite(series):
+          finite_vals = series.dropna()
+          if finite_vals.empty:
+            return None
+          return finite_vals.sum()
+
+        df_grp = df_trace.groupby('Data')['Peso (ton)'].agg(sum_excluding_infinite).reindex(all_dates).reset_index()
+        traces_data.append({
+          'name': prod,
+          'x': df_grp['Data'].tolist(),
+          'y_raw': df_grp['Peso (ton)'].tolist()
+        })
+      title_suffix = f" - {translate('Total Geral', lang)}"
+
+    if not traces_data:
+      return go.Figure()
+
+    # Find the maximum Y value among all finite points in all traces to set threshold height
+    all_finite_vals = []
+    for td in traces_data:
+      for val in td['y_raw']:
+        if val is not None and not pd.isna(val):
+          all_finite_vals.append(val)
+
+    if all_finite_vals:
+      max_y = max(all_finite_vals)
+      if max_y <= 0:
+        max_y = 100.0
+    else:
+      max_y = 100.0
+
+    fig = go.Figure()
+
+    # Premium color palette using UNB theme colors and complementary hues
+    colors = [
+      UNB_THEME['UNB_BLUE'],
+      UNB_THEME['UNB_GREEN'],
+      '#dc3545', # Red
+      '#17a2b8', # Cyan
+      '#6f42c1', # Purple
+      '#fd7e14', # Orange
+      '#20c997', # Teal
+      '#e83e8c', # Pink
+      '#6c757d'  # Gray
+    ]
+
+    has_any_infinite = False
+
+    for idx, td in enumerate(traces_data):
+      trace_color = colors[idx % len(colors)]
+      plot_y = []
+      hover_text = []
+      is_inf_list = []
+
+      for val in td['y_raw']:
+        if val is None or pd.isna(val):
+          plot_y.append(max_y * 1.2)
+          hover_text.append("∞")
+          is_inf_list.append(True)
+          has_any_infinite = True
+        else:
+          plot_y.append(val)
+          hover_text.append(f"{val:,.2f}")
+          is_inf_list.append(False)
+
+      marker_colors = [UNB_THEME['UNB_YELLOW_DARK'] if is_inf else trace_color for is_inf in is_inf_list]
+      marker_symbols = ['star' if is_inf else 'circle' for is_inf in is_inf_list]
+      marker_sizes = [10 if is_inf else 6 for is_inf in is_inf_list]
+
+      fig.add_trace(go.Scatter(
+        x=td['x'],
+        y=plot_y,
+        name=td['name'],
+        mode='lines+markers',
+        line=dict(color=trace_color, width=3),
+        marker=dict(size=marker_sizes, color=marker_colors, symbol=marker_symbols),
+        hovertemplate="%{text}<extra></extra>",
+        text=hover_text
+      ))
+
+    if has_any_infinite:
+      fig.add_hline(
+        y=max_y * 1.2,
+        line_dash="dash",
+        line_color="#dc3545",
+        annotation_text="∞ " + translate("Demanda Infinita", lang),
+        annotation_position="bottom right"
+      )
+
+    fig.update_layout(
+      title=dict(
+        text=translate("Evolução Mensal da Demanda", lang) + title_suffix,
+        font=dict(size=14, color=UNB_THEME['UNB_BLUE'], family="'Roboto', sans-serif"),
+        x=0.02
+      ),
+      xaxis=dict(
+        title=translate("Mês/Ano", lang),
+        gridcolor='#F0F2F5',
+        tickangle=-45,
+        type='category'
+      ),
+      yaxis=dict(
+        title=translate("Peso (ton)", lang),
+        gridcolor='#F0F2F5',
+        zeroline=False
+      ),
+      margin=dict(l=50, r=20, t=50, b=40),
+      plot_bgcolor='rgba(0,0,0,0)',
+      paper_bgcolor='rgba(0,0,0,0)',
+      height=350,
+      hovermode='x unified',
+      legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
+        x=1
+      )
+    )
+
+    return fig
+  except Exception as e:
+    print(f"Error rendering demand chart: {e}")
+    return go.Figure()
+
+
+@app.callback(
+  Output('demand-metrics-store', 'data'),
+  Input('stored-demand-data', 'data'),
+  State('store-lang', 'data')
+)
+def update_demand_metrics(stored_demand_data, lang='pt'):
+  if stored_demand_data is None:
+    return {'weight': 0, 'count': 0}
+
+  try:
+    df = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+
+    total_weight = 0
+    unique_products = 0
+
+    if not df.empty:
+      if "Peso (ton)" in df.columns:
+        try:
+          total_weight = df["Peso (ton)"].dropna().sum()
+        except Exception as e:
+          print(f"Error calculating demand weight: {e}")
+          total_weight = 0
+
+      if "Produto" in df.columns:
+        unique_products = df["Produto"].dropna().nunique()
+
+    return {'weight': float(total_weight), 'count': int(unique_products)}
+  except Exception as e:
+    print(f"Error calculating demand metrics: {e}")
+    return {'weight': 0, 'count': 0}
+
+
+app.clientside_callback(
+  """
+  function(data, lang) {
+      if (!data) return window.dash_clientside.no_update;
+
+      const locale = lang === 'pt' ? 'pt-BR' : 'en-US';
+
+      const animate = (id, endValue, isFloat) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+
+          let startValue = parseFloat(el.dataset.rawValue) || 0;
+          const duration = 1000;
+          const startTime = performance.now();
+
+          const step = (currentTime) => {
+              const elapsed = currentTime - startTime;
+              const progress = Math.min(elapsed / duration, 1);
+
+              const ease = 1 - Math.pow(1 - progress, 3);
+
+              const current = startValue + (endValue - startValue) * ease;
+
+              if (isFloat) {
+                  el.innerText = current.toLocaleString(locale, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+              } else {
+                  el.innerText = Math.round(current).toLocaleString(locale);
+              }
+
+              if (progress < 1) {
+                  requestAnimationFrame(step);
+              } else {
+                  if (isFloat) {
+                      el.innerText = endValue.toLocaleString(locale, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                  } else {
+                      el.innerText = endValue.toLocaleString(locale);
+                  }
+                  el.dataset.rawValue = endValue;
+              }
+          };
+
+          requestAnimationFrame(step);
+      };
+
+      animate('demand-metric-total-weight', data.weight, true);
+      animate('demand-metric-unique-products', data.count, false);
+
+      return window.dash_clientside.no_update;
+  }
+  """,
+  Output('demand-metric-total-weight', 'id'),
+  Input('demand-metrics-store', 'data'),
+  State('store-lang', 'data')
+)
+
+
+@app.callback(
+  Output("download-demand-xlsx", "data"),
+  Input("btn-demand-download", "n_clicks"),
+  State('stored-demand-data', 'data'),
+  State('store-lang', 'data'),
+  prevent_initial_call=True,
+)
+def download_demand_data(n_clicks, stored_demand_data, lang='pt'):
+  if not n_clicks:
+    return no_update
+
+  if not stored_demand_data:
+    return no_update
+
+  df = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+  
+  df_export = df.copy()
+  if "Peso (ton)" in df_export.columns:
+    df_export["Peso (ton)"] = df_export["Peso (ton)"].fillna('∞')
+      
+  return dcc.send_data_frame(df_export.to_excel, translate("Edited_Demand.xlsx", lang), index=False)
+
 
 def view():
     # Use environment variable to determine if we are in Docker or dev
