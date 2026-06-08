@@ -1013,7 +1013,15 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
 
         data_table_card = dbc.Card(
             [
-                dbc.CardHeader(translate("Visualização dos Dados", lang),
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Visualização dos Dados", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="demand-help-viz", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Utilize os filtros para segmentar por produto ou cidade. No modo 'Total Geral' (sem filtros), a agregação desconsidera nós com demanda infinita (∞). Produtos com demanda infinita são representados com estrelas (★) amarelas próximas ao topo do gráfico.", lang),
+                            target="demand-help-viz",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
                     className="card-header-custom"
                 ),
                 dbc.CardBody(
@@ -5335,6 +5343,8 @@ def update_demand_chart(stored_demand_data, filter_prod, filter_city, lang='pt')
     ]
 
     has_any_infinite = False
+    infinite_traces = []
+    max_infinite_y = -1
 
     for idx, td in enumerate(traces_data):
       trace_color = colors[idx % len(colors)]
@@ -5342,12 +5352,21 @@ def update_demand_chart(stored_demand_data, filter_prod, filter_city, lang='pt')
       hover_text = []
       is_inf_list = []
 
+      # Unique jittered height for this trace's infinite values
+      jittered_inf_y = max_y * (1.2 + idx * 0.08)
+      has_inf_in_trace = any(val is None or pd.isna(val) for val in td['y_raw'])
+
+      if has_inf_in_trace:
+        has_any_infinite = True
+        infinite_traces.append((jittered_inf_y, trace_color))
+        if jittered_inf_y > max_infinite_y:
+          max_infinite_y = jittered_inf_y
+
       for val in td['y_raw']:
         if val is None or pd.isna(val):
-          plot_y.append(max_y * 1.2)
+          plot_y.append(jittered_inf_y)
           hover_text.append("∞")
           is_inf_list.append(True)
-          has_any_infinite = True
         else:
           plot_y.append(val)
           hover_text.append(f"{val:,.2f}")
@@ -5369,13 +5388,22 @@ def update_demand_chart(stored_demand_data, filter_prod, filter_city, lang='pt')
       ))
 
     if has_any_infinite:
-      fig.add_hline(
-        y=max_y * 1.2,
-        line_dash="dash",
-        line_color="#dc3545",
-        annotation_text="∞ " + translate("Demanda Infinita", lang),
-        annotation_position="bottom right"
-      )
+      for jittered_inf_y, trace_color in infinite_traces:
+        if jittered_inf_y == max_infinite_y:
+          fig.add_hline(
+            y=jittered_inf_y,
+            line_dash="dash",
+            line_color=trace_color,
+            annotation_text="∞ " + translate("Demanda Infinita", lang),
+            annotation_position="top right",
+            annotation_yshift=10
+          )
+        else:
+          fig.add_hline(
+            y=jittered_inf_y,
+            line_dash="dash",
+            line_color=trace_color
+          )
 
     fig.update_layout(
       title=dict(
