@@ -1,7 +1,7 @@
-# Makefile for Granum Development Workflow
+# Makefile for SiloDSS Development Workflow
 
 # Variables
-VENV_NAME := granum_env
+VENV_NAME := silodss_env
 PYTHON := python3
 PIP := $(VENV_NAME)/bin/pip
 PORT := 8050
@@ -11,10 +11,10 @@ PORT := 8050
 .PHONY: help setup install run clean
 
 help:
-	@echo "Granum Development Workflow"
+	@echo "SiloDSS Development Workflow"
 	@echo "---------------------------"
 	@echo "make setup   - Create virtual environment and install dependencies"
-	@echo "make run     - Start the Granum application (automatically kills previous instance)"
+	@echo "make run     - Start the SiloDSS application (automatically kills previous instance)"
 	@echo "make clean   - Remove virtual environment and build artifacts"
 
 setup:
@@ -31,7 +31,7 @@ install: setup
 run:
 	@echo "Checking for existing process on port $(PORT)..."
 	-@kill $$(lsof -t -i :$(PORT)) 2>/dev/null || true
-	@echo "Starting Granum application..."
+	@echo "Starting SiloDSS application..."
 	$(VENV_NAME)/bin/python -m src.__main__
 
 clean:

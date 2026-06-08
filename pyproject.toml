@@ -9,7 +9,7 @@ where = ["."]
 include-package-data = true
 
 [project]
-name = "GranumDSS"
+name = "SiloDSS"
 version = "0.0.1"
 authors = [
     {name = "arturguerra", email="arturguerra921@hotmail.com"}
@@ -17,7 +17,7 @@ authors = [
 maintainers = [
     {name = "arturguerra", email="arturguerra921@hotmail.com"}
 ]
-description = "GranumDSS"
+description = "SiloDSS"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = "~=3.10.0"
@@ -39,4 +39,4 @@ dependencies = [
 ]
 
 [project.scripts]
-granum-run = "src.__main__:main"
+silodss-run = "src.__main__:main"

@@ -1,6 +1,6 @@
-# Startup script for Granum with OSRM (Docker) on Windows
+# Startup script for SiloDSS with OSRM (Docker) on Windows
 
-Write-Host "Starting Granum with OSRM Integration..." -ForegroundColor Cyan
+Write-Host "Starting SiloDSS with OSRM Integration..." -ForegroundColor Cyan
 
 # Check if OSRM data exists
 if (-not (Test-Path "data/osrm")) {

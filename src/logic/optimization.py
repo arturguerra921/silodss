@@ -281,7 +281,7 @@ def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight,
     # Redirect output directly to a temporary file on disk (to avoid Out of Memory)
     old_stdout = sys.stdout
 
-    log_dir = os.path.join(tempfile.gettempdir(), 'granum_logs')
+    log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
     os.makedirs(log_dir, exist_ok=True)
 
     # Clean up old files so we don't run out of disk space
@@ -713,7 +713,7 @@ def _run_milp_optimization_model(start_time, supply, demand_total_capacity, dema
 
     # Redirecionar output
     old_stdout = sys.stdout
-    log_dir = os.path.join(tempfile.gettempdir(), 'granum_logs')
+    log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
     os.makedirs(log_dir, exist_ok=True)
 
     now = time.time()

@@ -1,6 +1,6 @@
-# Granum Benchmarking
+# SiloDSS Benchmarking
 
-This directory stores the generated output files (`.xlsx`) from running the benchmarking suite for the Granum project optimization model.
+This directory stores the generated output files (`.xlsx`) from running the benchmarking suite for the SiloDSS project optimization model.
 
 ## Running the Benchmark (Docker)
 

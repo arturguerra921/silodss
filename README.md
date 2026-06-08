@@ -1,12 +1,12 @@
-# GranumDSS
+# SiloDSS
 **A Decision Support System for Agricultural Logistics and Optimization**
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/arturguerra921/granum/main.yml?branch=main)](https://github.com/arturguerra921/granum/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/arturguerra921/silodss/main.yml?branch=main)](https://github.com/arturguerra921/silodss/actions)
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/github/license/arturguerra921/granum)](https://github.com/arturguerra921/granum/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/arturguerra921/silodss)](https://github.com/arturguerra921/silodss/blob/main/LICENSE)
 
 ## Overview
-GranumDSS is a comprehensive Decision Support System (DSS) developed to optimize the allocation of agricultural products in warehouses, minimizing freight and storage costs. It processes complex agricultural supply chain data, calculates optimal routes, and estimates operational costs using advanced mathematical modeling alongside Open Source Routing Machine (OSRM) integration.
+SiloDSS is a comprehensive Decision Support System (DSS) developed to optimize the allocation of agricultural products in warehouses, minimizing freight and storage costs. It processes complex agricultural supply chain data, calculates optimal routes, and estimates operational costs using advanced mathematical modeling alongside Open Source Routing Machine (OSRM) integration.
 
 ## Key Features
 * **Distance Matrix Generation**: Computes exact distances and durations using OSRM for real road networks, falling back to Haversine calculations when necessary.
@@ -15,8 +15,8 @@ GranumDSS is a comprehensive Decision Support System (DSS) developed to optimize
 * **Multilingual Dashboard**: Features an interactive web-based interface built with Dash, offering translations between English and Portuguese for enhanced accessibility.
 * **Data Visualization**: Provides rich data insights, scenario filtering (e.g., Pareto 80/20 analysis), and optimization reports tailored for supply chain professionals.
 
-## Why GranumDSS?
-Managing agricultural logistics is a complex, high-stakes operational challenge. GranumDSS is designed specifically to aid planners and decision-makers in navigating these complexities. By leveraging mathematical optimization and Operations Research techniques, the system moves beyond simple spreadsheets. It rigorously evaluates thousands of product-warehouse combinations, respecting constraints such as warehouse capacity, minimum reception volumes, and upper flow limits.
+## Why SiloDSS?
+Managing agricultural logistics is a complex, high-stakes operational challenge. SiloDSS is designed specifically to aid planners and decision-makers in navigating these complexities. By leveraging mathematical optimization and Operations Research techniques, the system moves beyond simple spreadsheets. It rigorously evaluates thousands of product-warehouse combinations, respecting constraints such as warehouse capacity, minimum reception volumes, and upper flow limits.
 
 The result is a structured, data-driven approach to scenario exploration. Decision-makers can visualize the impact of different logistics strategies, dynamically adjust parameters, and ultimately minimize the total costs associated with grain storage and transport—turning raw data into actionable enterprise intelligence.
 
@@ -29,7 +29,7 @@ The result is a structured, data-driven approach to scenario exploration. Decisi
 
 ## Getting Started
 
-The recommended way to run GranumDSS is with Docker, as it manages both the application and the OSRM routing engine.
+The recommended way to run SiloDSS is with Docker, as it manages both the application and the OSRM routing engine.
 
 ### Prerequisites
 
@@ -41,8 +41,8 @@ The recommended way to run GranumDSS is with Docker, as it manages both the appl
 
 First, clone the project to your local machine:
    ```bash
-   git clone https://github.com/arturguerra921/granum.git
-   cd granum
+   git clone https://github.com/arturguerra921/silodss.git
+   cd silodss
    ```
 
 ### 2. Generate OSRM Map Data (One-Time Setup)
@@ -102,7 +102,7 @@ python -m unittest discover tests
 
 ## Project Structure
 ```
-granum/
+silodss/
 ├── docker-compose.yml       # Docker services configuration
 ├── pyproject.toml           # Project dependencies and metadata
 ├── run_server.py            # Local execution script

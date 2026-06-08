@@ -143,7 +143,7 @@ app = Dash(
     suppress_callback_exceptions=True,
     background_callback_manager=background_callback_manager
 )
-app.title = "GranumDSS"
+app.title = "SiloDSS"
 app.config.suppress_callback_exceptions = True
 
 # --- Layout Components ---
@@ -160,7 +160,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                             dbc.Col(html.Img(src="/assets/logo.png", height="48px"), className="me-3"),
                             dbc.Col(
                                 [
-                                    html.H5(translate("GranumDSS", lang), className="navbar-brand-text mb-0"),
+                                    html.H5(translate("SiloDSS", lang), className="navbar-brand-text mb-0"),
                                     html.Small(translate("Otimização de Alocação de Produtos", lang), className="navbar-subtext", style={"whiteSpace": "nowrap"}),
                                     html.Br(),
                                     html.Small(translate("Universidade de Brasília", lang), className="navbar-subtext", style={"whiteSpace": "nowrap"})
@@ -206,10 +206,10 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
     # Help Modal
     help_modal = dbc.Modal(
         [
-            dbc.ModalHeader(dbc.ModalTitle([html.I(className="bi bi-info-circle-fill me-2 text-info-custom"), translate("Guia de Uso do GranumDSS", lang)]), close_button=True),
+            dbc.ModalHeader(dbc.ModalTitle([html.I(className="bi bi-info-circle-fill me-2 text-info-custom"), translate("Guia de Uso do SiloDSS", lang)]), close_button=True),
             dbc.ModalBody(
                 [
-                    html.P(translate("Bem-vindo ao GranumDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 7 nas abas para obter os resultados da operação:", lang), className="mb-4 text-muted"),
+                    html.P(translate("Bem-vindo ao SiloDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 7 nas abas para obter os resultados da operação:", lang), className="mb-4 text-muted"),
 
                     dbc.ListGroup([
                         dbc.ListGroupItem([
@@ -3750,7 +3750,7 @@ import tempfile
 def download_log_route(filename):
     # Security: Ensure filename is just a basename, no directory traversal
     filename = os.path.basename(filename)
-    log_dir = os.path.join(tempfile.gettempdir(), 'granum_logs')
+    log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
     # Get lang from query params
     lang = flask.request.args.get('lang', 'pt')
     download_name = translate('Model_Execution_Log.txt', lang)

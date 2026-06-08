@@ -24,8 +24,8 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-granum_env/
-granum.egg-info/
+silodss_env/
+silodss.egg-info/
 
 MANIFEST
 
