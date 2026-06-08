@@ -86,13 +86,36 @@ This setup is for developers who wish to run the Python application on the host 
 ## Usage Workflow
 The application is designed around a 7-step workflow, guiding the user through the data input and optimization process via a series of tabs:
 
-1.  **Oferta (Supply)**: Input the quantity of products available by city. You can upload a spreadsheet or add data manually.
+1.  **Oferta (Supply)**: Configure session-wide start/end years and manage multi-year monthly supply historical series per product-city combination (either via spreadsheet upload or manual pattern-based generation).
 2.  **Armazéns (Warehouses)**: Manage the destination warehouses. A default database is provided, which can be updated with recent data from Conab or a custom user-provided file.
 3.  **Produto e Armazéns (Product & Warehouses)**: Define compatibility rules, specifying which types of warehouses can store each product.
 4.  **Custos (Costs)**: Configure storage tariffs and per-state freight costs (R$/ton-km).
 5.  **Matriz de Distâncias (Distance Matrix)**: Calculate the road distance matrix between all supply origins and warehouse destinations.
 6.  **Configuração do Modelo (Model Configuration)**: Set operational constraints for the optimization model, such as reception limits, freight rules, or applying the Pareto Principle to filter routes.
-7.  **Resultados (Results)**: Run the optimization model and view the results, including key performance indicators, a map of the suggested logistic network, and downloadable reports.
+7.  **Resultados (Resultados)**: Run the optimization model and view the results, including key performance indicators, a map of the suggested logistic network, and downloadable reports.
+
+## Supply Data & Timespan Management (Oferta)
+
+The **Oferta (Supply)** tab is built to manage multi-year historical series of agricultural product supply. Instead of a single static value, SiloDSS supports a multi-year monthly supply profile per product-city combination (e.g. a 120-month series for a 10-year span).
+
+### Key Features:
+
+*   **Horizonte Temporal (Timespan Configuration)**:
+    *   Planners can configure custom session-wide start and end years (e.g., 2026 to 2035) while the dataset is empty.
+    *   Once data is loaded or manually entered, the timespan locks to ensure consistency.
+    *   The **Limpar Base / Iniciar Nova** (Clear Dataset / Start New) button resets all data and unlocks the settings to configure a new timespan, prompting a warning before clearing unsaved work.
+*   **Smart Import and Date Auto-Detection**:
+    *   The first spreadsheet upload (.xlsx or .csv) automatically detects the date range, updating the Start and End Year fields in the UI and locking the timespan.
+    *   Subsequent spreadsheet uploads are validated strictly against this locked range to prevent mismatched horizons.
+*   **Manual Entry & Fill Patterns**:
+    *   Planners can manually insert new product/city series.
+    *   Choose between two fill patterns:
+        *   **Constant Value (Valor Constante)**: Automatically populates all months in the timespan with the same base weight.
+        *   **Linear Growth/Decline (Crescimento/Declínio Linear)**: Scales the monthly weight over the timespan at a chosen monthly compounding rate.
+*   **Dynamic Data Visualization & Editing**:
+    *   **Dependent Dropdown Filtering**: Filters are aware of each other (cross-filtering). Selecting a city filters the product options to only what exists there, and selecting a product dynamically restricts the city choices. Conflicting selections are cleared automatically to keep the views clean.
+    *   **Interactive Plotly Chart**: Displays the supply trends over time (monthly evolution) for the filtered combination, or aggregates overall total supply across all series when no filter is applied.
+    *   **Inline Table Edits**: Change coordinates, dates, or weights, and delete specific records directly inside the paginated DataTable. All changes synchronize back to the master dataset.
 
 ## Running Tests
 To run the backend test suite, execute the following command from the project root. This will automatically discover and run all tests within the `tests` directory:

@@ -214,7 +214,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                     dbc.ListGroup([
                         dbc.ListGroupItem([
                             html.H5([html.Span("1.", className="badge bg-info-custom rounded-pill me-2"), translate("Oferta", lang)], className="mb-1 fw-bold d-flex align-items-center"),
-                            html.P(translate("Insira a quantidade de produtos disponíveis por cidade (oferta). Você pode carregar uma planilha Excel/CSV ou adicionar e editar os dados manualmente. As coordenadas (latitude e longitude) são preenchidas automaticamente ao selecionar uma cidade.", lang), className="mb-0 text-muted")
+                            html.P(translate("Insira a série histórica de oferta por cidade (peso mensal ao longo dos anos). Defina o horizonte temporal e carregue uma planilha ou insira os dados manualmente escolhendo o padrão de preenchimento (valor constante ou crescimento linear). Utilize os filtros de produto e cidade com cross-filtering dinâmico para analisar a evolução mensal no gráfico e editar a tabela.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
@@ -278,6 +278,45 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
 
     # 3. Tab 1 Content (Input)
     def get_tab1_layout():
+        # Timespan Card
+        timespan_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Horizonte Temporal", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="help-timespan", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Defina os anos de início e fim da série histórica. Uma vez inseridos dados, este intervalo é bloqueado.", lang),
+                            target="help-timespan",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Label(translate("Ano Inicial", lang), className="fw-bold small mb-1"),
+                                dbc.Input(id="input-start-year", type="number", min=2000, max=2100, value=2026, className="mb-16")
+                            ], width=6),
+                            dbc.Col([
+                                dbc.Label(translate("Ano Final", lang), className="fw-bold small mb-1"),
+                                dbc.Input(id="input-end-year", type="number", min=2000, max=2100, value=2035, className="mb-16")
+                            ], width=6),
+                        ], className="g-2"),
+                        html.Div(className="d-grid", children=[
+                            dbc.Button(translate("Limpar Base / Iniciar Nova", lang),
+                                id='btn-clear-dataset',
+                                color="none", className="btn-danger-custom"
+                            ),
+                        ])
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom h-100"
+        )
+
         # Upload Card
         upload_card = dbc.Card(
             [
@@ -348,9 +387,9 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                             dbc.Col(
                                 [
                                     html.Div([
-                                        dbc.Label(translate("Peso (ton)", lang), className="fw-bold small me-2 mb-0"),
+                                        dbc.Label(translate("Base Peso (ton)", lang), className="fw-bold small me-2 mb-0"),
                                         html.I(className="bi bi-question-circle-fill text-muted", id="help-weight", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                        dbc.Tooltip(translate("Peso total da carga em quilogramas.", lang),
+                                        dbc.Tooltip(translate("Peso inicial para preenchimento da série histórica.", lang),
                                             target="help-weight",
                                         ),
                                     ], className="d-flex align-items-center mb-1"),
@@ -410,6 +449,41 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                                 width=2,
                                 className="d-flex align-items-end"
                             ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Padrão de Preenchimento", lang), className="fw-bold small me-2 mb-0"),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-pattern", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Escolha como preencher a série histórica.", lang),
+                                            target="help-pattern",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dcc.Dropdown(
+                                        id="input-pattern",
+                                        options=[
+                                            {"label": translate("Valor Constante", lang), "value": "constant"},
+                                            {"label": translate("Crescimento/Declínio Linear", lang), "value": "linear"}
+                                        ],
+                                        value="constant",
+                                        clearable=False,
+                                        className="mb-16"
+                                    )
+                                ],
+                                width=6
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div([
+                                        dbc.Label(translate("Taxa Mensal (%)", lang), id="label-growth-rate", className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-growth-rate", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Taxa percentual de crescimento ou declínio a cada mês.", lang),
+                                            target="help-growth-rate",
+                                        ),
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="input-growth-rate", type="number", placeholder="Ex: 0.5", step=0.01, disabled=True, className="mb-16")
+                                ],
+                                width=6
+                            ),
                         ]),
                         html.Div(className="d-grid", children=[
                             dbc.Button(translate("Adicionar Linha", lang),
@@ -458,7 +532,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
 
         # Data Table Card
         # Initial Empty DataFrame
-        initial_df = pd.DataFrame(columns=["Produto", "Peso (ton)", "Cidade", "Latitude", "Longitude"])
+        initial_df = pd.DataFrame(columns=["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"])
 
         # Metrics Section
         metrics_section = dbc.Row(
@@ -522,6 +596,19 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                 ),
                 dbc.CardBody(
                     [
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label(translate("Filtro por Produto", lang), className="fw-bold small mb-1"),
+                                dcc.Dropdown(id='filter-product', placeholder=translate("Todos", lang), clearable=True)
+                            ], width=6, className="mb-16"),
+                            dbc.Col([
+                                html.Label(translate("Filtro por Cidade", lang), className="fw-bold small mb-1"),
+                                dcc.Dropdown(id='filter-city', placeholder=translate("Todas", lang), clearable=True)
+                            ], width=6, className="mb-16"),
+                        ], className="g-3 mb-16"),
+                        html.Div(id='chart-container', children=[
+                            dcc.Graph(id='supply-chart', className="mb-24", style={"borderRadius": "8px", "border": f"1px solid {UNB_THEME['BORDER_LIGHT']}"})
+                        ]),
                         dbc.Spinner(
                             html.Div(id='table-container', children=[
                                 dash_table.DataTable(
@@ -569,11 +656,26 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
             style={"minHeight": "600px"} # Increased min-height to ensure space
         )
 
+        # Confirm Clear Dataset Modal
+        confirm_clear_modal = dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle(translate("Confirmar Limpeza", lang)), id="confirm-clear-header-title"),
+                dbc.ModalBody(translate("Aviso: Se o progresso não for salvo ele será perdido. Recomendamos baixar os dados antes de limpar a base.", lang)),
+                dbc.ModalFooter([
+                    dbc.Button(translate("Cancelar", lang), id="btn-cancel-clear", className="me-2 btn-secondary-custom", color="secondary", n_clicks=0),
+                    dbc.Button(translate("Limpar Base", lang), id="btn-confirm-clear", className="btn-danger-custom", color="danger", n_clicks=0)
+                ]),
+            ],
+            id="confirm-clear-modal",
+            is_open=False,
+        )
+
         return html.Div([
             dbc.Row(
                 [
                     dbc.Col([
                         dbc.Row([
+                            dbc.Col(timespan_card, width=12, className="mb-24"),
                             dbc.Col(upload_card, width=12, className="mb-24"),
                             dbc.Col(add_data_card, width=12, className="mb-24"),
                             dbc.Col(download_card, width=12, className="mb-24")
@@ -583,6 +685,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
                     dbc.Col(data_table_card, width=12, lg=9, className="mb-24"),
                 ]
             ),
+            confirm_clear_modal
         ])
 
     # 4. Tab Warehouses Content
@@ -1084,7 +1187,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
 
 
 
-initial_df = pd.DataFrame(columns=['Produto', 'Peso (ton)', 'Cidade', 'Latitude', 'Longitude'])
+initial_df = pd.DataFrame(columns=['Produto', 'Cidade', 'Latitude', 'Longitude', 'Data', 'Peso (ton)'])
 
 app.layout = html.Div([
     dcc.Store(id='store-lang', storage_type='memory', data='pt'),
@@ -1277,6 +1380,75 @@ def toggle_manual_edit(n_clicks):
         return False, False, "🔓" # Enable
     return True, True, "🔒" # Disable
 
+# 2.b Toggle growth rate input field disabled state
+@app.callback(
+    [Output('input-growth-rate', 'disabled'),
+     Output('label-growth-rate', 'style')],
+    Input('input-pattern', 'value')
+)
+def toggle_growth_rate_disabled(pattern_val):
+    if pattern_val == 'linear':
+        return False, {'color': UNB_THEME['UNB_GRAY_DARK']}
+    return True, {'color': '#9ca3af'}
+
+# 2.c Toggle timespan inputs based on store emptiness
+@app.callback(
+    [Output('input-start-year', 'disabled'),
+     Output('input-end-year', 'disabled')],
+    Input('stored-data', 'data')
+)
+def toggle_timespan_inputs_disabled(stored_data):
+    if stored_data is None:
+        return False, False
+    try:
+        df = pd.read_json(io.StringIO(stored_data), orient='split')
+        if df.empty:
+            return False, False
+        return True, True
+    except:
+        return False, False
+
+# 2.d Sync UI start/end years with loaded data timespan
+@app.callback(
+    [Output('input-start-year', 'value'),
+     Output('input-end-year', 'value')],
+    Input('stored-data', 'data'),
+    [State('input-start-year', 'value'),
+     State('input-end-year', 'value')]
+)
+def update_timespan_values(stored_data, current_start, current_end):
+    if stored_data is None:
+        return no_update, no_update
+    try:
+        df = pd.read_json(io.StringIO(stored_data), orient='split')
+        if df.empty:
+            return current_start or 2026, current_end or 2035
+        dates = pd.to_datetime(df['Data'], errors='coerce').dropna()
+        if not dates.empty:
+            return dates.min().year, dates.max().year
+        return current_start or 2026, current_end or 2035
+    except Exception as e:
+        print(f"Error in update_timespan_values: {e}")
+        return current_start or 2026, current_end or 2035
+
+# Toggling the confirmation modal for clearing the dataset
+@app.callback(
+    Output('confirm-clear-modal', 'is_open'),
+    [Input('btn-clear-dataset', 'n_clicks'),
+     Input('btn-cancel-clear', 'n_clicks'),
+     Input('btn-confirm-clear', 'n_clicks')],
+    State('confirm-clear-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_confirm_clear_modal(n_open, n_cancel, n_confirm, is_open):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return is_open
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger_id == 'btn-clear-dataset':
+        return True
+    return False
+
 # 3. Upload & Add Row -> Update Store
 @app.callback(
     Output('stored-data', 'data'),
@@ -1286,7 +1458,8 @@ def toggle_manual_edit(n_clicks):
     [Input('upload-data', 'contents'),
      Input('btn-add-row', 'n_clicks'),
      Input('editable-table', 'data_timestamp'), # Track edits via timestamp
-     Input('close-modal', 'n_clicks')],
+     Input('close-modal', 'n_clicks'),
+     Input('btn-confirm-clear', 'n_clicks')],
     [State('upload-data', 'filename'),
      State('stored-data', 'data'),
      State('input-product', 'value'),
@@ -1296,11 +1469,18 @@ def toggle_manual_edit(n_clicks):
      State('input-lon', 'value'),
      State('error-modal', 'is_open'),
      State('editable-table', 'data'),
-     State('store-lang', 'data')]
+     State('store-lang', 'data'),
+     State('input-pattern', 'value'),
+     State('input-growth-rate', 'value'),
+     State('filter-product', 'value'),
+     State('filter-city', 'value'),
+     State('input-start-year', 'value'),
+     State('input-end-year', 'value')]
 )
-def update_store(contents, n_add, timestamp, n_close, filename, stored_data,
+def update_store(contents, n_add, timestamp, n_close, n_confirm_clear, filename, stored_data,
                  prod_val, weight_val, city_val, lat_val, lon_val,
-                 is_open, table_data, lang='pt'):
+                 is_open, table_data, lang='pt', pattern_val='constant', growth_val=None,
+                 filter_prod=None, filter_city=None, start_year_val=None, end_year_val=None):
     ctx = dash.callback_context
     if not ctx.triggered:
         return no_update, no_update, no_update, no_update
@@ -1310,6 +1490,15 @@ def update_store(contents, n_add, timestamp, n_close, filename, stored_data,
     # Close Modal
     if trigger_id == 'close-modal':
         return no_update, False, no_update, no_update
+
+    # Clear Dataset
+    if trigger_id == 'btn-confirm-clear':
+        empty_df = pd.DataFrame(columns=["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"])
+        return empty_df.to_json(date_format='iso', orient='split'), False, no_update, None
+
+    # Determine locked timespan limits
+    start_yr = int(start_year_val) if start_year_val else 2026
+    end_yr = int(end_year_val) if end_year_val else 2035
 
     # Upload Data
     if trigger_id == 'upload-data':
@@ -1327,68 +1516,164 @@ def update_store(contents, n_add, timestamp, n_close, filename, stored_data,
             else:
                 return no_update, True, translate("O arquivo deve ser Excel (.xlsx) ou CSV (.csv).", lang), None
 
-            # Validate expected columns
-            expected_cols = ["Produto", "Peso (ton)", "Cidade", "Latitude", "Longitude"]
-            # Check if all expected columns exist
+            # Validate expected columns for long format
+            expected_cols = ["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"]
             if not all(col in df.columns for col in expected_cols):
                 return no_update, True, translate("Aviso: O arquivo carregado deve conter exatamente as colunas:", lang) + f" {', '.join(expected_cols)}.", None
 
-            # Ensure that only expected columns (in correct order) are kept, in case the user has extra columns
+            # Ensure that only expected columns are kept
             df = df[expected_cols]
 
-            # Normalize "Produto" column se existir (vai existir devido a verificação anterior)
-            if "Produto" in df.columns:
-                 df["Produto"] = df["Produto"].fillna('').astype(str).str.title()
+            # Normalize "Produto" column
+            df["Produto"] = df["Produto"].fillna('').astype(str).str.title()
+
+            # Normalize "Data" column to YYYY-MM
+            df["Data"] = pd.to_datetime(df["Data"], errors='coerce').dt.strftime('%Y-%m')
+            df["Data"] = df["Data"].fillna('2026-01')
+
+            # Parse numeric weight
+            df["Peso (ton)"] = df["Peso (ton)"].apply(parse_brazilian_number)
+
+            # Strict Validation against locked timespan
+            has_existing_data = False
+            if stored_data:
+                try:
+                    old_df = pd.read_json(io.StringIO(stored_data), orient='split')
+                    has_existing_data = not old_df.empty
+                except:
+                    pass
+
+            if has_existing_data:
+                expected_dates = pd.date_range(
+                    start=f"{start_yr}-01-01", 
+                    end=f"{end_yr}-12-01", 
+                    freq='MS'
+                ).strftime('%Y-%m').tolist()
+
+                uploaded_dates = sorted(df["Data"].dropna().unique().tolist())
+                if uploaded_dates != expected_dates:
+                    error_msg = translate("Aviso: O arquivo carregado não condiz com o horizonte temporal travado para esta sessão ({start} a {end}).", lang).format(start=start_yr, end=end_yr)
+                    return no_update, True, error_msg, None
+            else:
+                # First upload validation: ensure the uploaded file has a valid monthly series structure
+                dates = pd.to_datetime(df["Data"], errors='coerce').dropna()
+                if dates.empty:
+                    return no_update, True, translate("Aviso: O arquivo carregado deve conter datas válidas na coluna 'Data'.", lang), None
+                
+                min_yr_detected = dates.min().year
+                max_yr_detected = dates.max().year
+                
+                expected_dates = pd.date_range(
+                    start=f"{min_yr_detected}-01-01", 
+                    end=f"{max_yr_detected}-12-01", 
+                    freq='MS'
+                ).strftime('%Y-%m').tolist()
+
+                uploaded_dates = sorted(df["Data"].dropna().unique().tolist())
+                if uploaded_dates != expected_dates:
+                    error_msg = translate("Aviso: O arquivo carregado deve conter uma série histórica mensal contínua iniciando em janeiro e terminando em dezembro.", lang)
+                    return no_update, True, error_msg, None
 
             return df.to_json(date_format='iso', orient='split'), False, no_update, None
         except Exception as e:
             print(f"Error processing file: {e}")
             return no_update, True, translate("Erro ao processar o arquivo. Verifique se é um arquivo válido.", lang), None
 
-    # Add Row
+    # Add Row (Generates monthly series for locked timespan)
     if trigger_id == 'btn-add-row':
         if stored_data:
-             df = pd.read_json(io.StringIO(stored_data), orient='split')
+            df = pd.read_json(io.StringIO(stored_data), orient='split')
         else:
-             df = pd.DataFrame(columns=["Produto", "Peso (ton)", "Cidade", "Latitude", "Longitude"])
+            df = pd.DataFrame(columns=["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"])
 
         if not prod_val or not weight_val or not city_val:
-             return no_update, True, translate("Preencha Produto, Peso e Cidade para adicionar.", lang), no_update
+            return no_update, True, translate("Preencha Produto, Peso e Cidade para adicionar.", lang), no_update
+
+        if start_yr > end_yr:
+            return no_update, True, translate("Aviso: O Ano Inicial deve ser menor ou igual ao Ano Final.", lang), no_update
 
         try:
-            # Normalize Product Name (Title Case)
-            # Use title() which capitalizes first letter of each word
+            base_weight = float(weight_val)
+        except ValueError:
+            return no_update, True, translate("O peso deve ser um valor numérico.", lang), no_update
+
+        try:
+            # Normalize Product Name
             prod_val_normalized = str(prod_val).title()
 
-            new_row_data = {
-                'Produto': prod_val_normalized,
-                'Peso (ton)': weight_val,
-                'Cidade': city_val,
-                'Latitude': lat_val,
-                'Longitude': lon_val
-            }
-            new_row_df = pd.DataFrame([new_row_data])
-            df = pd.concat([df, new_row_df], ignore_index=True)
+            # Generate monthly date list from start/end year inputs
+            dates_list = pd.date_range(
+                start=f"{start_yr}-01-01", 
+                end=f"{end_yr}-12-01", 
+                freq='MS'
+            ).strftime('%Y-%m').tolist()
+
+            # Growth rate logic
+            growth_rate = 0.0
+            if pattern_val == 'linear' and growth_val is not None:
+                try:
+                    growth_rate = float(growth_val) / 100.0
+                except ValueError:
+                    pass
+
+            new_rows = []
+            for t, dt_str in enumerate(dates_list):
+                if pattern_val == 'linear':
+                    val = base_weight * ((1 + growth_rate) ** t)
+                else:
+                    val = base_weight
+
+                new_rows.append({
+                    'Produto': prod_val_normalized,
+                    'Cidade': city_val,
+                    'Latitude': lat_val,
+                    'Longitude': lon_val,
+                    'Data': dt_str,
+                    'Peso (ton)': round(val, 2)
+                })
+
+            new_rows_df = pd.DataFrame(new_rows)
+            df = pd.concat([df, new_rows_df], ignore_index=True)
             return df.to_json(date_format='iso', orient='split'), False, no_update, no_update
         except Exception as e:
             print(f"Error adding row: {e}")
             return no_update, True, translate("Erro ao adicionar linha:", lang) + f" {str(e)}", no_update
 
-    # Table Edited (Manual Data Entry)
+    # Table Edited or Row Deleted
     if trigger_id == 'editable-table':
         try:
-            # Reconstruct DF from table data
-            if table_data is None:
+            if table_data is None or not stored_data:
                 return no_update, no_update, no_update, no_update
 
-            df = pd.DataFrame(table_data)
+            full_df = pd.read_json(io.StringIO(stored_data), orient='split')
 
-            # Normalize "Produto" column on edit
-            if "Produto" in df.columns:
-                 df["Produto"] = df["Produto"].fillna('').astype(str).str.title()
+            # Identify the filtered rows in the original dataframe
+            filtered_indices = full_df.index
+            if filter_prod:
+                filtered_indices = filtered_indices[full_df.loc[filtered_indices, 'Produto'] == filter_prod]
+            if filter_city:
+                filtered_indices = filtered_indices[full_df.loc[filtered_indices, 'Cidade'] == filter_city]
 
-            # Ensure proper JSON structure for store
-            return df.to_json(date_format='iso', orient='split'), False, no_update, no_update
+            # 1. Update existing rows and identify deleted rows
+            indices_in_table = set()
+            for row in table_data:
+                idx = row.get('_index')
+                if idx is not None:
+                    indices_in_table.add(idx)
+                    if idx in full_df.index:
+                        full_df.at[idx, 'Produto'] = str(row.get('Produto', '')).title()
+                        full_df.at[idx, 'Cidade'] = row.get('Cidade')
+                        full_df.at[idx, 'Latitude'] = row.get('Latitude')
+                        full_df.at[idx, 'Longitude'] = row.get('Longitude')
+                        full_df.at[idx, 'Data'] = row.get('Data')
+                        full_df.at[idx, 'Peso (ton)'] = parse_brazilian_number(row.get('Peso (ton)'))
+
+            # 2. Identify and drop deleted rows
+            deleted_indices = set(filtered_indices) - indices_in_table
+            if deleted_indices:
+                full_df = full_df.drop(index=list(deleted_indices))
+
+            return full_df.to_json(date_format='iso', orient='split'), False, no_update, no_update
         except Exception as e:
             print(f"Error updating store from table edit: {e}")
             return no_update, no_update, no_update, no_update
@@ -1401,10 +1686,12 @@ def update_store(contents, n_add, timestamp, n_close, filename, stored_data,
     Output('editable-table', 'data'),
     Output('editable-table', 'columns'),
     [Input('stored-data', 'data'),
-     Input('main-tabs', 'active_tab')],
+     Input('main-tabs', 'active_tab'),
+     Input('filter-product', 'value'),
+     Input('filter-city', 'value')],
     State('store-lang', 'data')
 )
-def update_table_view(stored_data, active_tab, lang='pt'):
+def update_table_view(stored_data, active_tab, filter_prod, filter_city, lang='pt'):
     if active_tab != 'tab-input':
         return no_update, no_update
 
@@ -1413,11 +1700,166 @@ def update_table_view(stored_data, active_tab, lang='pt'):
 
     try:
         df = pd.read_json(io.StringIO(stored_data), orient='split')
-        columns = [{'name': translate(i, lang), 'id': i, 'deletable': False, 'renamable': False} for i in df.columns]
-        return df.to_dict('records'), columns
+        
+        # Filter the DataFrame based on chosen filters
+        df_filtered = df.copy()
+        if filter_prod:
+            df_filtered = df_filtered[df_filtered['Produto'] == filter_prod]
+        if filter_city:
+            df_filtered = df_filtered[df_filtered['Cidade'] == filter_city]
+
+        # Add original index as hidden column
+        df_filtered['_index'] = df_filtered.index
+
+        expected_cols = ["Produto", "Cidade", "Latitude", "Longitude", "Data", "Peso (ton)"]
+        columns = [{'name': translate(col, lang), 'id': col, 'deletable': False, 'renamable': False} for col in expected_cols]
+        
+        return df_filtered.to_dict('records'), columns
     except Exception as e:
         print(f"Error rendering table: {e}")
         return no_update, no_update
+
+# 2.1 Update filter options based on stored data and resolve conflicts
+@app.callback(
+    [Output('filter-product', 'options'),
+     Output('filter-city', 'options'),
+     Output('filter-product', 'value'),
+     Output('filter-city', 'value')],
+    [Input('stored-data', 'data'),
+     Input('filter-product', 'value'),
+     Input('filter-city', 'value')]
+)
+def update_filter_options_and_resolve_conflicts(stored_data, selected_prod, selected_city):
+    if stored_data is None:
+        return [], [], None, None
+    try:
+        df = pd.read_json(io.StringIO(stored_data), orient='split')
+        if df.empty:
+            return [], [], None, None
+
+        # Initial sets
+        products = sorted(df['Produto'].dropna().unique().tolist())
+        cities = sorted(df['Cidade'].dropna().unique().tolist())
+
+        # Check for active selections
+        prod_val = selected_prod
+        city_val = selected_city
+
+        # Cross-filtering logic
+        if selected_city:
+            # Products that exist in the selected city
+            available_prods = df[df['Cidade'] == selected_city]['Produto'].dropna().unique().tolist()
+            prod_options = [{'label': p, 'value': p} for p in sorted(available_prods)]
+            # Resolve conflict if selected product isn't in this city
+            if selected_prod and selected_prod not in available_prods:
+                prod_val = None
+        else:
+            prod_options = [{'label': p, 'value': p} for p in products]
+
+        if selected_prod:
+            # Cities that have the selected product
+            available_cities = df[df['Produto'] == selected_prod]['Cidade'].dropna().unique().tolist()
+            city_options = [{'label': c, 'value': c} for c in sorted(available_cities)]
+            # Resolve conflict if selected city doesn't have this product
+            if selected_city and selected_city not in available_cities:
+                city_val = None
+        else:
+            city_options = [{'label': c, 'value': c} for c in cities]
+
+        return prod_options, city_options, prod_val, city_val
+    except Exception as e:
+        print(f"Error in cross-filtering: {e}")
+        return [], [], None, None
+
+# 2.2 Render Line Chart for Historical Series
+@app.callback(
+    Output('supply-chart', 'figure'),
+    [Input('stored-data', 'data'),
+     Input('filter-product', 'value'),
+     Input('filter-city', 'value')],
+    State('store-lang', 'data')
+)
+def update_chart(stored_data, filter_prod, filter_city, lang='pt'):
+    if stored_data is None:
+        return go.Figure()
+
+    try:
+        df = pd.read_json(io.StringIO(stored_data), orient='split')
+        if df.empty:
+            return go.Figure()
+
+        # Parse Data column as datetime for correct chronological sorting
+        df['dt_parsed'] = pd.to_datetime(df['Data'], errors='coerce')
+        df = df.dropna(subset=['dt_parsed'])
+
+        title_suffix = ""
+        # Filter data
+        if filter_prod and filter_city:
+            df_plot = df[(df['Produto'] == filter_prod) & (df['Cidade'] == filter_city)]
+            df_plot = df_plot.groupby('Data')['Peso (ton)'].sum().reset_index()
+            df_plot['dt_parsed'] = pd.to_datetime(df_plot['Data'])
+            df_plot = df_plot.sort_values('dt_parsed')
+            title_suffix = f" - {filter_prod} ({filter_city})"
+        elif filter_prod:
+            df_plot = df[df['Produto'] == filter_prod]
+            df_plot = df_plot.groupby('Data')['Peso (ton)'].sum().reset_index()
+            df_plot['dt_parsed'] = pd.to_datetime(df_plot['Data'])
+            df_plot = df_plot.sort_values('dt_parsed')
+            title_suffix = f" - {filter_prod}"
+        elif filter_city:
+            df_plot = df[df['Cidade'] == filter_city]
+            df_plot = df_plot.groupby('Data')['Peso (ton)'].sum().reset_index()
+            df_plot['dt_parsed'] = pd.to_datetime(df_plot['Data'])
+            df_plot = df_plot.sort_values('dt_parsed')
+            title_suffix = f" - {filter_city}"
+        else:
+            # Aggregate all products/cities by month
+            df_plot = df.groupby('Data')['Peso (ton)'].sum().reset_index()
+            df_plot['dt_parsed'] = pd.to_datetime(df_plot['Data'])
+            df_plot = df_plot.sort_values('dt_parsed')
+            title_suffix = f" - {translate('Total Geral', lang)}"
+
+        if df_plot.empty:
+            return go.Figure()
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_plot['Data'],
+            y=df_plot['Peso (ton)'],
+            mode='lines+markers',
+            line=dict(color=UNB_THEME['UNB_BLUE'], width=3),
+            marker=dict(size=6, color=UNB_THEME['UNB_BLUE_GREEN']),
+            hovertemplate="<b>%{x}</b><br>" + translate("Peso (ton)", lang) + ": %{y:,.2f}<extra></extra>"
+        ))
+
+        fig.update_layout(
+            title=dict(
+                text=translate("Evolução Mensal da Oferta", lang) + title_suffix,
+                font=dict(size=14, color=UNB_THEME['UNB_BLUE'], family="'Roboto', sans-serif"),
+                x=0.02
+            ),
+            xaxis=dict(
+                title=translate("Mês/Ano", lang),
+                gridcolor='#F0F2F5',
+                tickangle=-45,
+                type='category' # ensures correct discrete sorting as strings
+            ),
+            yaxis=dict(
+                title=translate("Peso (ton)", lang),
+                gridcolor='#F0F2F5',
+                zeroline=False
+            ),
+            margin=dict(l=50, r=20, t=50, b=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            height=350,
+            hovermode='x unified'
+        )
+
+        return fig
+    except Exception as e:
+        print(f"Error rendering chart: {e}")
+        return go.Figure()
 
 # 2.1 Update Metrics Store
 @app.callback(
