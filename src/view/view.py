@@ -1608,10 +1608,23 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
         id="tabs-content"
     )
 
-    initial_df = pd.DataFrame(columns=["Produto", "Peso (ton)", "Cidade", "Latitude", "Longitude"])
+    initial_store_df = pd.DataFrame(columns=['Produto', 'Cidade', 'Latitude', 'Longitude', 'Data', 'Peso (ton)'])
 
     return html.Div(
         [
+            dcc.Store(id='stored-data', data=initial_store_df.to_json(date_format='iso', orient='split')),
+            dcc.Store(id='stored-demand-data', data=initial_store_df.to_json(date_format='iso', orient='split')),
+            dcc.Store(id='metrics-store', data={'weight': 0, 'count': 0}),
+            dcc.Store(id='demand-metrics-store', data={'weight': 0, 'count': 0}),
+            dcc.Store(id='store-warehouses'),
+            dcc.Store(id='store-prod-warehouses'),
+            dcc.Store(id='store-costs-storage'),
+            dcc.Store(id='store-costs-freight'),
+            dcc.Store(id='store-distance-matrix'),
+            dcc.Store(id='store-model-results'),
+            dcc.Store(id='store-model-log'),
+            dcc.Store(id='store-help-seen', storage_type='local'),
+
             navbar,
             dbc.Container(
                 [
@@ -1638,18 +1651,7 @@ initial_df = pd.DataFrame(columns=['Produto', 'Cidade', 'Latitude', 'Longitude',
 
 app.layout = html.Div([
     dcc.Store(id='store-lang', storage_type='memory', data='pt'),
-    dcc.Store(id='stored-data', data=initial_df.to_json(date_format='iso', orient='split')),
-    dcc.Store(id='stored-demand-data', data=initial_df.to_json(date_format='iso', orient='split')),
-    dcc.Store(id='metrics-store', data={'weight': 0, 'count': 0}),
-    dcc.Store(id='demand-metrics-store', data={'weight': 0, 'count': 0}),
-    dcc.Store(id='store-warehouses'), # New Store for Armazéns
-    dcc.Store(id='store-prod-warehouses'), # New Store for Prod x Armazens
-    dcc.Store(id='store-costs-storage'), # New Store for Storage Costs
-    dcc.Store(id='store-costs-freight'), # New Store for Freight Costs
-    dcc.Store(id='store-distance-matrix'), # New Store for Distance Matrix
-    dcc.Store(id='store-model-results'), # New Store for Model Results
-    dcc.Store(id='store-model-log'), # New Store for optimization logs
-    dcc.Store(id='store-help-seen', storage_type='local'),
+    dcc.Store(id='store-pending-lang', storage_type='memory', data=None),
 
     # Static Download Components (Prevents auto-download bug on language switch)
     dcc.Download(id='download-example-personalizada'),
@@ -1661,6 +1663,19 @@ app.layout = html.Div([
     dcc.Download(id='download-model-log'),
     dcc.Download(id='download-results-xlsx'),
 
+    dbc.Modal(
+        [
+            dbc.ModalHeader(dbc.ModalTitle(id="modal-lang-switch-title"), close_button=True),
+            dbc.ModalBody(id="modal-lang-switch-body"),
+            dbc.ModalFooter([
+                dbc.Button(id="btn-cancel-lang-switch", color="none", className="btn-secondary-custom me-2", n_clicks=0),
+                dbc.Button(id="btn-confirm-lang-switch", color="none", className="btn-danger-custom", n_clicks=0),
+            ]),
+        ],
+        id="modal-confirm-lang-switch",
+        is_open=False,
+    ),
+
     html.Div(id='page-content', children=serve_layout('pt'))
 ])
 
@@ -1668,22 +1683,87 @@ app.layout = html.Div([
 # --- Callbacks ---
 
 @app.callback(
-    Output('store-lang', 'data'),
+    [Output('store-lang', 'data'),
+     Output('modal-confirm-lang-switch', 'is_open'),
+     Output('modal-lang-switch-title', 'children'),
+     Output('modal-lang-switch-body', 'children'),
+     Output('btn-cancel-lang-switch', 'children'),
+     Output('btn-confirm-lang-switch', 'children'),
+     Output('store-pending-lang', 'data')],
     [Input('lang-pt', 'n_clicks'),
-     Input('lang-en', 'n_clicks')],
-    State('store-lang', 'data'),
+     Input('lang-en', 'n_clicks'),
+     Input('btn-confirm-lang-switch', 'n_clicks'),
+     Input('btn-cancel-lang-switch', 'n_clicks')],
+    [State('store-lang', 'data'),
+     State('stored-data', 'data'),
+     State('stored-demand-data', 'data'),
+     State('store-pending-lang', 'data')],
     prevent_initial_call=True
 )
-def update_language(pt_clicks, en_clicks, current_lang):
+def update_language(pt_clicks, en_clicks, confirm_clicks, cancel_clicks, current_lang, stored_data, stored_demand_data, pending_lang):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return current_lang
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    if button_id == 'lang-pt':
-        return 'pt'
-    elif button_id == 'lang-en':
-        return 'en'
-    return current_lang
+        return no_update, False, no_update, no_update, no_update, no_update, no_update
+
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # Handle language selector click
+    if trigger_id in ('lang-pt', 'lang-en'):
+        target_lang = 'pt' if trigger_id == 'lang-pt' else 'en'
+        
+        # If the clicked language is the same as the current language, do nothing
+        if target_lang == current_lang:
+            return no_update, False, no_update, no_update, no_update, no_update, None
+
+        # Check if there is data in the stores
+        has_data = False
+        for data_str in [stored_data, stored_demand_data]:
+            if data_str:
+                try:
+                    df = pd.read_json(io.StringIO(data_str), orient='split')
+                    if not df.empty:
+                        has_data = True
+                        break
+                except Exception:
+                    pass
+
+        if has_data:
+            # Show confirmation modal
+            pt_title = translate("Confirmar Troca de Idioma", "pt")
+            en_title = translate("Confirmar Troca de Idioma", "en")
+            title = f"{pt_title} / {en_title}"
+
+            pt_body = translate("Trocar o idioma irá reiniciar a sessão e todos os dados carregados serão perdidos. Deseja continuar?", "pt")
+            en_body = translate("Trocar o idioma irá reiniciar a sessão e todos os dados carregados serão perdidos. Deseja continuar?", "en")
+            body = [
+                html.P(pt_body, className="mb-2"),
+                html.P(en_body, className="mb-0 text-muted", style={"fontStyle": "italic"})
+            ]
+
+            pt_cancel = translate("Cancelar", "pt")
+            en_cancel = translate("Cancelar", "en")
+            cancel_label = f"{pt_cancel} / {en_cancel}"
+
+            pt_confirm = translate("Confirmar", "pt")
+            en_confirm = translate("Confirmar", "en")
+            confirm_label = f"{pt_confirm} / {en_confirm}"
+
+            return no_update, True, title, body, cancel_label, confirm_label, target_lang
+        else:
+            # Switch language immediately since there is no data to lose
+            return target_lang, False, no_update, no_update, no_update, no_update, None
+
+    # Handle modal confirmation
+    if trigger_id == 'btn-confirm-lang-switch':
+        if pending_lang:
+            return pending_lang, False, no_update, no_update, no_update, no_update, None
+        return no_update, False, no_update, no_update, no_update, no_update, None
+
+    # Handle modal cancellation or closing
+    if trigger_id == 'btn-cancel-lang-switch':
+        return no_update, False, no_update, no_update, no_update, no_update, None
+
+    return no_update, False, no_update, no_update, no_update, no_update, no_update
 
 @app.callback(
     Output('page-content', 'children'),
