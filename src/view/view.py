@@ -10,6 +10,7 @@ from src.view.pages.distance_matrix import get_tab_distance_matrix_layout
 from src.view.pages.model_config import get_tab_model_config_layout
 from src.view.pages.costs import get_tab_costs_layout
 from src.view.pages.results import get_tab_results_layout
+from src.view.pages.warehouses import get_tab_warehouses_layout
 from src.logic.osrm import OSRMClient
 from src.logic.optimization import run_optimization_model
 from src.logic.i18n import translate
@@ -43,9 +44,6 @@ try:
     DATA_DIR = os.path.join(os.path.dirname(__file__), 'assets', 'data')
     MUNICIPIOS_PATH = os.path.join(DATA_DIR, 'municipios.csv')
     ESTADOS_PATH = os.path.join(DATA_DIR, 'estados.csv')
-    BASE_ARMAZENS_CREDENCIADOS_PATH = os.path.join(DATA_DIR, 'Armazens_Credenciados_Habilitados_Base.csv')
-    BASE_ARMAZENS_CADASTRADOS_PATH = os.path.join(DATA_DIR, 'Armazens_Cadastrados_Base.csv')
-    BASE_ARMAZENS_PERSONALIZADOS_PATH = os.path.join(DATA_DIR, 'Armazens_Personalizados_Base.csv')
     STORAGE_COSTS_PATH = os.path.join(DATA_DIR, 'Tarifa_de_Armazenagem.csv')
     FREIGHT_COSTS_PATH = os.path.join(DATA_DIR, 'Valor_Tonelada_km.csv')
 
@@ -108,29 +106,6 @@ def flex_read_csv(file_bytes, **kwargs):
     raise ValueError(f"Failed to read CSV with all combinations. Last error: {last_error}")
 
 
-def get_conab_txt_data():
-    """Fetches the Conab TXT file, saves it locally, and returns a DataFrame.
-    If the fetch fails, it falls back to the locally saved version."""
-    conab_url = "https://portaldeinformacoes.conab.gov.br/downloads/arquivos/ArmazensCadastrados.txt"
-    local_txt_path = os.path.join(DATA_DIR, 'Armazens_Cadastrados_SICARM.txt')
-
-    try:
-        response = requests.get(conab_url, timeout=15)
-        response.raise_for_status()
-
-        # Save to local file
-        with open(local_txt_path, 'w', encoding='iso-8859-1') as f:
-            f.write(response.content.decode('iso-8859-1'))
-
-        df = pd.read_csv(io.StringIO(response.content.decode('iso-8859-1')), sep=';', encoding='iso-8859-1', dtype=str)
-    except Exception as e:
-        print(f"Error fetching Conab TXT file from URL: {e}. Falling back to local file.")
-        if os.path.exists(local_txt_path):
-            df = pd.read_csv(local_txt_path, sep=';', encoding='iso-8859-1', dtype=str)
-        else:
-            print("Local Conab TXT file not found. Returning empty DataFrame.")
-            return pd.DataFrame()
-    return df
 
 
 # Initialize diskcache manager for background callbacks
@@ -151,7 +126,7 @@ app.config.suppress_callback_exceptions = True
 
 # 1. Navbar / Header
 
-def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
+def serve_layout(lang="pt"):
     navbar = dbc.Navbar(
         dbc.Container(
             [
@@ -225,7 +200,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
 
                         dbc.ListGroupItem([
                             html.H5([html.Span("3.", className="badge bg-info-custom rounded-pill me-2"), translate("Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
-                            html.P(translate("Gerencie os armazéns que receberão os produtos. Uma base padrão é carregada automaticamente, mas você pode visualizar e atualizar esta lista baixando dados mais recentes da Conab ou enviando uma planilha personalizada.", lang), className="mb-0 text-muted")
+                            html.P(translate("Gerencie os armazéns que receberão os produtos. Defina-os como existentes (informando capacidade, tipo, etc.) ou possíveis candidatos de abertura. Carregue uma planilha ou adicione os dados manualmente e confira a localização no mapa interativo.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
@@ -1134,337 +1109,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
         ])
 
     # 4. Tab Warehouses Content
-    def get_tab_warehouses_layout(dropdown_base_warehouses_val="credenciados"):
-        # Card 1: Select Base
-        card_select_base = dbc.Card(
-            [
-                dbc.CardHeader(
-                    html.Div([
-                        html.Span(translate("Selecionar Base", lang), className="me-2"),
-                        html.I(className="bi bi-question-circle-fill text-muted", id="help-select-base", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                        dbc.Tooltip(translate("Selecione qual base de armazéns deseja utilizar para o modelo de otimização.", lang),
-                            target="help-select-base",
-                            placement="right"
-                        ),
-                    ], className="d-flex align-items-center"),
-                    className="card-header-custom"
-                ),
-                dbc.CardBody(
-                    [
-                        dcc.Dropdown(
-                            id="dropdown-base-warehouses",
-                            options=[
-                                {"label": translate("Armazéns Credenciados (Conab)", lang), "value": "credenciados"},
-                                {"label": translate("Armazéns Cadastrados (SICARM)", lang), "value": "cadastrados"},
-                                {"label": translate("Base Personalizada (Envio do usuário)", lang), "value": "personalizada"}
-                            ],
-                            value=dropdown_base_warehouses_val,
-                            clearable=False,
-                            className="mb-0"
-                        )
-                    ],
-                    className="card-body-custom"
-                ),
-            ],
-            className="card-custom mb-24"
-        )
-
-        # Card 2: Update and Save
-        card_update_save = dbc.Card(
-            [
-                dbc.CardHeader(
-                    html.Div([
-                        html.Span(translate("Gerenciar Base", lang), className="me-2"),
-                        html.I(className="bi bi-question-circle-fill text-muted", id="help-manage-base", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                        dbc.Tooltip(translate("Essa função guardará a nova versão que será enviada para os futuros usos do aplicativo, substituindo a base que hoje é carregada automaticamente.", lang),
-                            target="help-manage-base",
-                            placement="right"
-                        ),
-                    ], className="d-flex align-items-center"),
-                    className="card-header-custom"
-                ),
-                dbc.CardBody(
-                    [
-                        dbc.Button(translate("Atualizar a Base", lang), id="btn-update-base", color="none", className="btn-primary-custom w-100 mb-2"),
-                        # Manage Container (Initially Hidden, dynamic content)
-                        html.Div(
-                            id="manage-base-container",
-                            children=[
-                                # Upload Component
-                                html.Div(
-                                    id="upload-update-container",
-                                    children=[
-                                        dcc.Upload(
-                                            id='upload-update-base',
-                                            children=html.Div([
-                                                html.Div("📂", style={"fontSize": "2rem", "marginBottom": "8px"}),
-                                                html.Span(translate('Arraste e solte ou ', lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}),
-                                                html.A(translate('Selecione', lang), className="fw-bold text-decoration-underline", style={"color": UNB_THEME['UNB_BLUE']}),
-                                                html.Div(translate("Formatos: .csv", lang), id="upload-format-hint", className="text-muted small mt-2")
-                                            ]),
-                                            className="upload-box",
-                                            multiple=False,
-                                            accept='.csv'
-                                        )
-                                    ],
-                                    style={"display": "block"}
-                                ),
-                                # Download Example Button (for Personalizada)
-                                html.Div(
-                                    id="download-example-container",
-                                    children=[
-                                        dbc.Button(translate("Baixar Planilha Exemplo (.xlsx)", lang), id="btn-download-example", key=f"btn-dl-ex-{lang}", n_clicks=0, color="none", className="btn-outline-secondary-custom w-100 mt-2")
-                                    ],
-                                    style={"display": "none"}
-                                ),
-                                # Fetch Button (for Cadastrados)
-                                html.Div(
-                                    id="fetch-registered-container",
-                                    children=[
-                                        dbc.Button(translate("Baixar Dados da Conab", lang), id="btn-fetch-registered", key=f"btn-fetch-reg-{lang}", color="none", className="btn-primary-custom w-100 mt-2")
-                                    ],
-                                    style={"display": "none"}
-                                )
-                            ],
-                            style={"display": "none"}
-                        ),
-
-                        # Save to base (Initially Hidden)
-                        dbc.Button(translate("Salvar na Base", lang), id="btn-save-base", color="none", className="btn-success-custom w-100 mt-4", style={"display": "none"}),
-                    ],
-                    className="card-body-custom"
-                ),
-            ],
-            className="card-custom h-100"
-        )
-
-        # Metrics Section for Armazéns
-        warehouses_metrics_section = dbc.Row(
-            [
-                dbc.Col(
-                    dbc.Card(
-                        dbc.CardBody(
-                            [
-                                html.Div(
-                                    [
-                                        html.I(className="bi bi-building-fill fs-1 me-3", style={"color": UNB_THEME['UNB_BLUE']}),
-                                        html.Div(
-                                            [
-                                                html.H6(translate("Unidades Armazenadoras", lang), className="text-muted small text-uppercase fw-bold mb-1"),
-                                                html.H3(id="metric-warehouses-count", children="0", className="mb-0", style={"color": UNB_THEME['UNB_BLUE']})
-                                            ]
-                                        )
-                                    ],
-                                    className="d-flex align-items-center justify-content-center py-2"
-                                )
-                            ],
-                            className="p-3"
-                        ),
-                        className="shadow-sm border-0 h-100",
-                        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
-                    ),
-                    width=6
-                ),
-                dbc.Col(
-                    dbc.Card(
-                        dbc.CardBody(
-                            [
-                                html.Div(
-                                    [
-                                        html.I(className="bi bi-bank2 fs-1 me-3", style={"color": "#FFC107"}), # Warning/Yellow color
-                                        html.Div(
-                                            [
-                                                html.H6(translate("Unidades Armazenadoras Públicas", lang), className="text-muted small text-uppercase fw-bold mb-1"),
-                                                html.H3(id="metric-warehouses-public", children="0", className="mb-0", style={"color": "#FFC107"})
-                                            ]
-                                        )
-                                    ],
-                                    className="d-flex align-items-center justify-content-center py-2"
-                                )
-                            ],
-                            className="p-3"
-                        ),
-                        className="shadow-sm border-0 h-100",
-                        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
-                    ),
-                    width=6
-                ),
-                dbc.Col(
-                    dbc.Card(
-                        dbc.CardBody(
-                            [
-                                html.Div(
-                                    [
-                                        html.I(className="bi bi-buildings-fill fs-1 me-3", style={"color": "#6C757D"}), # Secondary/Gray color
-                                        html.Div(
-                                            [
-                                                html.H6(translate("Unidades Armazenadoras Privadas", lang), className="text-muted small text-uppercase fw-bold mb-1"),
-                                                html.H3(id="metric-warehouses-private", children="0", className="mb-0", style={"color": "#6C757D"})
-                                            ]
-                                        )
-                                    ],
-                                    className="d-flex align-items-center justify-content-center py-2"
-                                )
-                            ],
-                            className="p-3"
-                        ),
-                        className="shadow-sm border-0 h-100",
-                        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
-                    ),
-                    width=6
-                ),
-                dbc.Col(
-                    dbc.Card(
-                        dbc.CardBody(
-                            [
-                                html.Div(
-                                    [
-                                        html.I(className="bi bi-box-seam-fill fs-1 me-3", style={"color": UNB_THEME['UNB_GREEN']}),
-                                        html.Div(
-                                            [
-                                                html.H6(translate("Capacidade Estática (t)", lang), className="text-muted small text-uppercase fw-bold mb-1"),
-                                                html.H3(id="metric-warehouses-capacity", children="0.00", className="mb-0", style={"color": UNB_THEME['UNB_GREEN']})
-                                            ]
-                                        )
-                                    ],
-                                    className="d-flex align-items-center justify-content-center py-2"
-                                )
-                            ],
-                            className="p-3"
-                        ),
-                        className="shadow-sm border-0 h-100",
-                        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
-                    ),
-                    width=6
-                ),
-            ],
-            className="mt-auto pt-3 g-3"
-        )
-
-        # Warehouses Table Card
-        warehouses_table_card = dbc.Card(
-            [
-                dbc.CardHeader(translate("Tabela de Armazéns", lang),
-                    className="card-header-custom"
-                ),
-                dbc.CardBody(
-                    [
-                         dbc.Spinner(
-                            html.Div(id='table-warehouses-container', children=[
-                                dash_table.DataTable(
-                                    id='table-warehouses',
-                                    data=[],
-                                    columns=[],
-                                    editable=True,
-                                    row_deletable=False,
-                                    filter_action='native',
-                                    page_size=10,
-                                    style_table={'overflowX': 'auto', 'borderRadius': '8px', 'border': f"1px solid {UNB_THEME['BORDER_LIGHT']}"},
-                                    style_cell={
-                                        'textAlign': 'left',
-                                        'fontFamily': "'Roboto', sans-serif",
-                                        'padding': '12px',
-                                        'fontSize': 'var(--font-size-small)',
-                                        'color': UNB_THEME['UNB_GRAY_DARK']
-                                    },
-                                    style_header={
-                                        'backgroundColor': '#F8F9FA',
-                                        'color': UNB_THEME['UNB_BLUE'],
-                                        'fontWeight': 'bold',
-                                        'border': 'none',
-                                        'padding': '12px',
-                                        'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
-                                    },
-                                    style_data={
-                                        'borderBottom': f"1px solid {UNB_THEME['BORDER_LIGHT']}"
-                                    },
-                                    style_data_conditional=[
-                                        {
-                                            'if': {'row_index': 'odd'},
-                                            'backgroundColor': '#f8f9fa'
-                                        }
-                                    ]
-                                )
-                            ], className="h-100"),
-                            spinner_class_name="text-primary-custom"
-                        ),
-                        warehouses_metrics_section
-                    ],
-                    className="card-body-custom d-flex flex-column"
-                ),
-            ],
-            className="card-custom h-100",
-            style={"minHeight": "600px"}
-        )
-
-        # Modals
-        tutorial_modal = dbc.Modal(
-            [
-                dbc.ModalHeader(dbc.ModalTitle(id="modal-tutorial-title"), close_button=True),
-                dbc.ModalBody(id="modal-tutorial-body"),
-                dbc.ModalFooter(
-                    dbc.Button(translate("Entendi", lang), id="close-modal-tutorial", className="btn-primary-custom ms-auto", n_clicks=0)
-                ),
-            ],
-            id="modal-tutorial",
-            size="lg",
-            is_open=False,
-        )
-
-        confirm_save_modal = dbc.Modal(
-            [
-                dbc.ModalHeader(dbc.ModalTitle(translate("Confirmar Salvamento", lang)), close_button=True),
-                dbc.ModalBody(translate("Atenção: Esta ação irá sobrescrever a base de dados original de forma irreversível. A nova base enviada será utilizada para todos os futuros usos do aplicativo. Tem certeza que deseja continuar?", lang)),
-                dbc.ModalFooter(
-                    [
-                        dbc.Button(translate("Cancelar", lang), id="cancel-save", color="none", className="btn-secondary-custom me-2", n_clicks=0),
-                        dbc.Button(translate("Confirmar e Salvar", lang), id="confirm-save", color="none", className="btn-danger-custom", n_clicks=0),
-                    ]
-                ),
-            ],
-            id="modal-confirm-save",
-            is_open=False,
-        )
-
-        missing_cdas_modal = dbc.Modal(
-            [
-                dbc.ModalHeader(dbc.ModalTitle(translate("Atenção: Capacidade de Recepção Não Encontrada", lang)), close_button=True),
-                dbc.ModalBody(id="modal-missing-cdas-body", children=""),
-                dbc.ModalFooter(
-                    dbc.Button(translate("Fechar", lang), id="close-missing-cdas", className="btn-primary-custom ms-auto", n_clicks=0)
-                ),
-            ],
-            id="modal-missing-cdas",
-            is_open=False,
-        )
-
-        slowness_modal = dbc.Modal(
-            [
-                dbc.ModalHeader(dbc.ModalTitle(translate("Aviso de Desempenho", lang)), close_button=True),
-                dbc.ModalBody(translate("Esta base possui mais de 1000 armazéns e isso pode causar lentidões na sua utilização.", lang)),
-                dbc.ModalFooter(
-                    dbc.Button(translate("Entendi", lang), id="close-slowness-modal", className="btn-primary-custom ms-auto", n_clicks=0)
-                ),
-            ],
-            id="modal-slowness-warehouses",
-            is_open=False,
-        )
-
-        return html.Div([
-            dbc.Row(
-                [
-                    dbc.Col([
-                        card_select_base,
-                        html.Div(card_update_save, className="flex-grow-1 h-100")
-                    ], width=12, lg=3, className="mb-24 d-flex flex-column h-100"),
-                    dbc.Col(warehouses_table_card, width=12, lg=9, className="mb-24"),
-                ]
-            ),
-            tutorial_modal,
-            confirm_save_modal,
-            missing_cdas_modal,
-            slowness_modal
-        ])
+    # (Removed inline get_tab_warehouses_layout; now imported from src.view.pages.warehouses)
 
     # 5. Tab Product and Warehouses Content
     def get_tab_prod_warehouses_layout():
@@ -1587,7 +1232,7 @@ def serve_layout(lang="pt", dropdown_base_warehouses_val="credenciados"):
     # Pre-render all tab layouts to ensure IDs exist for callbacks
     tab1_layout = get_tab1_layout()
     tab_demand_layout = get_tab_demand_layout()
-    tab2_layout = get_tab_warehouses_layout(dropdown_base_warehouses_val)
+    tab2_layout = get_tab_warehouses_layout(lang, city_options=CITY_OPTIONS)
     tab_prod_warehouses_layout = get_tab_prod_warehouses_layout()
     tab_costs_layout = get_tab_costs_layout(lang)
     tab_distance_matrix_layout = get_tab_distance_matrix_layout(lang)
@@ -1653,8 +1298,8 @@ app.layout = html.Div([
     dcc.Store(id='store-lang', storage_type='memory', data='pt'),
     dcc.Store(id='store-pending-lang', storage_type='memory', data=None),
 
-    # Static Download Components (Prevents auto-download bug on language switch)
-    dcc.Download(id='download-example-personalizada'),
+    dcc.Download(id='download-warehouses-xlsx'),
+    dcc.Download(id='download-warehouses-template'),
     dcc.Download(id='download-dataframe-xlsx'),
     dcc.Download(id='download-demand-xlsx'),
     dcc.Download(id='download-storage-csv'),
@@ -1768,15 +1413,12 @@ def update_language(pt_clicks, en_clicks, confirm_clicks, cancel_clicks, current
 @app.callback(
     Output('page-content', 'children'),
     [Input('store-lang', 'data')],
-    State('dropdown-base-warehouses', 'value'),
     prevent_initial_call=True
 )
-def render_page(lang, dropdown_base_warehouses_val):
+def render_page(lang):
     if not lang:
         lang = 'pt'
-    if not dropdown_base_warehouses_val:
-        dropdown_base_warehouses_val = 'credenciados'
-    return serve_layout(lang, dropdown_base_warehouses_val)
+    return serve_layout(lang)
 
 
 
@@ -2535,647 +2177,723 @@ def download_data(n_clicks, stored_data, lang='pt'):
 
 # --- Armazéns Callbacks ---
 
-# 4. Load Data to Store (and Handle Restore)
+def process_uploaded_warehouses(contents, filename, lang='pt'):
+  content_type, content_string = contents.split(',')
+  decoded = base64.b64decode(content_string)
+  file_bytes = io.BytesIO(decoded)
+  try:
+    if filename.endswith('.csv'):
+      df = flex_read_csv(file_bytes)
+    else:
+      df = pd.read_excel(file_bytes)
+  except Exception as e:
+    raise ValueError(f"Error reading file: {e}")
+
+  cols_map = {}
+  for col in df.columns:
+    col_lower = str(col).lower().strip()
+    if 'status' in col_lower or 'classif' in col_lower:
+      cols_map['Status'] = col
+    elif 'cda' in col_lower:
+      cols_map['CDA'] = col
+    elif 'munic' in col_lower or 'cidade' in col_lower or 'city' in col_lower:
+      cols_map['Município'] = col
+    elif 'uf' in col_lower or 'estado' in col_lower or 'state' in col_lower:
+      cols_map['UF'] = col
+    elif 'lat' in col_lower:
+      cols_map['Latitude'] = col
+    elif 'lon' in col_lower:
+      cols_map['Longitude'] = col
+    elif 'armazenador' in col_lower or 'owner' in col_lower or 'provedor' in col_lower or 'provider' in col_lower:
+      cols_map['Armazenador'] = col
+    elif 'tipo' in col_lower or 'type' in col_lower:
+      cols_map['Tipo'] = col
+    elif 'cap' in col_lower and ('est' in col_lower or 'capacidade' in col_lower or 'total' in col_lower or 'static' in col_lower):
+      cols_map['Cap. Estática (t)'] = col
+    elif 'recep' in col_lower or 'receb' in col_lower:
+      cols_map['Cap. Recepção (t)'] = col
+    elif 'exped' in col_lower or 'envio' in col_lower:
+      cols_map['Cap. Expedição (t)'] = col
+
+  new_df = pd.DataFrame()
+  
+  if 'Status' in cols_map:
+    new_df['Status'] = df[cols_map['Status']].astype(str).str.strip().apply(
+      lambda x: 'Candidato' if 'candidato' in x.lower() or 'candidate' in x.lower() else 'Existente'
+    )
+  else:
+    new_df['Status'] = 'Existente'
+
+  if 'Município' in cols_map:
+    new_df['Município'] = df[cols_map['Município']].fillna('').astype(str).str.strip()
+  else:
+    new_df['Município'] = ''
+
+  if 'UF' in cols_map:
+    new_df['UF'] = df[cols_map['UF']].fillna('').astype(str).str.strip().str.upper()
+  else:
+    new_df['UF'] = ''
+
+  if 'Latitude' in cols_map:
+    new_df['Latitude'] = pd.to_numeric(df[cols_map['Latitude']], errors='coerce')
+  else:
+    new_df['Latitude'] = np.nan
+
+  if 'Longitude' in cols_map:
+    new_df['Longitude'] = pd.to_numeric(df[cols_map['Longitude']], errors='coerce')
+  else:
+    new_df['Longitude'] = np.nan
+
+  if 'Armazenador' in cols_map:
+    new_df['Armazenador'] = df[cols_map['Armazenador']].fillna('').astype(str).str.strip()
+  else:
+    new_df['Armazenador'] = ''
+
+  if 'Tipo' in cols_map:
+    new_df['Tipo'] = df[cols_map['Tipo']].fillna('').astype(str).str.strip()
+  else:
+    new_df['Tipo'] = ''
+
+  for col_key, col_target in [('Cap. Estática (t)', 'Cap. Estática (t)'),
+                              ('Cap. Recepção (t)', 'Cap. Recepção (t)'),
+                              ('Cap. Expedição (t)', 'Cap. Expedição (t)')]:
+    if col_key in cols_map:
+      new_df[col_target] = df[cols_map[col_key]].apply(parse_brazilian_number)
+    else:
+      new_df[col_target] = 0.0
+
+  if 'CDA' in cols_map:
+    new_df['CDA'] = df[cols_map['CDA']].fillna('').astype(str).str.strip()
+    for idx, val in enumerate(new_df['CDA']):
+      if not val:
+        new_df.at[idx, 'CDA'] = f"WH-{idx+1:03d}"
+  else:
+    new_df['CDA'] = [f"WH-{i+1:03d}" for i in range(len(df))]
+
+  col_names = list(new_df.columns)
+  mun_idx = col_names.index('Município')
+  uf_idx = col_names.index('UF')
+  lat_idx = col_names.index('Latitude')
+  lon_idx = col_names.index('Longitude')
+  
+  lats = []
+  lons = []
+  
+  try:
+    for row in new_df.itertuples(index=False):
+      lat = row[lat_idx]
+      lon = row[lon_idx]
+      mun = row[mun_idx]
+      uf = row[uf_idx]
+      
+      if pd.isna(lat) or pd.isna(lon):
+        key = f"{mun} - {uf}"
+        if key in CITY_LOOKUP:
+          lat = CITY_LOOKUP[key]['latitude']
+          lon = CITY_LOOKUP[key]['longitude']
+      
+      lats.append(lat)
+      lons.append(lon)
+  except (ValueError, IndexError):
+    lats = []
+    lons = []
+    for idx, row in new_df.iterrows():
+      lat = row['Latitude']
+      lon = row['Longitude']
+      mun = row['Município']
+      uf = row['UF']
+      
+      if pd.isna(lat) or pd.isna(lon):
+        key = f"{mun} - {uf}"
+        if key in CITY_LOOKUP:
+          lat = CITY_LOOKUP[key]['latitude']
+          lon = CITY_LOOKUP[key]['longitude']
+      
+      lats.append(lat)
+      lons.append(lon)
+
+  new_df['Latitude'] = lats
+  new_df['Longitude'] = lons
+
+  cands_mask = new_df['Status'] == 'Candidato'
+  new_df.loc[cands_mask, ['Armazenador', 'Tipo']] = ''
+  new_df.loc[cands_mask, ['Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
+
+  # Verification for Existing warehouses
+  for idx, row in new_df.iterrows():
+    st = str(row['Status']).strip().lower()
+    is_existing = ('existente' in st or 'existing' in st)
+    
+    mun = str(row['Município']).strip()
+    if not mun:
+      raise ValueError(translate("Erro no arquivo: Município não pode ser vazio.", lang))
+    
+    if is_existing:
+      prov = str(row['Armazenador']).strip()
+      if not prov:
+        raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, o campo 'Armazenador' deve ser preenchido.", lang))
+      
+      t_val = str(row['Tipo']).strip()
+      if not t_val:
+        raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, o campo 'Tipo' deve ser preenchido.", lang))
+      
+      # capacities
+      for cap_col_name, cap_label in [
+          ('Cap. Estática (t)', translate("Capacidade Estática", lang)),
+          ('Cap. Recepção (t)', translate("Capacidade de Recepção", lang)),
+          ('Cap. Expedição (t)', translate("Capacidade de Expedição", lang))
+      ]:
+        val = row[cap_col_name]
+        if pd.isna(val) or val is None or str(val).strip() == '':
+          raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, o campo '{campo}' deve ser preenchido.", lang).format(campo=cap_label))
+        try:
+          num = float(val)
+          if num < 0:
+            raise ValueError()
+        except ValueError:
+          raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang))
+
+  # Reorder columns to ensure CDA is always first, matching the strict pattern
+  cols_order = [
+    'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
+    'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)'
+  ]
+  for col in cols_order:
+    if col not in new_df.columns:
+      new_df[col] = ''
+  new_df = new_df[cols_order]
+
+  return new_df
+
+
 @app.callback(
-    Output('store-warehouses', 'data'),
-    Output('error-modal', 'is_open', allow_duplicate=True),
-    Output('modal-body-content', 'children', allow_duplicate=True),
-    Output('btn-save-base', 'style'), # New output for Save button visibility
-    Output('modal-missing-cdas', 'is_open'),
-    Output('modal-missing-cdas-body', 'children'),
-    Output('upload-update-base', 'contents'),
-    [Input('main-tabs', 'active_tab'),
-     Input('dropdown-base-warehouses', 'value'),
-     Input('upload-update-base', 'contents'),
-     Input('btn-fetch-registered', 'n_clicks'),
-     Input('table-warehouses', 'data_timestamp')],
-    [State('store-warehouses', 'data'),
-     State('table-warehouses', 'data'),
-     State('upload-update-base', 'filename'),
-     State('store-lang', 'data')],
-    prevent_initial_call=True
+  Output('store-warehouses', 'data'),
+  Output('upload-warehouses-data', 'contents'),
+  Output('error-modal', 'is_open', allow_duplicate=True),
+  Output('modal-body-content', 'children', allow_duplicate=True),
+  [Input('upload-warehouses-data', 'contents'),
+   Input('btn-wh-add-row', 'n_clicks'),
+   Input('table-warehouses', 'data_timestamp'),
+   Input('btn-confirm-clear-warehouses', 'n_clicks')],
+  [State('store-warehouses', 'data'),
+   State('table-warehouses', 'data'),
+   State('upload-warehouses-data', 'filename'),
+   State('wh-status-radio', 'value'),
+   State('wh-input-city', 'value'),
+   State('wh-input-lat', 'value'),
+   State('wh-input-lon', 'value'),
+   State('wh-input-provider', 'value'),
+   State('wh-input-type', 'value'),
+   State('wh-input-static-cap', 'value'),
+   State('wh-input-reception-cap', 'value'),
+   State('wh-input-expedition-cap', 'value'),
+   State('store-lang', 'data')],
+  prevent_initial_call=True
 )
-def manage_warehouses_data(active_tab, dropdown_value, upload_contents, n_fetch, timestamp,
-                         stored_data, table_data, upload_filename, lang='pt'):
-    ctx = dash.callback_context
+def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn_clear_clicks,
+                            store_data, table_data, upload_filename, status_val, city_val,
+                            lat_val, lon_val, provider_val, type_val, static_cap_val,
+                            reception_cap_val, expedition_cap_val, lang):
+  ctx = dash.callback_context
+  if not ctx.triggered:
+    return no_update, no_update, no_update, no_update
 
-    def get_current_base_path(dropdown_val):
-        if dropdown_val == 'cadastrados':
-            return BASE_ARMAZENS_CADASTRADOS_PATH, "Armazéns Cadastrados"
-        elif dropdown_val == 'personalizada':
-            return BASE_ARMAZENS_PERSONALIZADOS_PATH, "Base Personalizada"
-        else:
-            return BASE_ARMAZENS_CREDENCIADOS_PATH, "Armazéns Credenciados e Habilitados"
+  trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    current_path, current_title = get_current_base_path(dropdown_value)
+  if store_data:
+    try:
+      df = pd.read_json(io.StringIO(store_data), orient='split')
+    except:
+      df = pd.DataFrame()
+  else:
+    df = pd.DataFrame()
 
-    if not ctx.triggered:
-         # Initial Load if tab is active
-        if active_tab == 'tab-warehouses' and not stored_data:
-             try:
-                # Load CSV
-                df = pd.read_csv(current_path, sep=';', encoding='iso-8859-1', skiprows=1, index_col=False)
+  if trigger_id == 'btn-confirm-clear-warehouses':
+    empty_df = pd.DataFrame(columns=[
+      'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)'
+    ])
+    return empty_df.to_json(date_format='iso', orient='split'), None, no_update, no_update
 
-                # Drop trailing empty column if exists
-                if not df.empty and "Unnamed" in str(df.columns[-1]):
-                    df = df.iloc[:, :-1]
+  elif trigger_id == 'upload-warehouses-data':
+    if not upload_contents:
+      return no_update, no_update, no_update, no_update
+    try:
+      new_df = process_uploaded_warehouses(upload_contents, upload_filename, lang)
+      return new_df.to_json(date_format='iso', orient='split'), None, no_update, no_update
+    except Exception as e:
+      print(f"Error uploading warehouses: {e}")
+      return no_update, None, True, str(e)
 
-                return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update, False, no_update, None
-             except Exception:
-                return no_update, no_update, no_update, no_update, False, no_update, None
-        return no_update, no_update, no_update, no_update, False, no_update, None
+  elif trigger_id == 'btn-wh-add-row':
+    if not city_val:
+      return no_update, no_update, True, translate("Por favor, selecione a Cidade.", lang)
 
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    # Load from Base
-    if trigger_id == 'main-tabs' and active_tab == 'tab-warehouses':
-        if not stored_data:
-            try:
-                # Load CSV
-                df = pd.read_csv(current_path, sep=';', encoding='iso-8859-1', skiprows=1, index_col=False)
-
-                # Drop trailing empty column if exists
-                if not df.empty and "Unnamed" in str(df.columns[-1]):
-                    df = df.iloc[:, :-1]
-
-                return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update, False, no_update, None
-            except Exception:
-                return no_update, no_update, no_update, no_update, False, no_update, None
-        return no_update, no_update, no_update, no_update, False, no_update, None # Keep current state
-
-    # Dropdown Base Changed
-    if trigger_id == 'dropdown-base-warehouses':
-        try:
-            # When switching bases, we return empty data first if preferred, but store-warehouses already overwrites.
-            # The main slowness issue is keeping old data in the table layout while new data loads,
-            # or rendering many nodes repeatedly.
-            # The return in the 'update_warehouses_table_view' callback rebuilds the UI. To prevent the data from
-            # tab 3 (Matrices) from accumulating, we don't need to touch them until the update is triggered.
-            # We just ensure the Store will be reset with the new base.
-            df = pd.read_csv(current_path, sep=';', encoding='iso-8859-1', skiprows=1, index_col=False)
-
-            # Drop trailing empty column if exists
-            if not df.empty and "Unnamed" in str(df.columns[-1]):
-                df = df.iloc[:, :-1]
-
-            return df.to_json(date_format='iso', orient='split'), no_update, no_update, {"display": "none"}, False, no_update, None
-        except Exception:
-            return no_update, no_update, no_update, no_update, False, no_update, None
-
-    # Update from Upload (CSV) or fetch
-    if trigger_id == 'btn-fetch-registered' and dropdown_value == 'cadastrados':
-        try:
-            df_conab = get_conab_txt_data()
-            if df_conab.empty:
-                return no_update, True, translate("Erro ao buscar dados do Conab.", lang), no_update, False, no_update, None
-
-            # Map the columns
-            # identificacao_armazem to CDA
-            # nome_armazenador to Armazenador
-            # endereco to Endereço
-            # nom_municipio to Município
-            # UF is together with nom_municipio (e.g. BRASILIA - DF), need to split
-            # remove telefone
-            # email to Email
-            # qtd_capacidade_estatica(t) to Capacidade (t)
-            # latitude and longitude stay
-            # Add Estoque Inicial = 0
-            # qtd_capacidade_recepcao(t) to Capacidade de Recepção
-
-            df_new = pd.DataFrame()
-            df_new['CDA'] = df_conab['identificacao_armazem']
-            df_new['Armazenador'] = df_conab['nome_armazenador']
-            df_new['Endereço'] = df_conab['endereco']
-
-            # Split Municipio and UF
-            if 'nom_municipio' in df_conab.columns:
-                # Based on raw data: "CRUZEIRO DO SUL-AC                                "
-                # The separator is "-" and it can have trailing spaces
-                split_mun = df_conab['nom_municipio'].astype(str).str.strip().str.rsplit('-', n=1, expand=True)
-                if split_mun.shape[1] >= 2:
-                    df_new['Município'] = split_mun[0].str.strip()
-                    df_new['UF'] = split_mun[1].str.strip()
-                else:
-                    df_new['Município'] = df_conab['nom_municipio'].astype(str).str.strip()
-                    df_new['UF'] = ""
-            else:
-                df_new['Município'] = ""
-                df_new['UF'] = ""
-
-            # Use UF column if it exists in the Conab data to be safer
-            if 'uf' in df_conab.columns:
-                # override any potential issue from split
-                df_new['UF'] = df_conab['uf'].astype(str).str.strip()
-
-            if 'dsc_tipo_armazem' in df_conab.columns:
-                df_new['Tipo'] = df_conab['dsc_tipo_armazem'].fillna("Não Informado")
-            else:
-                df_new['Tipo'] = "Não Informado"
-            # email column might be uppercase or lowercase, let's use a safe check
-            email_col = next((c for c in df_conab.columns if 'email' in str(c).lower()), None)
-            if email_col:
-                df_new['Email'] = df_conab[email_col].fillna('')
-            else:
-                df_new['Email'] = ''
-            df_new['Capacidade (t)'] = df_conab.get('qtd_capacidade_estatica(t)', 0)
-            df_new['Latitude'] = df_conab.get('latitude', '')
-            df_new['Longitude'] = df_conab.get('longitude', '')
-            df_new['Estoque Inicial'] = 0
-            if 'qtd_capacidade_recepcao(t)' in df_conab.columns:
-                df_new['Capacidade de Recepção'] = df_conab['qtd_capacidade_recepcao(t)'].fillna(0)
-            else:
-                df_new['Capacidade de Recepção'] = 0
-
-            return df_new.to_json(date_format='iso', orient='split'), no_update, no_update, {"display": "block"}, False, no_update, None
-
-        except Exception as e:
-            print(f"Error fetching and processing cadastrados: {e}")
-            return no_update, True, translate("Erro ao processar dados do Conab:", lang) + f" {e}", no_update, False, no_update, None
-
-    elif trigger_id == 'upload-update-base' and upload_contents:
-        content_type, content_string = upload_contents.split(',')
-        decoded = base64.b64decode(content_string)
-
-        try:
-            if dropdown_value == 'personalizada' and ('spreadsheetml' in content_type or upload_filename.endswith('.xlsx')):
-                df = pd.read_excel(io.BytesIO(decoded))
-            elif dropdown_value in ['personalizada', 'cadastrados']:
-                # Personalizada e Cadastrados CSV: flexível
-                file_bytes = io.BytesIO(decoded)
-                df = flex_read_csv(file_bytes)
-
-                # Drop the last column if it's completely empty (result of trailing delimiter)
-                if not df.empty:
-                    df = df.dropna(axis=1, how='all')
-                    if not df.empty and "Unnamed" in str(df.columns[-1]):
-                         df = df.iloc[:, :-1]
-            else:
-                # Conab CSV Parsing Rules (Credenciados):
-                # 1. Encoding: iso-8859-1
-                # 2. Separator: ;
-                # 3. Skip Rows: 1 (Header is on line 2, index 1)
-                # 4. Trailing Delimiter: Drop last column
-
-                # Decode using iso-8859-1
-                decoded_str = decoded.decode('iso-8859-1')
-
-                df = pd.read_csv(
-                    io.StringIO(decoded_str),
-                    sep=';',
-                    encoding='iso-8859-1',
-                    skiprows=1 if dropdown_value == 'credenciados' else 0,
-                    index_col=False
-                )
-
-                # Drop the last column if it's completely empty (result of trailing delimiter)
-                if not df.empty:
-                    df = df.dropna(axis=1, how='all')
-                    if not df.empty and "Unnamed" in str(df.columns[-1]):
-                         df = df.iloc[:, :-1]
-
-            if df is not None:
-                # If it is a Custom Base, check the expected columns
-                if dropdown_value == 'personalizada':
-                    import unicodedata
-
-                    def normalize_string(s):
-                            # Ensure we don't crash on NaN or float column names somehow
-                        return ''.join(c for c in unicodedata.normalize('NFD', str(s)) if unicodedata.category(c) != 'Mn').strip().lower()
-
-                    expected_cols = ['CDA', 'Armazenador', 'Endereço', 'Município', 'UF', 'Tipo', 'Email', 'Capacidade (t)', 'Latitude', 'Longitude', 'Estoque Inicial', 'Capacidade de Recepção']
-                    normalized_expected = {normalize_string(c): c for c in expected_cols}
-
-                    # Rename columns if they match flexibly
-                    rename_mapping = {}
-                    for c in df.columns:
-                        norm_c = normalize_string(c)
-                        if norm_c in normalized_expected:
-                            rename_mapping[c] = normalized_expected[norm_c]
-
-                    df = df.rename(columns=rename_mapping)
-
-                    # Only keep the expected columns to drop any unwanted extra columns
-                    cols_to_keep = [c for c in df.columns if c in expected_cols]
-                    df = df[cols_to_keep]
-
-                    missing_cols = [c for c in expected_cols if c not in df.columns]
-                    if missing_cols:
-                        error_msg = html.Div([
-                            html.Span(translate("Erro: A base personalizada deve conter as colunas:", lang) + f" {', '.join(expected_cols)}."),
-                            html.Br(),
-                            html.Br(),
-                                html.Span(translate("Faltam:", lang) + f" {', '.join(missing_cols)}", className="text-danger fw-bold"),
-                                html.Br(),
-                                html.Span(translate("As colunas lidas no seu arquivo foram:", lang) + f" {', '.join([str(c) for c in rename_mapping.keys()])}", className="text-muted small")
-                        ])
-                        return no_update, True, error_msg, no_update, False, no_update, None
-
-                if "Estoque Inicial" not in df.columns:
-                    df["Estoque Inicial"] = 0
-
-                # Remove "Telefone" if it's there in other bases
-                if 'Telefone' in df.columns:
-                    df = df.drop(columns=['Telefone'])
-
-                # Format Latitude and Longitude
-                for col in ['Latitude', 'Longitude']:
-                    if col in df.columns:
-                        # Convert to string, replace commas with dots, and strip whitespace
-                        df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
-
-                        # Replace empty strings with NaN
-                        df[col] = df[col].replace('', np.nan)
-
-                        # Convert to numeric
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
-
-                        # Correct missing decimal points (e.g. -1149415 -> -11.49415)
-                        # Brazilian latitudes are roughly between +5 and -35, longitudes between -30 and -75
-                        def fix_coord(val, is_lat):
-                            if pd.isna(val) or val == 0:
-                                return val
-
-                            # Convert to absolute value for magnitude check to handle both hemispheres
-                            abs_val = abs(val)
-
-                            # Valid limits for Brazil
-                            min_val, max_val = (-35, 6) if is_lat else (-75, -28)
-
-                            # Iteratively divide by 10 until within range
-                            if val < min_val or val > max_val:
-                                # We need to adjust magnitude.
-                                # e.g. -1149415 -> -11.49415
-                                # we want to shift the decimal point
-
-                                # Using string manipulation for safer point placement when dividing
-                                # Or iteratively divide:
-                                val_iter = val
-                                max_iters = 10
-                                iters = 0
-                                while (val_iter < min_val or val_iter > max_val) and iters < max_iters:
-                                    val_iter /= 10.0
-                                    iters += 1
-
-                                if val_iter >= min_val and val_iter <= max_val:
-                                    return val_iter
-
-                            return val
-
-                        df[col] = df[col].apply(lambda x: fix_coord(x, col == 'Latitude'))
-
-                missing_cdas = []
-                # Fetch external data and match CDA ONLY if dropdown_value is 'credenciados'
-                if dropdown_value == 'credenciados':
-                    df_conab = get_conab_txt_data()
-                    if not df_conab.empty and 'CDA' in df.columns:
-                        # Clean columns for matching
-                        df_conab['identificacao_armazem'] = df_conab['identificacao_armazem'].astype(str).str.strip().str.upper()
-                        df['CDA_temp'] = df['CDA'].astype(str).str.strip().str.upper()
-
-                        # Merge data
-                        df = pd.merge(df, df_conab[['identificacao_armazem', 'qtd_capacidade_recepcao(t)']],
-                                      left_on='CDA_temp', right_on='identificacao_armazem', how='left')
-
-                        # Fill 'Capacidade de Recepção' and identify missing
-                        missing_mask = df['qtd_capacidade_recepcao(t)'].isna()
-                        missing_cdas = df.loc[missing_mask, 'CDA'].tolist()
-
-                        # If column already exists (maybe in future CSVs), update it, otherwise create it
-                        df['Capacidade de Recepção'] = df['qtd_capacidade_recepcao(t)'].fillna(0).infer_objects(copy=False)
-
-                        # Cleanup
-                        df = df.drop(columns=['CDA_temp', 'identificacao_armazem', 'qtd_capacidade_recepcao(t)'])
-                    else:
-                        # Fallback if the data fetch failed or 'CDA' column missing
-                        df['Capacidade de Recepção'] = 0
-                        if 'CDA' in df.columns:
-                            missing_cdas = df['CDA'].tolist()
-                else:
-                    # For personalizada and cadastrados, just ensure the column exists
-                    if 'Capacidade de Recepção' not in df.columns:
-                        df['Capacidade de Recepção'] = 0
-
-                # Setup modal properties for missing CDAs
-                modal_is_open = False
-                modal_children = no_update
-
-                if missing_cdas and dropdown_value == 'credenciados':
-                    modal_is_open = True
-                    list_items = [html.Li(cda) for cda in missing_cdas]
-                    modal_children = html.Div([
-                        html.P(translate("Os seguintes CDAs do seu arquivo não tiveram sua 'Capacidade de Recepção' encontrada na base atualizada do SICARM (Conab) e, portanto, foram definidos como 0:", lang)),
-                        html.Ul(list_items, style={"maxHeight": "200px", "overflowY": "auto"})
-                    ])
-
-                return df.to_json(date_format='iso', orient='split'), no_update, no_update, {"display": "block"}, modal_is_open, modal_children, None
-            else:
-                return no_update, True, translate("Arquivo vazio ou inválido.", lang), no_update, False, no_update, None
-
-        except Exception as e:
-            print(f"Error reconstruction: {e}")
-            return no_update, True, translate("Erro ao processar arquivo:", lang) + f" {e}", no_update, False, no_update, None
-
-    # Table Edits (Auto-save)
-    if trigger_id == 'table-warehouses':
-        if table_data:
-             df = pd.DataFrame(table_data)
-             if "Estoque Inicial" not in df.columns:
-                 df["Estoque Inicial"] = 0
-
-             # Save to base (Auto-save)
-             try:
-                 with open(current_path, 'w', encoding='iso-8859-1') as f:
-                     f.write(current_title + "\n")
-                     df.to_csv(f, sep=';', index=False, lineterminator='\n')
-             except Exception as e:
-                 print(f"Error auto-saving armazens table edit: {e}")
-
-             return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update, False, no_update, None
-        return no_update, no_update, no_update, no_update, False, no_update, None
-
-    return no_update, no_update, no_update, no_update, False, no_update, None
-
-# 5. Render Armazéns Table and Metrics
-@app.callback(
-    Output('table-warehouses', 'data'),
-    Output('table-warehouses', 'columns'),
-    Output('metric-warehouses-count', 'children'),
-    Output('metric-warehouses-capacity', 'children'),
-    Output('metric-warehouses-public', 'children'),
-    Output('metric-warehouses-private', 'children'),
-    Output('modal-slowness-warehouses', 'is_open'),
-    Input('main-tabs', 'active_tab'),
-    Input('store-warehouses', 'data'),
-    Input('store-lang', 'data')
-)
-def update_warehouses_table_view(active_tab, stored_data, lang='pt'):
-    if active_tab != 'tab-warehouses':
-        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
-
-    if not stored_data:
-        return [], [], "0", "0.00", "0", "0", False
+    if ' - ' in city_val:
+      municipio, uf = city_val.split(' - ', 1)
+    else:
+      municipio = city_val
+      uf = ''
 
     try:
-        df = pd.read_json(io.StringIO(stored_data), orient='split')
+      lat = float(lat_val) if lat_val is not None else np.nan
+    except:
+      lat = np.nan
 
-        # Ensure 'Estoque Inicial' is in columns list, and ideally at a reasonable position or end
-        if "Estoque Inicial" not in df.columns:
-            df["Estoque Inicial"] = 0
+    try:
+      lon = float(lon_val) if lon_val is not None else np.nan
+    except:
+      lon = np.nan
 
-        columns = [{'name': translate(i, lang), 'id': i, 'deletable': False, 'renamable': False} for i in df.columns]
+    if not df.empty and 'CDA' in df.columns:
+      cdas = df['CDA'].astype(str).tolist()
+      nums = []
+      for cda in cdas:
+        if cda.startswith('WH-'):
+          try:
+            nums.append(int(cda.split('-')[1]))
+          except:
+            pass
+      next_num = max(nums) + 1 if nums else 1
+    else:
+      next_num = 1
+    new_cda = f"WH-{next_num:03d}"
 
-        # Calculate Metrics
-        count = len(df)
+    if status_val == 'Candidato':
+      provider = ''
+      wh_type = ''
+      static_cap = 0.0
+      reception_cap = 0.0
+      expedition_cap = 0.0
+    else:
+      provider = str(provider_val).strip() if provider_val else ''
+      if not provider:
+        return no_update, no_update, True, translate("Para armazéns Existentes, o campo 'Armazenador' deve ser preenchido.", lang)
+      
+      wh_type = str(type_val).strip() if type_val else ''
+      if not wh_type:
+        return no_update, no_update, True, translate("Para armazéns Existentes, o campo 'Tipo' deve ser preenchido.", lang)
+      
+      # capacities validation
+      for cap_val, cap_label in [
+          (static_cap_val, translate("Capacidade Estática", lang)),
+          (reception_cap_val, translate("Capacidade de Recepção", lang)),
+          (expedition_cap_val, translate("Capacidade de Expedição", lang))
+      ]:
+        if cap_val is None or str(cap_val).strip() == '':
+          return no_update, no_update, True, translate("Para armazéns Existentes, o campo '{campo}' deve ser preenchido.", lang).format(campo=cap_label)
+        try:
+          c_num = float(cap_val)
+          if c_num < 0:
+            raise ValueError()
+        except ValueError:
+          return no_update, no_update, True, translate("Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang)
 
-        # Try to find capacity column (case insensitive partial match)
-        capacity = 0
-        cap_col = next((c for c in df.columns if 'cap' in str(c).lower() or 'ton' in str(c).lower()), None)
+      static_cap = float(static_cap_val)
+      reception_cap = float(reception_cap_val)
+      expedition_cap = float(expedition_cap_val)
 
-        if cap_col:
-            try:
-                if pd.api.types.is_numeric_dtype(df[cap_col]):
-                    # If pandas already parsed it as numbers, just sum it
-                    capacity = df[cap_col].sum()
-                else:
-                    # If it's a string/object, safely clean it
-                    capacity = df[cap_col].apply(parse_brazilian_number).sum()
-            except Exception as e:
-                print(f"Error calculating capacity: {e}")
-                capacity = 0
-
-        # Calculate Public vs Private
-        # Requirement: Public = "Armazenador" == "COMPANHIA NACIONAL DE ABASTECIMENTO"
-        # Private = All others
-        public_count = 0
-        private_count = 0
-
-        armazenador_col = next((c for c in df.columns if 'armazenador' in str(c).lower()), None)
-        if armazenador_col:
-             public_mask = df[armazenador_col].astype(str).str.upper() == "COMPANHIA NACIONAL DE ABASTECIMENTO"
-             public_count = public_mask.sum()
-             private_count = len(df) - public_count
-
-        # Format for display
-        count_str = f"{count}"
-        capacity_str = f"{capacity:,.2f}"
-        public_str = f"{public_count}"
-        private_str = f"{private_count}"
-
-        # To ensure the column shows even if the JSON parsing somehow missed my initial addition,
-        # we check the dicts too. `df.to_dict('records')` uses `df.columns` which now definitely has 'Estoque Inicial'.
-
-        # Display performance warning if more than 1000 rows
-        # But ensure it's not the first load since we only want to warn when switching or loading large dataset
-        # To avoid overlaps with the tutorial modal, we'll only trigger lentidao
-        # when actually displaying a new base from the store.
-        is_slowness = count > 1000
-
-        return df.to_dict('records'), columns, count_str, capacity_str, public_str, private_str, is_slowness
-    except Exception as e:
-        print(f"Error in update_warehouses_table_view: {e}")
-        return [], [], "0", "0.00", "0", "0", False
-
-# 5.1. Close slowness modal
-@app.callback(
-    Output("modal-slowness-warehouses", "is_open", allow_duplicate=True),
-    Input("close-slowness-modal", "n_clicks"),
-    State("modal-slowness-warehouses", "is_open"),
-    prevent_initial_call=True
-)
-def close_slowness_modal(n_clicks, is_open):
-    if n_clicks:
-        return False
-    return is_open
-
-
-# 6. Save Confirmation Modal
-@app.callback(
-    Output("modal-confirm-save", "is_open"),
-    [Input("btn-save-base", "n_clicks"),
-     Input("confirm-save", "n_clicks"),
-     Input("cancel-save", "n_clicks")],
-    [State("modal-confirm-save", "is_open"),
-     State('store-warehouses', 'data'),
-     State('dropdown-base-warehouses', 'value')]
-)
-def toggle_save_modal(n_save, n_confirm, n_cancel, is_open, stored_data, dropdown_value):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return is_open
-
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    if trigger_id == "btn-save-base":
-        return True
-
-    if trigger_id == "cancel-save":
-        return False
-
-    if trigger_id == "confirm-save":
-        # Execute Save
-        def get_current_base_path(dropdown_val):
-            if dropdown_val == 'cadastrados':
-                return BASE_ARMAZENS_CADASTRADOS_PATH, "Armazéns Cadastrados"
-            elif dropdown_val == 'personalizada':
-                return BASE_ARMAZENS_PERSONALIZADOS_PATH, "Base Personalizada"
-            else:
-                return BASE_ARMAZENS_CREDENCIADOS_PATH, "Armazéns Credenciados e Habilitados"
-
-        current_path, current_title = get_current_base_path(dropdown_value)
-
-        if stored_data:
-            try:
-                df = pd.read_json(io.StringIO(stored_data), orient='split')
-                # Save as CSV with header
-                with open(current_path, 'w', encoding='iso-8859-1') as f:
-                    f.write(current_title + "\n")
-                    df.to_csv(f, sep=';', index=False, lineterminator='\n')
-            except Exception as e:
-                print(f"Error saving: {e}")
-        return False
-
-    return is_open
-
-# 7. Close Missing CDAs Modal
-@app.callback(
-    Output("modal-missing-cdas", "is_open", allow_duplicate=True),
-    Input("close-missing-cdas", "n_clicks"),
-    State("modal-missing-cdas", "is_open"),
-    prevent_initial_call=True
-)
-def close_missing_cdas_modal(n_clicks, is_open):
-    if n_clicks:
-        return False
-    return is_open
-
-
-# 8. Tutorial Modal and Upload Visibility
-@app.callback(
-    Output("modal-tutorial", "is_open"),
-    Output("manage-base-container", "style"),
-    Output("upload-update-container", "style"),
-    Output("fetch-registered-container", "style"),
-    Output("download-example-container", "style"),
-    Output("modal-tutorial-title", "children"),
-    Output("modal-tutorial-body", "children"),
-    Output("upload-update-base", "accept"),
-    Output("upload-format-hint", "children"),
-    [Input("btn-update-base", "n_clicks"),
-     Input("close-modal-tutorial", "n_clicks"),
-     Input("dropdown-base-warehouses", "value")],
-    [State("modal-tutorial", "is_open"),
-     State('store-lang', 'data')]
-)
-def toggle_tutorial_modal(n_update, n_close, dropdown_value, is_open, lang='pt'):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return is_open, {"display": "none"}, {"display": "none"}, {"display": "none"}, {"display": "none"}, "", "", no_update, no_update
-
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    # Hide everything if we just changed the dropdown
-    if trigger_id == "dropdown-base-warehouses":
-        return False, {"display": "none"}, {"display": "none"}, {"display": "none"}, {"display": "none"}, no_update, no_update, no_update, no_update
-
-    manage_style = {"display": "block"}
-    upload_style = {"display": "block"} if dropdown_value in ['credenciados', 'personalizada'] else {"display": "none"}
-    fetch_style = {"display": "block"} if dropdown_value == 'cadastrados' else {"display": "none"}
-    download_example_style = {"display": "block"} if dropdown_value == 'personalizada' else {"display": "none"}
-
-    upload_accept = ".csv, .xlsx" if dropdown_value == 'personalizada' else ".csv"
-    upload_hint = "Formatos: .csv, .xlsx" if dropdown_value == 'personalizada' else "Formatos: .csv"
-
-    # Set modal content based on selected base
-    if dropdown_value == 'cadastrados':
-        title = translate("Como Atualizar a Base (Armazéns Cadastrados)", lang)
-        body = [
-            html.P(translate("Para atualizar a base de Armazéns Cadastrados do SICARM, basta fechar este pop-up e clicar no botão 'Baixar Dados da Conab'.", lang)),
-            html.P(translate("O sistema buscará automaticamente as informações mais recentes do site oficial da Conab e substituirá a base atual.", lang)),
-            html.Ul([
-                html.Li(html.B(translate("Atenção: Você precisará informar o estoque inicial manualmente para cada unidade armazenadora na tabela ao lado, pois a base utilizada não fornece essa informação.", lang))),
-                html.Li(html.B(translate("Atenção: Para as unidades em que a base não fornecer o valor da capacidade de recepção, este será definido automaticamente como 0.", lang)))
-            ])
-        ]
-    elif dropdown_value == 'personalizada':
-        title = translate("Como Enviar uma Base Personalizada", lang)
-        body = [
-            html.P(translate("Você pode enviar a sua própria base de armazéns enviando um arquivo .csv ou .xlsx.", lang)),
-            html.P(translate("Você também pode baixar um arquivo de exemplo com o formato esperado e editá-lo antes do envio.", lang)),
-            html.P(translate("O arquivo deve conter as seguintes colunas (a ordem não importa e letras maiúsculas/minúsculas ou acentos são tolerados):", lang)),
-            html.Ul([
-                html.Li(translate("CDA", lang)),
-                html.Li(translate("Armazenador", lang)),
-                html.Li(translate("Endereço", lang)),
-                html.Li(translate("Município", lang)),
-                html.Li("UF"),
-                html.Li(translate("Tipo", lang)),
-                html.Li(translate("Email", lang)),
-                html.Li(translate("Capacidade (t)", lang)),
-                html.Li(translate("Latitude", lang)),
-                html.Li(translate("Longitude", lang)),
-                html.Li(translate("Estoque Inicial", lang)),
-                html.Li(translate("Capacidade de Recepção", lang))
-            ]),
-            html.P(translate("Carregue o arquivo na área que aparecerá após fechar esta janela.", lang))
-        ]
-    else: # credenciados
-        title = translate("Como Atualizar a Base (Armazéns Credenciados)", lang)
-        body = [
-            html.P(translate("Siga os passos abaixo para atualizar a base de armazéns:", lang)),
-            html.Ol([
-                html.Li([
-                    translate("Acesse o link: ", lang),
-                    html.A(translate("Consulta Conab", lang), href="https://consultaweb.conab.gov.br/consultas/consultaArmazem.do?method=acaoCarregarConsulta", target="_blank")
-                ]),
-                html.Li(translate("Marque apenas a opção 'Armazéns Credenciados'.", lang)),
-                html.Li(translate("Deixe os outros campos em branco.", lang)),
-                html.Li(translate("Preencha o código de segurança e clique em 'Consultar'.", lang)),
-                html.Li(translate("No final da página de resultados, exporte ou salve a tabela como arquivo CSV.", lang)),
-                html.Li(translate("Carregue o arquivo CSV na área que aparecerá após fechar esta janela.", lang)),
-                html.Li(translate("O sistema consultará automaticamente a base do SICARM para preencher a coluna 'Capacidade de Recepção'.", lang)),
-                html.Li(html.B(translate("Atenção: Você precisará informar o estoque inicial manualmente para cada unidade armazenadora na tabela ao lado, pois a base utilizada não fornece essa informação.", lang)))
-            ]),
-            html.Img(src="/assets/data/Tutorial_Atualizar_Armazens.png", style={"width": "100%", "marginTop": "10px", "borderRadius": "8px", "border": "1px solid #ddd"})
-        ]
-
-    if trigger_id == "btn-update-base":
-        return True, manage_style, upload_style, fetch_style, download_example_style, title, body, upload_accept, upload_hint
-
-    if trigger_id == "close-modal-tutorial":
-        return False, manage_style, upload_style, fetch_style, download_example_style, title, body, upload_accept, upload_hint
-
-    return is_open, {"display": "none"}, {"display": "none"}, {"display": "none"}, {"display": "none"}, title, body, upload_accept, upload_hint
-
-
-@app.callback(
-    Output("download-example-personalizada", "data"),
-    Input("btn-download-example", "n_clicks"),
-    State('store-lang', 'data'),
-    prevent_initial_call=True
-)
-def download_example_file(n_clicks, lang='pt'):
-    ctx = dash.callback_context
-    if not n_clicks or not ctx.triggered or ctx.triggered[0]['prop_id'] != 'btn-download-example.n_clicks':
-        return no_update
-
-    # Create example dataframe
-    data = {
-        'CDA': ['EXEMPLO-123'],
-        'Armazenador': ['Nome do Armazém Exemplo'],
-        'Endereço': ['Rua Exemplo, 123'],
-        'Município': ['Brasília'],
-        'UF': ['DF'],
-        'Tipo': ['Convencional'],
-        'Email': ['contato@exemplo.com'],
-        'Capacidade (t)': [10000],
-        'Latitude': [-15.793889],
-        'Longitude': [-47.882778],
-        'Estoque Inicial': [500],
-        'Capacidade de Recepção': [1000]
+    new_row = {
+      'CDA': new_cda,
+      'Status': status_val,
+      'Município': municipio,
+      'UF': uf,
+      'Latitude': lat,
+      'Longitude': lon,
+      'Armazenador': provider,
+      'Tipo': wh_type,
+      'Cap. Estática (t)': static_cap,
+      'Cap. Recepção (t)': reception_cap,
+      'Cap. Expedição (t)': expedition_cap
     }
-    df = pd.DataFrame(data)
 
-    return dcc.send_data_frame(df.to_excel, translate("Custom_Base_Example.xlsx", lang), index=False)
+    if df.empty:
+      df = pd.DataFrame([new_row])
+    else:
+      df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+    return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+
+  elif trigger_id == 'table-warehouses':
+    if table_data is None:
+      return no_update, no_update, no_update, no_update
+    
+    table_df = pd.DataFrame(table_data)
+    
+    # Normalize Status column back to internal PT values
+    if 'Status' in table_df.columns:
+      table_df['Status'] = table_df['Status'].fillna('Existente').astype(str).str.strip().apply(
+        lambda x: 'Candidato' if 'candidato' in x.lower() or 'candidate' in x.lower() else 'Existente'
+      )
+
+    # Clear fields for Candidates
+    cands_mask = table_df['Status'] == 'Candidato'
+    table_df.loc[cands_mask, ['Armazenador', 'Tipo']] = ''
+    table_df.loc[cands_mask, ['Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
+
+    # Validate each row in table_df
+    for idx, row in table_df.iterrows():
+      st = str(row.get('Status', '')).strip().lower()
+      is_existing = ('existente' in st or 'existing' in st)
+      
+      mun = str(row.get('Município', '')).strip()
+      if not mun:
+        return no_update, no_update, True, translate("Por favor, selecione a Cidade.", lang)
+      
+      if is_existing:
+        prov = str(row.get('Armazenador', '')).strip()
+        if not prov:
+          return no_update, no_update, True, translate("Para armazéns Existentes, o campo 'Armazenador' deve ser preenchido.", lang)
+        
+        t_val = str(row.get('Tipo', '')).strip()
+        if not t_val:
+          return no_update, no_update, True, translate("Para armazéns Existentes, o campo 'Tipo' deve ser preenchido.", lang)
+        
+        for cap_col_name, cap_label in [
+            ('Cap. Estática (t)', translate("Capacidade Estática", lang)),
+            ('Cap. Recepção (t)', translate("Capacidade de Recepção", lang)),
+            ('Cap. Expedição (t)', translate("Capacidade de Expedição", lang))
+        ]:
+          val = row.get(cap_col_name)
+          if pd.isna(val) or val is None or str(val).strip() == '':
+            return no_update, no_update, True, translate("Para armazéns Existentes, o campo '{campo}' deve ser preenchido.", lang).format(campo=cap_label)
+          try:
+            num = float(val)
+            if num < 0:
+              raise ValueError()
+          except ValueError:
+            return no_update, no_update, True, translate("Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang)
+    
+    if 'CDA' not in table_df.columns:
+      table_df['CDA'] = [f"WH-{i+1:03d}" for i in range(len(table_df))]
+    else:
+      table_df['CDA'] = table_df['CDA'].fillna('')
+      for idx, row in table_df.iterrows():
+        if not row['CDA']:
+          table_df.at[idx, 'CDA'] = f"WH-{idx+1:03d}"
+    
+    cols = [
+      'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)'
+    ]
+    for col in cols:
+      if col not in table_df.columns:
+        table_df[col] = ''
+    table_df = table_df[cols]
+    
+    return table_df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+
+  return no_update, no_update, no_update, no_update
+
+
+@app.callback(
+  [Output('table-warehouses', 'data'),
+   Output('wh-metric-total-count', 'children'),
+   Output('wh-metric-existing-count', 'children'),
+   Output('wh-metric-candidate-count', 'children'),
+   Output('wh-metric-total-capacity', 'children'),
+   Output('graph-warehouses-map', 'figure')],
+  [Input('store-warehouses', 'data'),
+   Input('main-tabs', 'active_tab'),
+   Input('store-lang', 'data')]
+)
+def update_warehouses_table_and_map(store_data, active_tab, lang):
+  if active_tab != 'tab-warehouses':
+    empty_fig = go.Figure()
+    empty_fig.update_layout(mapbox_style="open-street-map")
+    return [], "0", "0", "0", "0.00", empty_fig
+
+  if store_data:
+    try:
+      df = pd.read_json(io.StringIO(store_data), orient='split')
+    except:
+      df = pd.DataFrame()
+  else:
+    df = pd.DataFrame()
+
+  if df.empty:
+    empty_fig = go.Figure()
+    empty_fig.update_layout(
+      mapbox=dict(
+        style="open-street-map",
+        center=dict(lat=-15.793889, lon=-47.882778),
+        zoom=3
+      ),
+      margin={"r":0,"t":0,"l":0,"b":0},
+      height=500
+    )
+    return [], "0", "0", "0", "0.00", empty_fig
+
+  total_count = len(df)
+  existing_count = len(df[df['Status'] == 'Existente'])
+  candidate_count = len(df[df['Status'] == 'Candidato'])
+  
+  if 'Cap. Estática (t)' in df.columns:
+    total_capacity = pd.to_numeric(df['Cap. Estática (t)'], errors='coerce').sum()
+  else:
+    total_capacity = 0.0
+
+  total_capacity_str = f"{total_capacity:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+  df_table = df.copy()
+  if 'Status' in df_table.columns:
+    df_table['Status'] = df_table['Status'].apply(lambda x: translate(x, lang) if x in ['Existente', 'Candidato'] else x)
+  table_records = df_table.to_dict('records')
+
+  fig = go.Figure()
+
+  df_existing = df[df['Status'] == 'Existente']
+  df_candidates = df[df['Status'] == 'Candidato']
+
+  df_existing = df_existing.dropna(subset=['Latitude', 'Longitude'])
+  df_candidates = df_candidates.dropna(subset=['Latitude', 'Longitude'])
+
+  if not df_existing.empty:
+    hover_texts = []
+    col_names = list(df_existing.columns)
+    prov_idx = col_names.index('Armazenador')
+    mun_idx = col_names.index('Município')
+    uf_idx = col_names.index('UF')
+    cap_idx = col_names.index('Cap. Estática (t)')
+    type_idx = col_names.index('Tipo')
+    
+    try:
+      for row in df_existing.itertuples(index=False):
+        hover_texts.append(
+          f"<b>{translate('Armazém Existente', lang)}</b><br>"
+          f"<b>{row[prov_idx]}</b><br>"
+          f"{row[mun_idx]} - {row[uf_idx]}<br>"
+          f"{translate('Tipo', lang)}: {row[type_idx]}<br>"
+          f"{translate('Capacidade Estática (t)', lang)}: {row[cap_idx]:,.1f}"
+        )
+    except (ValueError, IndexError):
+      for _, row in df_existing.iterrows():
+        hover_texts.append(
+          f"<b>{translate('Armazém Existente', lang)}</b><br>"
+          f"<b>{row['Armazenador']}</b><br>"
+          f"{row['Município']} - {row['UF']}<br>"
+          f"{translate('Tipo', lang)}: {row['Tipo']}<br>"
+          f"{translate('Capacidade Estática (t)', lang)}: {row['Cap. Estática (t)']:,.1f}"
+        )
+
+    fig.add_trace(go.Scattermapbox(
+      lat=df_existing['Latitude'],
+      lon=df_existing['Longitude'],
+      mode='markers',
+      marker=go.scattermapbox.Marker(
+        size=12,
+        color='#003366',
+        opacity=0.85
+      ),
+      text=hover_texts,
+      hoverinfo='text',
+      name=translate('Existente', lang)
+    ))
+
+  if not df_candidates.empty:
+    hover_texts_cand = []
+    col_names_cand = list(df_candidates.columns)
+    mun_cand_idx = col_names_cand.index('Município')
+    uf_cand_idx = col_names_cand.index('UF')
+    
+    try:
+      for row in df_candidates.itertuples(index=False):
+        hover_texts_cand.append(
+          f"<b>{translate('Candidato de Abertura', lang)}</b><br>"
+          f"{row[mun_cand_idx]} - {row[uf_cand_idx]}"
+        )
+    except (ValueError, IndexError):
+      for _, row in df_candidates.iterrows():
+        hover_texts_cand.append(
+          f"<b>{translate('Candidato de Abertura', lang)}</b><br>"
+          f"{row['Município']} - {row['UF']}"
+        )
+
+    fig.add_trace(go.Scattermapbox(
+      lat=df_candidates['Latitude'],
+      lon=df_candidates['Longitude'],
+      mode='markers',
+      marker=go.scattermapbox.Marker(
+        size=12,
+        color='#997A00',
+        opacity=0.85
+      ),
+      text=hover_texts_cand,
+      hoverinfo='text',
+      name=translate('Candidato', lang)
+    ))
+
+  all_lats = df.dropna(subset=['Latitude', 'Longitude'])['Latitude']
+  all_lons = df.dropna(subset=['Latitude', 'Longitude'])['Longitude']
+  
+  if not all_lats.empty and not all_lons.empty:
+    center_lat = all_lats.mean()
+    center_lon = all_lons.mean()
+    zoom = 4
+  else:
+    center_lat = -15.793889
+    center_lon = -47.882778
+    zoom = 3
+
+  fig.update_layout(
+    mapbox=dict(
+      style="open-street-map",
+      center=dict(lat=center_lat, lon=center_lon),
+      zoom=zoom
+    ),
+    margin={"r":0,"t":0,"l":0,"b":0},
+    showlegend=True,
+    legend=dict(
+      yanchor="top",
+      y=0.98,
+      xanchor="left",
+      x=0.02,
+      bgcolor="rgba(255, 255, 255, 0.8)"
+    ),
+    height=500
+  )
+
+  return table_records, str(total_count), str(existing_count), str(candidate_count), total_capacity_str, fig
+
+
+@app.callback(
+  Output('wh-conditional-fields-container', 'style'),
+  Input('wh-status-radio', 'value')
+)
+def toggle_wh_conditional_fields(status):
+  if status == 'Candidato':
+    return {"display": "none"}
+  return {"display": "block"}
+
+
+@app.callback(
+  Output("wh-input-city", "options"),
+  Input("wh-input-city", "search_value"),
+  State("wh-input-city", "value")
+)
+def update_wh_city_options(search_value, value):
+  if not search_value:
+    if value:
+      return [{'label': value, 'value': value}]
+    return []
+
+  filtered = [
+    {'label': c, 'value': c}
+    for c in CITY_OPTIONS
+    if search_value.lower() in c.lower()
+  ]
+  filtered = filtered[:50]
+
+  if value:
+    if not any(f['value'] == value for f in filtered):
+      filtered.insert(0, {'label': value, 'value': value})
+
+  return filtered
+
+
+@app.callback(
+  [Output('wh-input-lat', 'value'),
+   Output('wh-input-lon', 'value')],
+  Input('wh-input-city', 'value')
+)
+def update_wh_city_coords(city_value):
+  if not city_value or city_value not in CITY_LOOKUP:
+    return None, None
+  coords = CITY_LOOKUP[city_value]
+  return coords['latitude'], coords['longitude']
+
+
+@app.callback(
+  [Output('wh-input-lat', 'disabled'),
+   Output('wh-input-lon', 'disabled'),
+   Output('btn-wh-manual-edit', 'children')],
+  [Input('btn-wh-manual-edit', 'n_clicks')],
+  [State('wh-input-lat', 'disabled')],
+  prevent_initial_call=True
+)
+def toggle_wh_manual_edit(n_clicks, is_disabled):
+  if not n_clicks:
+    return is_disabled, is_disabled, "🔒"
+  if is_disabled:
+    return False, False, "🔓"
+  else:
+    return True, True, "🔒"
+
+
+@app.callback(
+  Output('confirm-clear-warehouses-modal', 'is_open'),
+  [Input('btn-clear-warehouses', 'n_clicks'),
+   Input('btn-cancel-clear-warehouses', 'n_clicks'),
+   Input('btn-confirm-clear-warehouses', 'n_clicks')],
+  [State('confirm-clear-warehouses-modal', 'is_open')],
+  prevent_initial_call=True
+)
+def toggle_clear_warehouses_modal(n_open, n_cancel, n_confirm, is_open):
+  return not is_open
+
+
+@app.callback(
+  Output('download-warehouses-xlsx', 'data'),
+  Input('btn-wh-export-xlsx', 'n_clicks'),
+  [State('store-warehouses', 'data'),
+   State('store-lang', 'data')],
+  prevent_initial_call=True
+)
+def download_warehouses_xlsx(n_clicks, store_data, lang):
+  if not n_clicks or not store_data:
+    return no_update
+
+  df = pd.read_json(io.StringIO(store_data), orient='split')
+  if df.empty:
+    return no_update
+
+  # Translate columns and Status values
+  translated_cols = {col: translate(col, lang) for col in df.columns}
+  df = df.rename(columns=translated_cols)
+  
+  status_col = translate('Status', lang)
+  if status_col in df.columns:
+    df[status_col] = df[status_col].apply(lambda x: translate(x, lang) if x in ['Existente', 'Candidato'] else x)
+
+  return dcc.send_data_frame(df.to_excel, translate("Warehouses.xlsx", lang), index=False)
+
+
+@app.callback(
+  Output('download-warehouses-template', 'data'),
+  Input('btn-wh-download-template', 'n_clicks'),
+  State('store-lang', 'data'),
+  prevent_initial_call=True
+)
+def download_warehouses_template(n_clicks, lang):
+  if not n_clicks:
+    return no_update
+
+  pt_data = {
+    'CDA': ['WH-001', 'WH-002'],
+    'Status': ['Existente', 'Candidato'],
+    'Município': ['Brasília', 'Goiânia'],
+    'UF': ['DF', 'GO'],
+    'Latitude': [-15.793889, -16.686891],
+    'Longitude': [-47.882778, -49.264789],
+    'Armazenador': ['CONAB Exemplo', ''],
+    'Tipo': ['Convencional', ''],
+    'Cap. Estática (t)': [10000.0, 0.0],
+    'Cap. Recepção (t)': [1000.0, 0.0],
+    'Cap. Expedição (t)': [800.0, 0.0]
+  }
+
+  translated_data = {}
+  for key, val in pt_data.items():
+    translated_key = translate(key, lang)
+    if key == 'Status':
+      translated_val = [translate(v, lang) for v in val]
+    else:
+      translated_val = val
+    translated_data[translated_key] = translated_val
+
+  df = pd.DataFrame(translated_data)
+  
+  return dcc.send_data_frame(df.to_excel, translate("Warehouses_Template.xlsx", lang), index=False)
 
 # 9. Validation for Tab Prod x Armazens
 @app.callback(
