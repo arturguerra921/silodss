@@ -114,6 +114,7 @@
     "Tarifa de Armazenagem": "Tarifa de Armazenagem",
     "Valores para armazenamento de cada produto. O sistema buscará o nome exato do produto (ignorando acentos e maiúsculas/minúsculas). Caso não encontre, utilizará a tarifa da linha 'Outros'. A linha 'Outros' é obrigatória e será criada automaticamente com valor 50 caso não exista em um novo arquivo. Atualizações na tabela serão salvas automaticamente.": "Valores para armazenamento de cada produto. O sistema buscará o nome exato do produto (ignorando acentos e maiúsculas/minúsculas). Caso não encontre, utilizará a tarifa da linha 'Outros'. A linha 'Outros' é obrigatória e será criada automaticamente com valor 50 caso não exista em um novo arquivo. Atualizações na tabela serão salvas automaticamente.",
     "Formatos: .csv, .xlsx": "Formatos: .csv, .xlsx",
+    "Armazenar": "Armazenar",
     "Armazenar Público": "Armazenar Público",
     "Armazenar Privado": "Armazenar Privado",
     "Valor do Frete": "Valor do Frete",

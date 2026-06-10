@@ -203,7 +203,7 @@ def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight,
             freight_cost[orig] = avg_freight
 
     # Tarifas de Armazenagem
-    # df_storage tem 'Produto', 'Armazenar_Publico', 'Armazenar_Privado'
+    # df_storage tem 'Produto', 'Armazenar'
     storage_cost = {}
     try:
         import unicodedata
@@ -215,28 +215,21 @@ def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight,
             s_ascii = s_nfkd.encode('ASCII', 'ignore').decode('utf-8')
             return s_ascii.lower()
 
-        df_storage['Pub'] = df_storage['Armazenar_Publico'].apply(safe_parse_numeric)
-        df_storage['Priv'] = df_storage['Armazenar_Privado'].apply(safe_parse_numeric)
+        df_storage['Cost'] = df_storage['Armazenar'].apply(safe_parse_numeric)
         df_storage['Prod_Norm'] = df_storage['Produto'].apply(normalize_str)
 
-        # Build lookup dictionaries
-        pub_dict = df_storage.set_index('Prod_Norm')['Pub'].to_dict()
-        priv_dict = df_storage.set_index('Prod_Norm')['Priv'].to_dict()
+        # Build lookup dictionary
+        cost_dict = df_storage.set_index('Prod_Norm')['Cost'].to_dict()
 
         # Try to find "outros" as fallback, otherwise use 50.0
-        fallback_pub = pub_dict.get('outros', 50.0)
-        fallback_priv = priv_dict.get('outros', 50.0)
+        fallback_cost = cost_dict.get('outros', 50.0)
 
         for prod in all_products:
             prod_norm = normalize_str(prod)
-            pub_val = pub_dict.get(prod_norm, fallback_pub)
-            priv_val = priv_dict.get(prod_norm, fallback_priv)
+            val = cost_dict.get(prod_norm, fallback_cost)
 
             for dest in demand_total_capacity.keys():
-                if is_public.get(dest, False):
-                    storage_cost[(dest, prod)] = pub_val
-                else:
-                    storage_cost[(dest, prod)] = priv_val
+                storage_cost[(dest, prod)] = val
 
     except Exception as e:
         print(translate("Erro ao processar tarifas de armazenagem: {e}", lang).format(e=e))

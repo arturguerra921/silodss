@@ -3105,7 +3105,7 @@ def manage_storage_costs(active_tab, upload_contents, n_add, timestamp, stored_d
                  df = df.iloc[:, :-1]
 
             # Expected columns strictly required
-            expected_cols = ['Produto', 'Armazenar_Publico', 'Armazenar_Privado']
+            expected_cols = ['Produto', 'Armazenar']
 
             if not all(col in df.columns for col in expected_cols):
                 return no_update, True, translate("O arquivo de Tarifas de Armazenagem deve ter exatamente as colunas:", lang) + f" {', '.join(expected_cols)}.", None
@@ -3127,7 +3127,7 @@ def manage_storage_costs(active_tab, upload_contents, n_add, timestamp, stored_d
             df['Prod_Norm'] = df['Produto'].apply(normalize_str)
             if not (df['Prod_Norm'] == 'outros').any():
                 # Append "Outros" row at the beginning
-                new_row = pd.DataFrame([{'Produto': 'Outros', 'Armazenar_Publico': 50, 'Armazenar_Privado': 50}])
+                new_row = pd.DataFrame([{'Produto': 'Outros', 'Armazenar': 50}])
                 dropped_df = df.drop(columns=['Prod_Norm'])
                 if dropped_df.empty:
                     df = new_row
@@ -3147,9 +3147,9 @@ def manage_storage_costs(active_tab, upload_contents, n_add, timestamp, stored_d
         if stored_data:
             df = pd.read_json(io.StringIO(stored_data), orient='split')
         else:
-            df = pd.DataFrame(columns=['Produto', 'Armazenar_Publico', 'Armazenar_Privado'])
+            df = pd.DataFrame(columns=['Produto', 'Armazenar'])
 
-        new_row = pd.DataFrame([{'Produto': '', 'Armazenar_Publico': 0, 'Armazenar_Privado': 0}])
+        new_row = pd.DataFrame([{'Produto': '', 'Armazenar': 0}])
         if df.empty:
             df = new_row
         else:
@@ -3168,32 +3168,6 @@ def manage_storage_costs(active_tab, upload_contents, n_add, timestamp, stored_d
 
     return no_update, no_update, no_update, no_update
 
-    # Add Row
-    if trigger_id == 'btn-add-storage-row':
-        if stored_data:
-            df = pd.read_json(io.StringIO(stored_data), orient='split')
-        else:
-            df = pd.DataFrame(columns=['Produto', 'Armazenar_Publico', 'Armazenar_Privado'])
-
-        new_row = pd.DataFrame([{'Produto': '', 'Armazenar_Publico': 0, 'Armazenar_Privado': 0}])
-        if df.empty:
-            df = new_row
-        else:
-            df = pd.concat([df, new_row], ignore_index=True)
-        # Save to disk
-        df.to_csv(STORAGE_COSTS_PATH, sep=';', index=False, encoding='iso-8859-1')
-        return df.to_json(date_format='iso', orient='split'), no_update, no_update
-
-    # Edit Table
-    if trigger_id == 'table-costs-storage':
-        if table_data is not None:
-            df = pd.DataFrame(table_data)
-            # Save to disk
-            df.to_csv(STORAGE_COSTS_PATH, sep=';', index=False, encoding='iso-8859-1')
-            return df.to_json(date_format='iso', orient='split'), no_update, no_update
-
-    return no_update, no_update, no_update
-
 @app.callback(
     Output('table-costs-storage', 'data'),
     Output('table-costs-storage', 'columns'),
@@ -3207,8 +3181,7 @@ def update_storage_table(active_tab, stored_data, lang='pt'):
 
     columns = [
         {'name': translate('Produto', lang), 'id': 'Produto'},
-        {'name': translate('Armazenar Público', lang), 'id': 'Armazenar_Publico'},
-        {'name': translate('Armazenar Privado', lang), 'id': 'Armazenar_Privado'}
+        {'name': translate('Armazenar', lang), 'id': 'Armazenar'}
     ]
     if not stored_data:
         return [], columns

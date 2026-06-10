@@ -55,8 +55,7 @@ def get_tab_costs_layout(lang='pt'):
                                                 data=[],
                                                 columns=[
                                                     {'name': translate('Produto', lang), 'id': 'Produto'},
-                                                    {'name': translate('Armazenar Público', lang), 'id': 'Armazenar_Publico'},
-                                                    {'name': translate('Armazenar Privado', lang), 'id': 'Armazenar_Privado'}
+                                                    {'name': translate('Armazenar', lang), 'id': 'Armazenar'}
                                                 ],
                                                 editable=True,
                                                 row_deletable=True,
