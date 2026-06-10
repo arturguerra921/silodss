@@ -3009,7 +3009,8 @@ def update_prod_warehouses_table(active_tab, stored_data, stored_warehouses, lan
         try:
             df_arm = pd.read_json(io.StringIO(stored_warehouses), orient='split')
             if not df_arm.empty and "Tipo" in df_arm.columns:
-                types = sorted(df_arm["Tipo"].dropna().unique().astype(str).tolist())
+                raw_types = df_arm["Tipo"].dropna().astype(str).str.strip()
+                types = sorted(raw_types[raw_types != ''].unique().tolist())
         except Exception as e:
             print(f"Error reading types: {e}")
 
