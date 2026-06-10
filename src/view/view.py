@@ -3652,12 +3652,12 @@ def download_matrix(n_clicks, stored_matrix_json, lang='pt'):
         print(f"Error loading matrix for download: {e}")
         return no_update
 
-    def write_excel(path):
-        with pd.ExcelWriter(path, engine='openpyxl') as writer:
-            df_supply_to_wh.to_excel(writer, sheet_name=translate("Oferta para Armazéns", lang), index=False)
-            df_wh_to_demand.to_excel(writer, sheet_name=translate("Armazéns para Demanda", lang), index=False)
-
-    return dcc.send_data_frame(write_excel, translate("Matriz_Distancias.xlsx", lang))
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_supply_to_wh.to_excel(writer, sheet_name=translate("Oferta para Armazéns", lang), index=False)
+        df_wh_to_demand.to_excel(writer, sheet_name=translate("Armazéns para Demanda", lang), index=False)
+    
+    return dcc.send_bytes(buffer.getvalue(), translate("Matriz_Distancias.xlsx", lang))
 
 # 15. Route Visualization
 @app.callback(
