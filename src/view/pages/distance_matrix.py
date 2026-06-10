@@ -11,7 +11,7 @@ def get_tab_distance_matrix_layout(lang='pt'):
                 html.Div([
                     html.Span(translate("Cálculo da Matriz de Distâncias", lang), className="me-2"),
                     html.I(className="bi bi-question-circle-fill text-muted", id="help-calc-matrix", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                    dbc.Tooltip(translate("Calcula a distância rodoviária real entre cada cidade de origem (Oferta) e cada armazém (Armazéns).", lang),
+                    dbc.Tooltip(translate("Calcula a distância rodoviária real para os dois trechos da malha: de cada origem (Oferta) a cada armazém, e de cada armazém a cada destino (Demanda).", lang),
                         target="help-calc-matrix",
                         placement="right"
                     ),
@@ -49,10 +49,45 @@ def get_tab_distance_matrix_layout(lang='pt'):
         className="card-custom"
     )
 
+    # Segment Selector Card
+    segment_card = dbc.Card(
+        [
+            dbc.CardHeader(
+                html.Div([
+                    html.Span(translate("Trecho da Malha", lang), className="me-2"),
+                    html.I(className="bi bi-question-circle-fill text-muted", id="help-matrix-segment", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                    dbc.Tooltip(translate("Selecione o trecho da malha para visualizar as distâncias calculadas e as rotas correspondentes no mapa.", lang),
+                        target="help-matrix-segment",
+                        placement="right"
+                    ),
+                ], className="d-flex align-items-center"),
+                className="card-header-custom"
+            ),
+            dbc.CardBody(
+                [
+                    dbc.RadioItems(
+                        id="distance-matrix-segment-selector",
+                        options=[
+                            {"label": translate("De: Oferta | Para: Armazéns", lang), "value": "supply_to_warehouses"},
+                            {"label": translate("De: Armazéns | Para: Demanda", lang), "value": "warehouses_to_demand"},
+                        ],
+                        value="supply_to_warehouses",
+                        inline=False,
+                        className="d-flex flex-column gap-2",
+                        style={"fontSize": "var(--font-size-small)"}
+                    )
+                ],
+                className="card-body-custom"
+            ),
+        ],
+        className="card-custom mb-3"
+    )
+
     # Matrix Table Card
     table_card = dbc.Card(
         [
-            dbc.CardHeader(translate("Matriz de Distâncias (km)", lang),
+            dbc.CardHeader(
+                translate("Matriz de Distâncias (km)", lang),
                 className="card-header-custom"
             ),
             dbc.CardBody(
@@ -144,6 +179,7 @@ def get_tab_distance_matrix_layout(lang='pt'):
             [
                 dbc.Col([
                     calc_card,
+                    segment_card,
                     export_card
                 ], width=12, lg=3, className="mb-24"),
                 dbc.Col([

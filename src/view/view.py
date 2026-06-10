@@ -23,6 +23,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 import requests
+import json
 
 def parse_brazilian_number(val):
     if pd.isna(val):
@@ -3372,45 +3373,138 @@ def toggle_checkbox(active_cell, viewport_data, table_data):
         return no_update, no_update, None
 
 
+def _get_warehouse_coordinates_and_labels(df_warehouses, lang='pt'):
+    # Checking columns...
+    lat_col = next((c for c in df_warehouses.columns if 'lat' in str(c).lower()), None)
+    lon_col = next((c for c in df_warehouses.columns if 'lon' in str(c).lower()), None)
+
+    if not lat_col or not lon_col:
+        # Attempt to look up by City - UF
+        mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
+        uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
+
+        if mun_col and uf_col:
+            df_warehouses = df_warehouses.copy()
+            df_warehouses['lookup_key'] = df_warehouses[mun_col].astype(str) + ' - ' + df_warehouses[uf_col].astype(str)
+
+            def get_coords(key):
+                if key in CITY_LOOKUP:
+                    return CITY_LOOKUP[key]
+                return {'latitude': None, 'longitude': None}
+
+            coords = df_warehouses['lookup_key'].apply(get_coords)
+            df_warehouses['Latitude'] = coords.apply(lambda x: x['latitude'])
+            df_warehouses['Longitude'] = coords.apply(lambda x: x['longitude'])
+            dests_df = df_warehouses.dropna(subset=['Latitude', 'Longitude'])
+        else:
+            return [], []
+    else:
+        dests_df = df_warehouses.dropna(subset=[lat_col, lon_col])
+        dests_df = dests_df.rename(columns={lat_col: 'Latitude', lon_col: 'Longitude'})
+
+    if dests_df.empty:
+        return [], []
+
+    coords_list = list(zip(dests_df['Latitude'], dests_df['Longitude']))
+
+    # Determine labels for destinations (e.g., Name of warehouse or City)
+    cda_col = next((c for c in dests_df.columns if 'cda' in str(c).lower()), None)
+    name_col = next((c for c in dests_df.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
+    mun_col_dest = next((c for c in dests_df.columns if 'munic' in str(c).lower()), None)
+
+    dest_labels = []
+
+    # Pre-calculate column indices for performance as per global rules
+    cda_idx = dests_df.columns.get_loc(cda_col) if cda_col else -1
+    name_idx = dests_df.columns.get_loc(name_col) if name_col else -1
+    mun_idx = dests_df.columns.get_loc(mun_col_dest) if mun_col_dest else -1
+
+    try:
+        # Fast namedtuple iteration
+        for row in dests_df.itertuples(index=False):
+            parts = []
+            if cda_idx != -1:
+                cda_val = row[cda_idx]
+                if pd.notna(cda_val):
+                    parts.append(str(cda_val).strip())
+            if name_idx != -1:
+                name_val = row[name_idx]
+                if pd.notna(name_val):
+                    parts.append(str(name_val).strip())
+            if mun_idx != -1:
+                mun_val = row[mun_idx]
+                if pd.notna(mun_val):
+                    parts.append(str(mun_val).strip())
+
+            if parts:
+                label = " - ".join(parts)
+            else:
+                label = translate("Dest", lang) + f" {len(dest_labels)}"
+            dest_labels.append(label)
+    except (ValueError, IndexError):
+        # Fallback to iterrows for robustness as per global rules
+        dest_labels = []
+        for idx, row in dests_df.iterrows():
+            parts = []
+            if cda_col and pd.notna(row[cda_col]):
+                parts.append(str(row[cda_col]).strip())
+            if name_col and pd.notna(row[name_col]):
+                parts.append(str(row[name_col]).strip())
+            if mun_col_dest and pd.notna(row[mun_col_dest]):
+                parts.append(str(row[mun_col_dest]).strip())
+
+            if parts:
+                label = " - ".join(parts)
+            else:
+                label = translate("Dest", lang) + f" {idx}"
+            dest_labels.append(label)
+
+    return coords_list, dest_labels
+
+
+def _find_warehouse_coords_by_label(df_warehouses, target_label, lang='pt'):
+    coords_list, labels_list = _get_warehouse_coordinates_and_labels(df_warehouses, lang)
+    for coords, label in zip(coords_list, labels_list):
+        if label == target_label:
+            return coords
+    return None
+
+
 # 13. Distance Matrix Calculation
 @app.callback(
     Output('store-distance-matrix', 'data'),
-    Output('table-distance-matrix', 'data'),
-    Output('table-distance-matrix', 'columns'),
     Output('calc-status-message', 'children'),
     Output('btn-download-matrix', 'disabled'),
     Input('btn-calc-matrix', 'n_clicks'),
     [State('stored-data', 'data'),
      State('store-warehouses', 'data'),
+     State('stored-demand-data', 'data'),
      State('store-lang', 'data')],
     prevent_initial_call=True
 )
-def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, lang='pt'):
+def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     if not n_clicks:
-        return no_update, no_update, no_update, no_update, True
+        return no_update, no_update, True
 
     start_time = time.time()
 
-    if not stored_data or not stored_warehouses:
-        return no_update, [], [], translate("Dados de entrada ou armazéns não encontrados. Verifique as abas anteriores.", lang), True
+    if not stored_data or not stored_warehouses or not stored_demand_data:
+        return no_update, translate("Dados de entrada (Oferta), Armazéns ou Demanda não encontrados. Verifique as abas anteriores.", lang), True
 
     try:
         # Load Data
         df_input = pd.read_json(io.StringIO(stored_data), orient='split')
         df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+        df_demand = pd.read_json(io.StringIO(stored_demand_data), orient='split')
 
-        if df_input.empty or df_warehouses.empty:
-            return no_update, [], [], translate("As tabelas de entrada ou armazéns estão vazias.", lang), True
+        if df_input.empty or df_warehouses.empty or df_demand.empty:
+            return no_update, translate("As tabelas de entrada (Oferta), Armazéns ou Demanda estão vazias.", lang), True
 
-        # Prepare Coordinates
-        # Origins: Unique cities from input
-        # Note: We need unique coordinate pairs. If multiple products come from same city, we only need one origin.
+        # 1. Prepare coordinates and labels for Supply (origins of leg 1)
         if "Latitude" not in df_input.columns or "Longitude" not in df_input.columns:
-             return no_update, [], [], translate("Colunas de Latitude/Longitude ausentes na entrada.", lang), True
+            return no_update, translate("Colunas de Latitude/Longitude ausentes na entrada da Oferta.", lang), True
 
         origins_df = df_input[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
-
-        # Add (Lat, Lon) to duplicate city names with different coordinates
         city_counts = origins_df['Cidade'].value_counts()
         duplicates = city_counts[city_counts > 1].index
 
@@ -3419,135 +3513,121 @@ def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, lang='pt
             if row['Cidade'] in duplicates else row['Cidade'],
             axis=1
         )
-
         origins = list(zip(origins_df['Latitude'], origins_df['Longitude']))
         origin_names = origins_df['Cidade_Display'].tolist()
 
         if not origins:
-             return no_update, [], [], translate("Nenhuma origem válida (com coordenadas) encontrada.", lang), True
+            return no_update, translate("Nenhuma origem válida (com coordenadas) encontrada na Oferta.", lang), True
 
-        # Destinations: Warehouses
-        # We try to use 'Município' or similar if available for labeling, but use lat/lon for routing
-        # Assuming warehouse table has Lat/Lon?
-        # WAIT: The provided memory says "Lembre-se que todos tem latitude e longitude."
-        # But the loaded CSV 'Armazens_Credenciados_Habilitados_Base.csv' might not have them explicitly if it's raw Conab data.
-        # Let's check if we have Lat/Lon in armazens.
+        # 2. Prepare coordinates and labels for Warehouses (destinations of leg 1, origins of leg 2)
+        destinations, dest_labels = _get_warehouse_coordinates_and_labels(df_warehouses, lang)
+        if not destinations:
+            return no_update, translate("Não foi possível identificar coordenadas ou colunas de Município/UF nos armazéns.", lang), True
 
-        # Checking columns...
-        lat_col = next((c for c in df_warehouses.columns if 'lat' in str(c).lower()), None)
-        lon_col = next((c for c in df_warehouses.columns if 'lon' in str(c).lower()), None)
+        # 3. Prepare coordinates and labels for Demand (destinations of leg 2)
+        if "Latitude" not in df_demand.columns or "Longitude" not in df_demand.columns:
+            return no_update, translate("Colunas de Latitude/Longitude ausentes na entrada da Demanda.", lang), True
 
-        # If no Lat/Lon in warehouses, we need to geocode them based on City/UF?
-        # The user said "Lembre-se que todos tem latitude e longitude." so I assume they are in the data or derived.
-        # If they are not in the CSV, I might need to merge with my city lookup.
+        demand_df = df_demand[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+        demand_city_counts = demand_df['Cidade'].value_counts()
+        demand_duplicates = demand_city_counts[demand_city_counts > 1].index
 
-        if not lat_col or not lon_col:
-            # Attempt to look up by City - UF
-            # Warehouse CSV usually has "Municipio" and "UF".
-            mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
-            uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
+        demand_df['Cidade_Display'] = demand_df.apply(
+            lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+            if row['Cidade'] in demand_duplicates else row['Cidade'],
+            axis=1
+        )
+        demand_coords = list(zip(demand_df['Latitude'], demand_df['Longitude']))
+        demand_names = demand_df['Cidade_Display'].tolist()
 
-            if mun_col and uf_col:
-                # Create a temporary key
-                df_warehouses['lookup_key'] = df_warehouses[mun_col].astype(str) + ' - ' + df_warehouses[uf_col].astype(str)
-
-                # We need to map this key to our CITY_LOOKUP
-                # CITY_LOOKUP keys are "City - UF"
-
-                def get_coords(key):
-                    if key in CITY_LOOKUP:
-                        return CITY_LOOKUP[key]
-                    return {'latitude': None, 'longitude': None}
-
-                coords = df_warehouses['lookup_key'].apply(get_coords)
-                df_warehouses['Latitude'] = coords.apply(lambda x: x['latitude'])
-                df_warehouses['Longitude'] = coords.apply(lambda x: x['longitude'])
-
-                # Filter out those without coords
-                dests_df = df_warehouses.dropna(subset=['Latitude', 'Longitude'])
-            else:
-                return no_update, [], [], translate("Não foi possível identificar coordenadas ou colunas de Município/UF nos armazéns.", lang), True
-        else:
-            dests_df = df_warehouses.dropna(subset=[lat_col, lon_col])
-            # Rename for consistency
-            dests_df = dests_df.rename(columns={lat_col: 'Latitude', lon_col: 'Longitude'})
-
-        if dests_df.empty:
-             return no_update, [], [], translate("Nenhum armazém com coordenadas válidas encontrado.", lang), True
-
-        destinations = list(zip(dests_df['Latitude'], dests_df['Longitude']))
-
-        # Determine labels for destinations (e.g., Name of warehouse or City)
-        # Prefer "CDA - Armazenador - Municipio"
-        cda_col = next((c for c in dests_df.columns if 'cda' in str(c).lower()), None)
-        name_col = next((c for c in dests_df.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
-        mun_col_dest = next((c for c in dests_df.columns if 'munic' in str(c).lower()), None)
-
-        dest_labels = []
-        for idx, row in dests_df.iterrows():
-            # Build the base label
-            parts = []
-            if cda_col and pd.notna(row[cda_col]):
-                parts.append(str(row[cda_col]).strip())
-
-            if name_col and pd.notna(row[name_col]):
-                parts.append(str(row[name_col]).strip())
-
-            if mun_col_dest and pd.notna(row[mun_col_dest]):
-                parts.append(str(row[mun_col_dest]).strip())
-
-            if parts:
-                label = " - ".join(parts)
-            else:
-                label = translate("Dest", lang) + f" {idx}"
-
-            dest_labels.append(label)
-
+        if not demand_coords:
+            return no_update, translate("Nenhum destino de demanda válido (com coordenadas) encontrado.", lang), True
 
         # Call OSRM
-        # Use service name 'osrm' if in docker, or 'localhost' if testing locally outside docker.
-        # Since this code runs inside the container (production) or local (dev), we try both or env var.
-        osrm_url = os.environ.get("OSRM_URL", "http://localhost:5000") # Default to localhost for dev
-        # Inside docker-compose, the app container can reach osrm container via 'http://osrm:5000'
-        # Check if we are in docker network?
-        # Let's assume the user set OSRM_URL in docker-compose (I did: OSRM_URL=http://osrm:5000)
-
+        osrm_url = os.environ.get("OSRM_URL", "http://localhost:5000")
         client = OSRMClient(base_url=osrm_url)
 
+        # Segment 1: Supply -> Warehouses
         try:
-            matrix = client.get_distance_matrix(origins, destinations)
+            matrix_1 = client.get_distance_matrix(origins, destinations)
         except Exception as e:
-             return no_update, [], [], translate("Erro de conexão com OSRM:", lang) + f" {str(e)}", True
+            return no_update, translate("Erro de conexão com OSRM (Trecho Oferta -> Armazéns):", lang) + f" {str(e)}", True
 
-        # Format Result
-        # Rows: Origins, Cols: Destinations
-        # We want a table with "Origem" column + columns for each destination
+        # Segment 2: Warehouses -> Demand
+        try:
+            matrix_2 = client.get_distance_matrix(destinations, demand_coords)
+        except Exception as e:
+            return no_update, translate("Erro de conexão com OSRM (Trecho Armazéns -> Demanda):", lang) + f" {str(e)}", True
 
-        # Since matrix is [origins][destinations]
-
-        final_data = []
-        for i, row_vals in enumerate(matrix):
+        # Format Result 1
+        final_data_1 = []
+        for i, row_vals in enumerate(matrix_1):
             row_dict = {'Origem': origin_names[i]}
             for j, val in enumerate(row_vals):
                 col_name = dest_labels[j]
-                # Convert meters to km
                 if val is not None:
                     row_dict[col_name] = round(val / 1000, 2)
                 else:
                     row_dict[col_name] = "N/A"
-            final_data.append(row_dict)
+            final_data_1.append(row_dict)
+        final_df_1 = pd.DataFrame(final_data_1)
 
-        final_df = pd.DataFrame(final_data)
+        # Format Result 2
+        final_data_2 = []
+        for i, row_vals in enumerate(matrix_2):
+            row_dict = {'Origem': dest_labels[i]}
+            for j, val in enumerate(row_vals):
+                col_name = demand_names[j]
+                if val is not None:
+                    row_dict[col_name] = round(val / 1000, 2)
+                else:
+                    row_dict[col_name] = "N/A"
+            final_data_2.append(row_dict)
+        final_df_2 = pd.DataFrame(final_data_2)
 
-        columns = [{"name": translate(i, lang) if i == "Origem" else i, "id": i} for i in final_df.columns]
+        # Save to store as a dict of JSONs
+        stored_dict = {
+            'supply_to_warehouses': final_df_1.to_json(date_format='iso', orient='split'),
+            'warehouses_to_demand': final_df_2.to_json(date_format='iso', orient='split')
+        }
 
-        return final_df.to_json(date_format='iso', orient='split'), final_df.to_dict('records'), columns, translate("Cálculo concluído com sucesso! (Tempo de execução:", lang) + f" {time.time() - start_time:.2f} " + translate("segundos)", lang), False
+        msg = translate("Cálculo concluído com sucesso! (Tempo de execução:", lang) + f" {time.time() - start_time:.2f} " + translate("segundos)", lang)
+        return json.dumps(stored_dict), msg, False
 
     except Exception as e:
         print(f"Calculation error: {e}")
         import traceback
         traceback.print_exc()
-        return no_update, [], [], translate("Erro inesperado:", lang) + f" {str(e)}", True
+        return no_update, translate("Erro inesperado:", lang) + f" {str(e)}", True
+
+
+@app.callback(
+    [Output('table-distance-matrix', 'data'),
+     Output('table-distance-matrix', 'columns'),
+     Output('table-distance-matrix', 'active_cell')],
+    [Input('distance-matrix-segment-selector', 'value'),
+     Input('store-distance-matrix', 'data')],
+    State('store-lang', 'data')
+)
+def update_distance_table(segment, stored_matrix_json, lang='pt'):
+    if not stored_matrix_json:
+        return [], [], None
+
+    try:
+        stored_dict = json.loads(stored_matrix_json)
+        if not isinstance(stored_dict, dict) or segment not in stored_dict:
+            return [], [], None
+        
+        df = pd.read_json(io.StringIO(stored_dict[segment]), orient='split')
+        
+        records = df.to_dict('records')
+        columns = [{"name": translate(i, lang) if i == "Origem" else i, "id": i} for i in df.columns]
+        
+        return records, columns, None
+    except Exception as e:
+        print(f"Error updating distance table: {e}")
+        return [], [], None
+
 
 # 14. Download Matrix
 @app.callback(
@@ -3557,12 +3637,27 @@ def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, lang='pt
     State('store-lang', 'data'),
     prevent_initial_call=True,
 )
-def download_matrix(n_clicks, stored_matrix, lang='pt'):
-    if not n_clicks or not stored_matrix:
+def download_matrix(n_clicks, stored_matrix_json, lang='pt'):
+    if not n_clicks or not stored_matrix_json:
         return no_update
 
-    df = pd.read_json(io.StringIO(stored_matrix), orient='split')
-    return dcc.send_data_frame(df.to_excel, translate("Distance_Matrix.xlsx", lang), index=False)
+    try:
+        stored_dict = json.loads(stored_matrix_json)
+        if not isinstance(stored_dict, dict) or 'supply_to_warehouses' not in stored_dict:
+            return no_update
+
+        df_supply_to_wh = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
+        df_wh_to_demand = pd.read_json(io.StringIO(stored_dict['warehouses_to_demand']), orient='split')
+    except Exception as e:
+        print(f"Error loading matrix for download: {e}")
+        return no_update
+
+    def write_excel(path):
+        with pd.ExcelWriter(path, engine='openpyxl') as writer:
+            df_supply_to_wh.to_excel(writer, sheet_name=translate("Oferta para Armazéns", lang), index=False)
+            df_wh_to_demand.to_excel(writer, sheet_name=translate("Armazéns para Demanda", lang), index=False)
+
+    return dcc.send_data_frame(write_excel, translate("Matriz_Distancias.xlsx", lang))
 
 # 15. Route Visualization
 @app.callback(
@@ -3570,11 +3665,13 @@ def download_matrix(n_clicks, stored_matrix, lang='pt'):
     Input("table-distance-matrix", "active_cell"),
     [State('stored-data', 'data'),
      State('store-warehouses', 'data'),
+     State('stored-demand-data', 'data'),
      State('table-distance-matrix', 'derived_viewport_data'),
+     State('distance-matrix-segment-selector', 'value'),
      State('store-lang', 'data')],
     prevent_initial_call=True
 )
-def update_route_map(active_cell, stored_data, stored_warehouses, table_data, lang='pt'):
+def update_route_map(active_cell, stored_data, stored_warehouses, stored_demand_data, table_data, segment, lang='pt'):
     # Default map centered on Brazil
     default_fig = go.Figure(go.Scattermapbox())
     default_fig.update_layout(
@@ -3584,7 +3681,7 @@ def update_route_map(active_cell, stored_data, stored_warehouses, table_data, la
         margin={"r": 0, "t": 0, "l": 0, "b": 0}
     )
 
-    if not active_cell or not stored_data or not stored_warehouses or not table_data:
+    if not active_cell or not table_data or not segment:
         return default_fig
 
     try:
@@ -3593,8 +3690,7 @@ def update_route_map(active_cell, stored_data, stored_warehouses, table_data, la
         row_idx = active_cell['row']
         col_id = active_cell['column_id']
 
-        # If clicked on 'Origem' column, maybe show all routes? Or just ignore.
-        # Let's ignore for now or pick the first destination?
+        # If clicked on 'Origem' column, ignore
         if col_id == 'Origem':
             return default_fig
 
@@ -3602,85 +3698,68 @@ def update_route_map(active_cell, stored_data, stored_warehouses, table_data, la
         origin_name = row_data['Origem']
         dest_label = col_id
 
-        # Retrieve Coordinates
-        df_input = pd.read_json(io.StringIO(stored_data), orient='split')
-        df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
-
-        # Origin Coords
-        # We need to find the lat/lon for the origin_name (City)
-        # Assuming unique city names for simplicity or taking first match
-        # Apply the same deduplication logic to find the exact match
-        origins_df_map = df_input[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
-        city_counts_map = origins_df_map['Cidade'].value_counts()
-        duplicates_map = city_counts_map[city_counts_map > 1].index
-
-        origins_df_map['Cidade_Display'] = origins_df_map.apply(
-            lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
-            if row['Cidade'] in duplicates_map else row['Cidade'],
-            axis=1
-        )
-
-        origin_row = origins_df_map[origins_df_map['Cidade_Display'] == origin_name]
-        if origin_row.empty:
-            # Fallback to just Cidade if not found
-            origin_row = df_input[df_input['Cidade'] == origin_name].iloc[0]
-        else:
-            origin_row = origin_row.iloc[0]
-
-        origin_coords = (origin_row['Latitude'], origin_row['Longitude'])
-
-        # Destination Coords
-        # This is trickier because dest_label is a formatted string "Name (City)" or similar
-        # We need to reconstruct the logic from calculation callback or store dest coords
-        # Re-running logic for now (could be optimized by storing mapping)
-
-        # Re-resolve warehouses logic
-        lat_col = next((c for c in df_warehouses.columns if 'lat' in str(c).lower()), None)
-        lon_col = next((c for c in df_warehouses.columns if 'lon' in str(c).lower()), None)
-
-        if not lat_col or not lon_col:
-             # Using lookup logic
-             mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
-             uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
-             df_warehouses['lookup_key'] = df_warehouses[mun_col].astype(str) + ' - ' + df_warehouses[uf_col].astype(str)
-             def get_coords(key):
-                 if key in CITY_LOOKUP: return CITY_LOOKUP[key]
-                 return {'latitude': None, 'longitude': None}
-             coords = df_warehouses['lookup_key'].apply(get_coords)
-             df_warehouses['Latitude'] = coords.apply(lambda x: x['latitude'])
-             df_warehouses['Longitude'] = coords.apply(lambda x: x['longitude'])
-             dests_df = df_warehouses.dropna(subset=['Latitude', 'Longitude'])
-        else:
-            dests_df = df_warehouses.dropna(subset=[lat_col, lon_col])
-            dests_df = dests_df.rename(columns={lat_col: 'Latitude', lon_col: 'Longitude'})
-
-        # Match label
-        cda_col = next((c for c in dests_df.columns if 'cda' in str(c).lower()), None)
-        name_col = next((c for c in dests_df.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
-        mun_col_dest = next((c for c in dests_df.columns if 'munic' in str(c).lower()), None)
-
+        origin_coords = None
         dest_coords = None
-        for idx, row in dests_df.iterrows():
-            parts = []
-            if cda_col and pd.notna(row[cda_col]):
-                parts.append(str(row[cda_col]).strip())
 
-            if name_col and pd.notna(row[name_col]):
-                parts.append(str(row[name_col]).strip())
+        if segment == 'supply_to_warehouses':
+            # Origin: Supply
+            if not stored_data:
+                return default_fig
+            df_input = pd.read_json(io.StringIO(stored_data), orient='split')
+            origins_df_map = df_input[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+            city_counts_map = origins_df_map['Cidade'].value_counts()
+            duplicates_map = city_counts_map[city_counts_map > 1].index
 
-            if mun_col_dest and pd.notna(row[mun_col_dest]):
-                parts.append(str(row[mun_col_dest]).strip())
+            origins_df_map['Cidade_Display'] = origins_df_map.apply(
+                lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+                if row['Cidade'] in duplicates_map else row['Cidade'],
+                axis=1
+            )
 
-            if parts:
-                label = " - ".join(parts)
+            origin_row = origins_df_map[origins_df_map['Cidade_Display'] == origin_name]
+            if origin_row.empty:
+                origin_row = df_input[df_input['Cidade'] == origin_name].iloc[0]
             else:
-                label = translate("Dest", lang) + f" {idx}"
+                origin_row = origin_row.iloc[0]
 
-            if label == dest_label:
-                dest_coords = (row['Latitude'], row['Longitude'])
-                break
+            origin_coords = (origin_row['Latitude'], origin_row['Longitude'])
 
-        if not dest_coords:
+            # Destination: Warehouse
+            if not stored_warehouses:
+                return default_fig
+            df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+            dest_coords = _find_warehouse_coords_by_label(df_warehouses, dest_label, lang)
+
+        elif segment == 'warehouses_to_demand':
+            # Origin: Warehouse
+            if not stored_warehouses:
+                return default_fig
+            df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+            origin_coords = _find_warehouse_coords_by_label(df_warehouses, origin_name, lang)
+
+            # Destination: Demand
+            if not stored_demand_data:
+                return default_fig
+            df_demand = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+            demand_df_map = df_demand[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+            demand_city_counts_map = demand_df_map['Cidade'].value_counts()
+            demand_duplicates_map = demand_city_counts_map[demand_city_counts_map > 1].index
+
+            demand_df_map['Cidade_Display'] = demand_df_map.apply(
+                lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+                if row['Cidade'] in demand_duplicates_map else row['Cidade'],
+                axis=1
+            )
+
+            dest_row = demand_df_map[demand_df_map['Cidade_Display'] == dest_label]
+            if dest_row.empty:
+                dest_row = df_demand[df_demand['Cidade'] == dest_label].iloc[0]
+            else:
+                dest_row = dest_row.iloc[0]
+
+            dest_coords = (dest_row['Latitude'], dest_row['Longitude'])
+
+        if not origin_coords or not dest_coords:
             return default_fig
 
         # Call OSRM for Route
@@ -3698,9 +3777,6 @@ def update_route_map(active_cell, stored_data, stored_warehouses, table_data, la
 
         is_fallback = route_data.get('type') == 'fallback'
 
-        # Line Style based on type
-        # Note: Scattermapbox does NOT support 'dash' property for lines.
-        # We use distinct colors instead.
         line_color = UNB_THEME['UNB_BLUE']
         line_width = 4
         line_name = translate("Rota (OSRM)", lang)
@@ -3741,8 +3817,7 @@ def update_route_map(active_cell, stored_data, stored_warehouses, table_data, la
         center_lat = np.mean(lats)
         center_lon = np.mean(lons)
 
-        # Simple zoom estimation (could be better)
-        # distance in degrees
+        # Simple zoom estimation
         lat_diff = max(lats) - min(lats)
         lon_diff = max(lons) - min(lons)
         max_diff = max(lat_diff, lon_diff)
@@ -3837,7 +3912,15 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
         df_supply = pd.read_json(io.StringIO(stored_data), orient='split')
         df_demand = pd.read_json(io.StringIO(stored_warehouses), orient='split')
         df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
-        df_dist = pd.read_json(io.StringIO(stored_matrix), orient='split')
+        # Safely handle both the old single-dataframe format and the new multi-dataframe JSON dict format
+        try:
+            stored_dict = json.loads(stored_matrix)
+            if isinstance(stored_dict, dict) and 'supply_to_warehouses' in stored_dict:
+                df_dist = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
+            else:
+                df_dist = pd.read_json(io.StringIO(stored_matrix), orient='split')
+        except Exception:
+            df_dist = pd.read_json(io.StringIO(stored_matrix), orient='split')
 
         # Load local CSVs for Freight and Storage
         import os
