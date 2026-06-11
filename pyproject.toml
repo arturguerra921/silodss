@@ -35,7 +35,12 @@ dependencies = [
     "dash[diskcache]==4.0.0",
     "diskcache==5.6.3",
     "multiprocess==0.70.19",
-    "psutil==7.2.2"
+    "psutil==7.2.2",
+    "statsmodels==0.14.4",
+    "prophet==1.1.6",
+    "xgboost==2.1.3",
+    "scikit-learn==1.6.1",
+    "torch==2.9.0"
 ]
 
 [project.scripts]

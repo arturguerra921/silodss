@@ -11,6 +11,16 @@ from src.view.pages.model_config import get_tab_model_config_layout
 from src.view.pages.costs import get_tab_costs_layout
 from src.view.pages.results import get_tab_results_layout
 from src.view.pages.warehouses import get_tab_warehouses_layout
+from src.view.pages.prediction import get_tab_prediction_layout
+from src.logic.prediction import (
+    prepare_time_series,
+    calculate_metrics,
+    get_quality_badge,
+    forecast_sarima,
+    forecast_prophet,
+    forecast_xgboost,
+    forecast_lstm
+)
 from src.logic.osrm import OSRMClient
 from src.logic.optimization import run_optimization_model
 from src.logic.i18n import translate
@@ -247,6 +257,7 @@ def serve_layout(lang="pt"):
         [
             dbc.Tab(label=translate("Oferta", lang), tab_id="tab-input", label_class_name="px-4"),
             dbc.Tab(label=translate("Demanda", lang), tab_id="tab-demand", label_class_name="px-4"),
+            dbc.Tab(label=translate("Previsão", lang), tab_id="tab-prediction", label_class_name="px-4"),
             dbc.Tab(label=translate("Armazéns", lang), tab_id="tab-warehouses", label_class_name="px-4"),
             dbc.Tab(label=translate("Produto e Armazéns", lang), tab_id="tab-prod-warehouses", label_class_name="px-4"),
             dbc.Tab(label=translate("Custos", lang), tab_id="tab-costs", label_class_name="px-4"),
@@ -1228,11 +1239,10 @@ def serve_layout(lang="pt"):
         is_open=False,
     )
 
-    # --- App Layout Assembly ---
-
     # Pre-render all tab layouts to ensure IDs exist for callbacks
     tab1_layout = get_tab1_layout()
     tab_demand_layout = get_tab_demand_layout()
+    tab_prediction_layout = get_tab_prediction_layout(lang)
     tab2_layout = get_tab_warehouses_layout(lang, city_options=CITY_OPTIONS)
     tab_prod_warehouses_layout = get_tab_prod_warehouses_layout()
     tab_costs_layout = get_tab_costs_layout(lang)
@@ -1244,6 +1254,7 @@ def serve_layout(lang="pt"):
         [
             html.Div(id="tab-input-container", children=tab1_layout, style={"display": "block"}),
             html.Div(id="tab-demand-container", children=tab_demand_layout, style={"display": "none"}),
+            html.Div(id="tab-prediction-container", children=tab_prediction_layout, style={"display": "none"}),
             html.Div(id="tab-warehouses-container", children=tab2_layout, style={"display": "none"}),
             html.Div(id="tab-prod-warehouses-container", children=tab_prod_warehouses_layout, style={"display": "none"}),
             html.Div(id="tab-costs-container", children=tab_costs_layout, style={"display": "none"}),
@@ -1269,6 +1280,9 @@ def serve_layout(lang="pt"):
             dcc.Store(id='store-distance-matrix'),
             dcc.Store(id='store-model-results'),
             dcc.Store(id='store-model-log'),
+            dcc.Store(id='store-prediction-results'),
+            dcc.Store(id='store-forecast-residuals'),
+            dcc.Store(id='store-historical-max-dates'),
             dcc.Store(id='store-help-seen', storage_type='local'),
 
             navbar,
@@ -1303,6 +1317,7 @@ app.layout = html.Div([
     dcc.Download(id='download-warehouses-template'),
     dcc.Download(id='download-dataframe-xlsx'),
     dcc.Download(id='download-demand-xlsx'),
+    dcc.Download(id='download-prediction-xlsx'),
     dcc.Download(id='download-storage-csv'),
     dcc.Download(id='download-freight-csv'),
     dcc.Download(id='download-matrix-xlsx'),
@@ -1468,6 +1483,7 @@ def toggle_help_modal(n_open, n_close, active_tab, is_open, help_seen):
 @app.callback(
     [Output("tab-input-container", "style"),
      Output("tab-demand-container", "style"),
+     Output("tab-prediction-container", "style"),
      Output("tab-warehouses-container", "style"),
      Output("tab-prod-warehouses-container", "style"),
      Output("tab-costs-container", "style"),
@@ -1477,24 +1493,26 @@ def toggle_help_modal(n_open, n_close, active_tab, is_open, help_seen):
     Input("main-tabs", "active_tab")
 )
 def render_content(active_tab):
-    base_styles = [{"display": "none"}] * 8
+    base_styles = [{"display": "none"}] * 9
 
     if active_tab == 'tab-input':
         base_styles[0] = {"display": "block"}
     elif active_tab == 'tab-demand':
         base_styles[1] = {"display": "block"}
-    elif active_tab == 'tab-warehouses':
+    elif active_tab == 'tab-prediction':
         base_styles[2] = {"display": "block"}
-    elif active_tab == 'tab-prod-warehouses':
+    elif active_tab == 'tab-warehouses':
         base_styles[3] = {"display": "block"}
-    elif active_tab == 'tab-costs':
+    elif active_tab == 'tab-prod-warehouses':
         base_styles[4] = {"display": "block"}
-    elif active_tab == 'tab-distance-matrix':
+    elif active_tab == 'tab-costs':
         base_styles[5] = {"display": "block"}
-    elif active_tab == 'tab-config':
+    elif active_tab == 'tab-distance-matrix':
         base_styles[6] = {"display": "block"}
-    elif active_tab == 'tab-results':
+    elif active_tab == 'tab-config':
         base_styles[7] = {"display": "block"}
+    elif active_tab == 'tab-results':
+        base_styles[8] = {"display": "block"}
 
     return tuple(base_styles)
 
@@ -5406,6 +5424,618 @@ def download_demand_data(n_clicks, stored_demand_data, lang='pt'):
     df_export["Peso (ton)"] = df_export["Peso (ton)"].fillna('∞')
       
   return dcc.send_data_frame(df_export.to_excel, translate("Edited_Demand.xlsx", lang), index=False)
+
+
+@app.callback(
+  [Output('store-historical-max-dates', 'data', allow_duplicate=True),
+   Output('store-prediction-results', 'data', allow_duplicate=True),
+   Output('store-forecast-residuals', 'data', allow_duplicate=True)],
+  [Input('upload-data', 'contents'),
+   Input('btn-add-row', 'n_clicks'),
+   Input('editable-table', 'data_timestamp'),
+   Input('btn-confirm-clear', 'n_clicks'),
+   Input('upload-demand-data', 'contents'),
+   Input('btn-demand-add-row', 'n_clicks'),
+   Input('demand-editable-table', 'data_timestamp'),
+   Input('btn-confirm-clear-demand', 'n_clicks')],
+  prevent_initial_call=True
+)
+def clear_prediction_cache(*args):
+  return {}, None, {}
+
+
+# --- Prediction Tab Callbacks ---
+
+@app.callback(
+  [Output("prediction-series-type", "options"),
+   Output("prediction-series-type", "disabled"),
+   Output("prediction-series-type", "value"),
+   Output("prediction-product-dropdown", "options"),
+   Output("prediction-product-dropdown", "disabled"),
+   Output("prediction-product-dropdown", "value"),
+   Output("prediction-city-dropdown", "options"),
+   Output("prediction-city-dropdown", "disabled"),
+   Output("prediction-city-dropdown", "value")],
+  [Input("store-prediction-results", "data"),
+   Input("prediction-series-type", "value"),
+   Input("prediction-product-dropdown", "value")],
+  [State("prediction-city-dropdown", "value"),
+   State("store-lang", "data")]
+)
+def sync_prediction_dropdowns(prediction_results, selected_series, selected_product, current_city, lang='pt'):
+  series_options = [
+    {"label": translate("Oferta", lang), "value": "supply"},
+    {"label": translate("Demanda", lang), "value": "demand"}
+  ]
+  if not prediction_results:
+    return series_options, True, None, [], True, None, [], True, None
+
+  try:
+    results = json.loads(prediction_results)
+    if not results:
+      return series_options, True, None, [], True, None, [], True, None
+
+    combos = []
+    for k, v in results.items():
+      s_type = v.get("series_type")
+      prod = v.get("product")
+      city = v.get("city")
+      if not s_type or not prod or not city:
+        parts = k.split("_", 2)
+        if len(parts) == 3:
+          s_type, prod, city = parts
+        else:
+          continue
+      combos.append({"series_type": s_type, "product": prod, "city": city})
+
+    if not combos:
+      return series_options, True, None, [], True, None, [], True, None
+
+    # 1. Determine Series Type
+    available_series = sorted(list(set([c["series_type"] for c in combos])))
+    if selected_series not in available_series:
+      selected_series = available_series[0] if available_series else None
+
+    # 2. Determine Product Dropdown options and value
+    products_for_series = sorted(list(set([c["product"] for c in combos if c["series_type"] == selected_series])))
+    product_options = [{"label": p, "value": p} for p in products_for_series]
+    
+    if selected_product not in products_for_series:
+      selected_product = products_for_series[0] if products_for_series else None
+
+    # 3. Determine City Dropdown options and value
+    cities_for_prod = sorted(list(set([c["city"] for c in combos if c["series_type"] == selected_series and c["product"] == selected_product])))
+    city_options = [{"label": c, "value": c} for c in cities_for_prod]
+
+    if current_city not in cities_for_prod:
+      current_city = cities_for_prod[0] if cities_for_prod else None
+
+    return (
+      series_options, False, selected_series,
+      product_options, False, selected_product,
+      city_options, False, current_city
+    )
+
+  except Exception as e:
+    print(f"Error in sync_prediction_dropdowns: {e}")
+    return series_options, True, None, [], True, None, [], True, None
+
+
+
+
+@app.callback(
+    [Output('store-prediction-results', 'data'),
+     Output('store-forecast-residuals', 'data'),
+     Output('store-historical-max-dates', 'data', allow_duplicate=True),
+     Output('stored-data', 'data', allow_duplicate=True),
+     Output('stored-demand-data', 'data', allow_duplicate=True),
+     Output('prediction-output-text', 'children'),
+     Output('prediction-output-text', 'className')],
+    [Input('btn-run-forecast', 'n_clicks')],
+    [State('prediction-model-select', 'value'),
+     State('prediction-test-size', 'value'),
+     State('prediction-horizon', 'value'),
+     State('stored-data', 'data'),
+     State('stored-demand-data', 'data'),
+     State('store-forecast-residuals', 'data'),
+     State('store-historical-max-dates', 'data'),
+     State('store-lang', 'data')],
+    background=True,
+    running=[
+        (Output("btn-run-forecast", "disabled"), True, False),
+        (Output("btn-cancel-forecast", "disabled"), False, True),
+    ],
+    cancel=[Input("btn-cancel-forecast", "n_clicks")],
+    prevent_initial_call=True
+)
+def execute_prediction(n_clicks, model_name, test_size, horizon,
+                       stored_supply, stored_demand, current_residuals, historical_max_dates, lang='pt'):
+    if not n_clicks:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+
+    try:
+        if not stored_supply and not stored_demand:
+            return no_update, no_update, no_update, no_update, no_update, translate("Nenhum dado encontrado para Oferta ou Demanda.", lang), "text-danger mt-3"
+
+        results_dict = {}
+        updated_residuals = current_residuals or {}
+        historical_max_dates = historical_max_dates or {}
+
+        test_size = int(test_size) if test_size is not None else 12
+        horizon = int(horizon) if horizon is not None else 12
+
+        success_count = 0
+        fail_count = 0
+
+        stored_supply_out = no_update
+        stored_demand_out = no_update
+
+        # Loop through both Supply and Demand datasets
+        for s_type, active_store in [('supply', stored_supply), ('demand', stored_demand)]:
+            if not active_store:
+                continue
+
+            df = pd.read_json(io.StringIO(active_store), orient='split')
+            if df.empty:
+                continue
+
+            df = df.copy()
+            df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
+            df = df.dropna(subset=["Data"])
+            if df.empty:
+                continue
+
+            # Find all unique combinations in the active dataframe
+            unique_combos = df[["Produto", "Cidade"]].drop_duplicates().values.tolist()
+            cleaned_rows = []
+
+            for prod, city in unique_combos:
+                combo_key = f"{s_type}_{prod}_{city}"
+                df_combo = df[(df["Produto"] == prod) & (df["Cidade"] == city)]
+
+                if combo_key in historical_max_dates:
+                    max_hist_date = pd.to_datetime(historical_max_dates[combo_key])
+                    df_combo_hist = df_combo[df_combo["Data"] <= max_hist_date]
+                else:
+                    if df_combo.empty:
+                        continue
+                    max_hist_date = df_combo["Data"].max()
+                    historical_max_dates[combo_key] = max_hist_date.strftime('%Y-%m')
+                    df_combo_hist = df_combo
+
+                cleaned_rows.append(df_combo_hist)
+
+            if not cleaned_rows:
+                continue
+
+            df_historical = pd.concat(cleaned_rows, ignore_index=True)
+            forecasted_rows = []
+
+            for prod, city in unique_combos:
+                combo_key = f"{s_type}_{prod}_{city}"
+                df_combo = df_historical[(df_historical["Produto"] == prod) & (df_historical["Cidade"] == city)]
+
+                # Prepare series
+                series = prepare_time_series(df_combo, prod, city)
+                if series.empty or len(series) < 6 or len(series) <= test_size:
+                    results_dict[combo_key] = {"status": "error", "message": "insufficient_data"}
+                    fail_count += 1
+                    continue
+
+                # Run model
+                n_samples = len(series)
+                if test_size > 0:
+                    train_series = series.iloc[:-test_size]
+                    test_series = series.iloc[-test_size:]
+                else:
+                    train_series = series
+                    test_series = pd.Series(dtype=float)
+
+                test_len = len(test_series)
+
+                try:
+                    if model_name == 'sarima':
+                        test_preds, future_preds, summary = forecast_sarima(train_series, test_len, horizon)
+                    elif model_name == 'prophet':
+                        test_preds, future_preds, summary = forecast_prophet(train_series, test_len, horizon)
+                    elif model_name == 'xgboost':
+                        test_preds, future_preds, summary = forecast_xgboost(train_series, test_len, horizon)
+                    elif model_name == 'lstm':
+                        test_preds, future_preds, summary = forecast_lstm(train_series, test_len, horizon)
+                    else:
+                        raise ValueError(f"Unknown model: {model_name}")
+
+                    # Compute metrics
+                    mae, rmse, mape = 0.0, 0.0, 0.0
+                    residuals = []
+                    if test_len > 0:
+                        mae, rmse, mape = calculate_metrics(test_series.values, test_preds)
+                        residuals = list(test_series.values - test_preds)
+
+                    # Save residuals for optimization
+                    res_list = []
+                    test_dates_str = test_series.index.strftime('%Y-%m').tolist() if test_len > 0 else []
+                    for d, act, prd, res in zip(test_dates_str, test_series.values, test_preds, residuals):
+                        res_list.append({
+                            "date": d,
+                            "actual": float(act),
+                            "predicted": float(prd),
+                            "residual": float(res)
+                        })
+                    updated_residuals[combo_key] = res_list
+
+                    # Save predictions
+                    history_dates = train_series.index.strftime('%Y-%m').tolist()
+                    history_values = list(train_series.values)
+                    test_dates = test_series.index.strftime('%Y-%m').tolist() if test_len > 0 else []
+                    test_values = list(test_series.values) if test_len > 0 else []
+
+                    last_date = series.index[-1]
+                    future_dates = [str((last_date + pd.DateOffset(months=i)).strftime('%Y-%m')) for i in range(1, horizon + 1)]
+
+                    # Store in results_dict
+                    results_dict[combo_key] = {
+                        "status": "success",
+                        "series_type": s_type,
+                        "product": prod,
+                        "city": city,
+                        "model": model_name,
+                        "test_size": test_size,
+                        "horizon": horizon,
+                        "history_dates": history_dates,
+                        "history_values": history_values,
+                        "test_dates": test_dates,
+                        "test_values": test_values,
+                        "test_preds": test_preds,
+                        "future_dates": future_dates,
+                        "future_preds": [float(v) for v in future_preds],
+                        "mae": mae,
+                        "rmse": rmse,
+                        "mape": mape,
+                        "params": summary,
+                        "residuals": residuals,
+                        "residuals_dates": test_dates
+                    }
+
+                    # Prepare rows to append to the database
+                    lat = df_combo.iloc[0]["Latitude"] if "Latitude" in df_combo.columns and not pd.isna(df_combo.iloc[0]["Latitude"]) else 0.0
+                    lon = df_combo.iloc[0]["Longitude"] if "Longitude" in df_combo.columns and not pd.isna(df_combo.iloc[0]["Longitude"]) else 0.0
+                    for d, val in zip(future_dates, future_preds):
+                        forecasted_rows.append({
+                            "Produto": prod,
+                            "Cidade": city,
+                            "Latitude": lat,
+                            "Longitude": lon,
+                            "Data": d,
+                            "Peso (ton)": float(val)
+                        })
+
+                    success_count += 1
+
+                except Exception as e:
+                    print(f"Error forecasting {combo_key}: {e}")
+                    results_dict[combo_key] = {"status": "error", "message": str(e)}
+                    fail_count += 1
+
+            if forecasted_rows:
+                df_forecasted = pd.DataFrame(forecasted_rows)
+                df_historical_str = df_historical.copy()
+                df_historical_str["Data"] = df_historical_str["Data"].dt.strftime('%Y-%m')
+                df_updated = pd.concat([df_historical_str, df_forecasted], ignore_index=True)
+            else:
+                df_updated = df_historical.copy()
+                df_updated["Data"] = df_updated["Data"].dt.strftime('%Y-%m')
+
+            df_updated = df_updated.sort_values(by=["Produto", "Cidade", "Data"])
+            serialized_updated = df_updated.to_json(date_format='iso', orient='split')
+
+            if s_type == 'supply':
+                stored_supply_out = serialized_updated
+            else:
+                stored_demand_out = serialized_updated
+
+        status_msg = translate("Previsão concluída com sucesso!", lang)
+        status_msg += f" (Success: {success_count}, Failed/Insufficient Data: {fail_count})"
+
+        return (
+            json.dumps(results_dict),
+            updated_residuals,
+            historical_max_dates,
+            stored_supply_out,
+            stored_demand_out,
+            status_msg,
+            "text-success mt-3 fw-bold"
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"Error in execute_prediction: {e}")
+        traceback.print_exc()
+        return no_update, no_update, no_update, no_update, no_update, f"{translate('Erro ao executar a previsão:', lang)} {str(e)}", "text-danger mt-3"
+
+
+
+@app.callback(
+  [Output("prediction-kpi-mape", "children"),
+   Output("prediction-kpi-rmse", "children"),
+   Output("prediction-kpi-mae", "children"),
+   Output("prediction-kpi-quality-container", "children"),
+   Output("prediction-kpi-badge-icon", "style"),
+   Output("prediction-graph-forecast", "figure"),
+   Output("prediction-graph-residuals-time", "figure"),
+   Output("prediction-graph-residuals-hist", "figure"),
+   Output("prediction-model-parameters", "children"),
+   Output("btn-download-forecast", "disabled")],
+  [Input("store-prediction-results", "data"),
+   Input("prediction-series-type", "value"),
+   Input("prediction-product-dropdown", "value"),
+   Input("prediction-city-dropdown", "value"),
+   Input("store-lang", "data")]
+)
+def render_prediction_results(prediction_results, series_type, product, city, lang='pt'):
+  if not prediction_results or not series_type or not product or not city:
+    empty_fig = go.Figure()
+    empty_fig.update_layout(
+      xaxis={"visible": False},
+      yaxis={"visible": False},
+      annotations=[{
+        "text": translate("Execute a previsão para visualizar o gráfico", lang),
+        "xref": "paper",
+        "yref": "paper",
+        "showarrow": False,
+        "font": {"size": 16}
+      }]
+    )
+    return "-", "-", "-", "-", {"color": UNB_THEME['UNB_GRAY_DARK']}, empty_fig, empty_fig, empty_fig, "", True
+
+  try:
+    results = json.loads(prediction_results)
+    key = f"{series_type}_{product}_{city}"
+    combo_res = results.get(key)
+    
+    if not combo_res or combo_res.get("status") != "success":
+      empty_fig = go.Figure()
+      empty_fig.update_layout(
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        annotations=[{
+          "text": translate("Não há dados suficientes para realizar o treinamento e teste.", lang) if combo_res and combo_res.get("message") == "insufficient_data" else translate("Sem previsão", lang),
+          "xref": "paper",
+          "yref": "paper",
+          "showarrow": False,
+          "font": {"size": 16}
+        }]
+      )
+      return "-", "-", "-", "-", {"color": UNB_THEME['UNB_GRAY_DARK']}, empty_fig, empty_fig, empty_fig, "", True
+
+    mape = combo_res.get("mape", 0.0)
+    rmse = combo_res.get("rmse", 0.0)
+    mae = combo_res.get("mae", 0.0)
+    
+    mape_str = f"{mape:.2f}%" if mape > 0 else "-"
+    rmse_str = f"{rmse:.2f}" if rmse > 0 else "-"
+    mae_str = f"{mae:.2f}" if mae > 0 else "-"
+    
+    quality_text, badge_color = get_quality_badge(mape, lang)
+    color_map = {
+      "success": UNB_THEME['UNB_GREEN'],
+      "warning": UNB_THEME['UNB_YELLOW_DARK'],
+      "danger": UNB_THEME['DANGER']
+    }
+    badge_style = {"color": color_map.get(badge_color, UNB_THEME['UNB_GRAY_DARK'])}
+    quality_badge = html.Span(quality_text, style={"color": color_map.get(badge_color, UNB_THEME['UNB_GRAY_DARK'])})
+
+    fig = go.Figure()
+    
+    history_dates = combo_res.get("history_dates", [])
+    history_values = combo_res.get("history_values", [])
+    test_dates = combo_res.get("test_dates", [])
+    test_values = combo_res.get("test_values", [])
+    test_preds = combo_res.get("test_preds", [])
+    future_dates = combo_res.get("future_dates", [])
+    future_preds = combo_res.get("future_preds", [])
+    
+    fig.add_trace(go.Scatter(
+      x=history_dates, y=history_values,
+      name=translate("Histórico (Treino)", lang),
+      line=dict(color=UNB_THEME['UNB_BLUE'], width=2)
+    ))
+    
+    if test_dates:
+      fig.add_trace(go.Scatter(
+        x=test_dates, y=test_values,
+        name=translate("Teste (Real)", lang),
+        mode='lines+markers',
+        line=dict(color=UNB_THEME['UNB_GRAY_DARK'], width=1.5, dash='dash')
+      ))
+      fig.add_trace(go.Scatter(
+        x=test_dates, y=test_preds,
+        name=translate("Teste (Previsão)", lang),
+        mode='lines+markers',
+        line=dict(color=UNB_THEME['UNB_YELLOW_DARK'], width=1.5)
+      ))
+      
+    fig.add_trace(go.Scatter(
+      x=future_dates, y=future_preds,
+      name=translate("Previsão Futura", lang),
+      line=dict(color=UNB_THEME['UNB_GREEN'], width=2.5)
+    ))
+    
+    fig.update_layout(
+      title=translate("Série Histórica e Previsão Futura", lang),
+      xaxis_title=translate("Data", lang),
+      yaxis_title=translate("Peso (ton)", lang),
+      hovermode="x unified",
+      template="plotly_white",
+      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+      margin=dict(l=40, r=40, t=80, b=40)
+    )
+
+    fig_res_time = go.Figure()
+    residuals = combo_res.get("residuals", [])
+    residuals_dates = combo_res.get("residuals_dates", [])
+    
+    if residuals:
+      fig_res_time.add_trace(go.Scatter(
+        x=residuals_dates, y=residuals,
+        name=translate("Resíduos", lang),
+        line=dict(color=UNB_THEME['DANGER'], width=2)
+      ))
+      fig_res_time.add_trace(go.Scatter(
+        x=residuals_dates, y=[0]*len(residuals),
+        showlegend=False,
+        line=dict(color='gray', dash='dash')
+      ))
+      
+    fig_res_time.update_layout(
+      title=translate("Resíduos do Teste ao Longo do Tempo", lang),
+      xaxis_title=translate("Data", lang),
+      yaxis_title=translate("Resíduo (Real - Previsto)", lang),
+      template="plotly_white",
+      margin=dict(l=40, r=40, t=50, b=40)
+    )
+
+    fig_res_hist = go.Figure()
+    if residuals:
+      fig_res_hist.add_trace(go.Histogram(
+        x=residuals,
+        name=translate("Resíduos", lang),
+        marker_color=UNB_THEME['UNB_BLUE_MED']
+      ))
+      
+    fig_res_hist.update_layout(
+      title=translate("Distribuição de Frequência dos Resíduos", lang),
+      xaxis_title=translate("Valor do Resíduo", lang),
+      yaxis_title=translate("Frequência", lang),
+      template="plotly_white",
+      margin=dict(l=40, r=40, t=50, b=40)
+    )
+
+    params = combo_res.get("params", "")
+
+    return mape_str, rmse_str, mae_str, quality_badge, badge_style, fig, fig_res_time, fig_res_hist, params, False
+
+  except Exception as e:
+    print(f"Error rendering prediction results: {e}")
+    empty_fig = go.Figure()
+    return "-", "-", "-", "-", {"color": UNB_THEME['UNB_GRAY_DARK']}, empty_fig, empty_fig, empty_fig, "", True
+
+
+@app.callback(
+  Output("download-prediction-xlsx", "data"),
+  [Input("btn-download-forecast", "n_clicks")],
+  [State("store-prediction-results", "data"),
+   State("store-lang", "data")],
+  prevent_initial_call=True
+)
+def download_prediction_report(n_clicks, prediction_results, lang='pt'):
+  if not n_clicks or not prediction_results:
+    return no_update
+
+  try:
+    results = json.loads(prediction_results)
+    if not results:
+      return no_update
+
+    forecast_rows = []
+    metrics_rows = []
+    residuals_rows = []
+
+    for key, combo_res in results.items():
+      if not combo_res or combo_res.get("status") != "success":
+        continue
+
+      s_type = combo_res.get("series_type")
+      s_label = translate("Oferta", lang) if s_type == "supply" else translate("Demanda", lang)
+      prod = combo_res.get("product")
+      city = combo_res.get("city")
+
+      history_dates = combo_res.get("history_dates", [])
+      history_values = combo_res.get("history_values", [])
+      test_dates = combo_res.get("test_dates", [])
+      test_values = combo_res.get("test_values", [])
+      test_preds = combo_res.get("test_preds", [])
+      future_dates = combo_res.get("future_dates", [])
+      future_preds = combo_res.get("future_preds", [])
+
+      for d, val in zip(history_dates, history_values):
+        forecast_rows.append({
+          "Série": s_label,
+          "Produto": prod,
+          "Cidade": city,
+          "Data": d,
+          "Tipo": translate("Histórico (Treino)", lang),
+          "Real": val,
+          "Previsão": None
+        })
+      for d, val, pred in zip(test_dates, test_values, test_preds):
+        forecast_rows.append({
+          "Série": s_label,
+          "Produto": prod,
+          "Cidade": city,
+          "Data": d,
+          "Tipo": translate("Teste (Avaliação)", lang),
+          "Real": val,
+          "Previsão": pred
+        })
+      for d, pred in zip(future_dates, future_preds):
+        forecast_rows.append({
+          "Série": s_label,
+          "Produto": prod,
+          "Cidade": city,
+          "Data": d,
+          "Tipo": translate("Previsão Futura", lang),
+          "Real": None,
+          "Previsão": pred
+        })
+
+      mae = combo_res.get("mae", 0.0)
+      rmse = combo_res.get("rmse", 0.0)
+      mape = combo_res.get("mape", 0.0)
+      metrics_rows.append({
+        "Série": s_label,
+        "Produto": prod,
+        "Cidade": city,
+        "MAE": mae,
+        "RMSE": rmse,
+        "MAPE (%)": mape
+      })
+
+      residuals = combo_res.get("residuals", [])
+      residuals_dates = combo_res.get("residuals_dates", [])
+      for d, res in zip(residuals_dates, residuals):
+        residuals_rows.append({
+          "Série": s_label,
+          "Produto": prod,
+          "Cidade": city,
+          "Data": d,
+          "Resíduo": res
+        })
+
+    if not forecast_rows:
+      return no_update
+
+    df_forecast = pd.DataFrame(forecast_rows)
+    df_metrics = pd.DataFrame(metrics_rows)
+    df_residuals = pd.DataFrame(residuals_rows)
+
+    df_forecast = df_forecast[["Série", "Produto", "Cidade", "Data", "Tipo", "Real", "Previsão"]]
+    df_metrics = df_metrics[["Série", "Produto", "Cidade", "MAE", "RMSE", "MAPE (%)"]]
+    df_residuals = df_residuals[["Série", "Produto", "Cidade", "Data", "Resíduo"]]
+
+    def to_xlsx(bytes_io):
+      with pd.ExcelWriter(bytes_io, engine='openpyxl') as writer:
+        df_forecast.to_excel(writer, sheet_name=translate("Previsões", lang), index=False)
+        df_metrics.to_excel(writer, sheet_name=translate("Métricas", lang), index=False)
+        df_residuals.to_excel(writer, sheet_name=translate("Resíduos", lang), index=False)
+
+    return dcc.send_bytes(to_xlsx, "SiloDSS_Previsoes_Consolidadas.xlsx")
+
+  except Exception as e:
+    print(f"Error in download_prediction_report: {e}")
+    return no_update
+
+
 
 
 def view():
