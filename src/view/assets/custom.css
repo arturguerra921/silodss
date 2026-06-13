@@ -439,3 +439,12 @@ small, .small {
     /* Move the switch button to the left proportionally */
     margin-left: calc(-2.5em * var(--switch-scale)) !important;
 }
+
+/* Fix vertical misalignment of Bootstrap Icons when used inside centered flex containers */
+.d-flex.align-items-center .bi::before,
+.d-flex.align-items-center [class^="bi-"]::before,
+.d-flex.align-items-center [class*=" bi-"]::before {
+    vertical-align: -0.06em !important;
+}
+
+

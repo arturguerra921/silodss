@@ -72,7 +72,7 @@ def prepare_time_series(df, product=None, city=None):
 
 def calculate_metrics(y_true, y_pred):
   """
-  Calculates MAE, RMSE, and MAPE metrics.
+  Calculates MAE, RMSE, MAPE, and WMAPE metrics.
   """
   y_true = np.array(y_true, dtype=float)
   y_pred = np.array(y_pred, dtype=float)
@@ -88,29 +88,41 @@ def calculate_metrics(y_true, y_pred):
   else:
     mape = 0.0
 
-  return mae, rmse, mape
+  # WMAPE
+  sum_true = np.sum(np.abs(y_true))
+  if sum_true > 0:
+    wmape = float(np.sum(np.abs(y_true - y_pred)) / sum_true * 100.0)
+  else:
+    wmape = 0.0
 
-def get_quality_badge(mape, lang="pt"):
+  return mae, rmse, mape, wmape
+
+def get_quality_badge(wmape, lang="pt"):
   """
-  Determines quality classification based on MAPE score.
+  Determines quality classification based on WMAPE score.
   """
-  if mape < 10.0:
+  if wmape < 10.0:
     return translate("Excelente", lang), "success"
-  elif mape < 20.0:
+  elif wmape < 20.0:
     return translate("Bom", lang), "success"
-  elif mape < 50.0:
+  elif wmape < 50.0:
     return translate("Regular", lang), "warning"
   else:
     return translate("Ruim", lang), "danger"
 
-def forecast_sarima(train_series, test_len, horizon):
+def forecast_sarima(series, test_len, horizon):
   """
   Trains a SARIMA model using statsmodels.
   Uses s=12 if dataset length is enough, else s=0 (standard ARIMA).
   """
   from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-  # Ensure data is floats
+  # Extract splits
+  if test_len > 0:
+    train_series = series.iloc[:-test_len]
+  else:
+    train_series = series
+
   train_data = train_series.values.astype(float)
   n_samples = len(train_data)
   
@@ -140,13 +152,18 @@ def forecast_sarima(train_series, test_len, horizon):
       
       fit_model = model.fit(disp=False, maxiter=50)
       
-      # Predict test and future
-      test_preds = fit_model.forecast(steps=test_len)
+      # Predict test
+      if test_len > 0:
+        test_preds = [max(0.0, float(v)) for v in fit_model.forecast(steps=test_len)]
+      else:
+        test_preds = []
       
-      # Predict future from the end of the train + test data
-      # To forecast future, we refit the model on the full historical series
-      full_data = np.concatenate([train_data, fit_model.endog[len(train_data):] if test_len == 0 else test_preds])
-      if s == 12:
+      # Predict future from the end of the full historical series (retrained on entire series)
+      full_data = series.values.astype(float)
+      n_full = len(full_data)
+      s_full = 12 if n_full >= 24 else 0
+
+      if s_full == 12:
         model_full = SARIMAX(
           full_data,
           order=(1, 1, 1),
@@ -162,21 +179,27 @@ def forecast_sarima(train_series, test_len, horizon):
           enforce_invertibility=False
         )
       fit_full = model_full.fit(disp=False, maxiter=50)
-      future_preds = fit_full.forecast(steps=horizon)
+      future_preds = [max(0.0, float(v)) for v in fit_full.forecast(steps=horizon)]
       
-      params_summary = f"SARIMAX(1,1,1)x(1,0,1,12)" if s == 12 else "ARIMA(1,1,1)"
+      params_summary = f"SARIMAX(1,1,1)x(1,0,1,12)" if s_full == 12 else "ARIMA(1,1,1)"
       params_summary += f"\nAIC: {fit_full.aic:.2f}"
       
-      return list(test_preds), list(future_preds), params_summary
+      return test_preds, future_preds, params_summary
   except Exception as e:
     # Fallback to simple double exponential smoothing approximation if SARIMA fails
-    return forecast_fallback(train_data, test_len, horizon, f"SARIMA failed, fallback used. Error: {str(e)}")
+    return forecast_fallback(series, test_len, horizon, f"SARIMA failed, fallback used. Error: {str(e)}")
 
-def forecast_prophet(train_series, test_len, horizon):
+def forecast_prophet(series, test_len, horizon):
   """
   Trains a Prophet model.
   """
   from prophet import Prophet
+
+  # Extract splits
+  if test_len > 0:
+    train_series = series.iloc[:-test_len]
+  else:
+    train_series = series
 
   # Format DataFrame for Prophet
   df_prophet = pd.DataFrame({
@@ -193,14 +216,17 @@ def forecast_prophet(train_series, test_len, horizon):
     model.fit(df_prophet)
     
     # Forecast on test set period
-    future_test = model.make_future_dataframe(periods=test_len, freq="MS")
-    forecast_test = model.predict(future_test)
-    test_preds = forecast_test.iloc[-test_len:]["yhat"].values if test_len > 0 else []
+    if test_len > 0:
+      future_test = model.make_future_dataframe(periods=test_len, freq="MS")
+      forecast_test = model.predict(future_test)
+      test_preds = [max(0.0, float(v)) for v in forecast_test.iloc[-test_len:]["yhat"].values]
+    else:
+      test_preds = []
 
     # Fit full series for future forecast
     df_full = pd.DataFrame({
-      "ds": train_series.index.tolist() + [train_series.index[-1] + pd.DateOffset(months=i) for i in range(1, test_len + 1)],
-      "y": list(train_series.values.astype(float)) + list(test_preds)
+      "ds": series.index,
+      "y": series.values.astype(float)
     })
     
     model_full = Prophet(
@@ -212,18 +238,24 @@ def forecast_prophet(train_series, test_len, horizon):
     
     future_horizon = model_full.make_future_dataframe(periods=horizon, freq="MS")
     forecast_horizon = model_full.predict(future_horizon)
-    future_preds = forecast_horizon.iloc[-horizon:]["yhat"].values
+    future_preds = [max(0.0, float(v)) for v in forecast_horizon.iloc[-horizon:]["yhat"].values]
 
     params_summary = "Prophet Regressor (yearly_seasonality=True)\nSeasonality Mode: additive"
-    return list(test_preds), list(future_preds), params_summary
+    return test_preds, future_preds, params_summary
   except Exception as e:
-    return forecast_fallback(train_series.values.astype(float), test_len, horizon, f"Prophet failed, fallback used. Error: {str(e)}")
+    return forecast_fallback(series, test_len, horizon, f"Prophet failed, fallback used. Error: {str(e)}")
 
-def forecast_xgboost(train_series, test_len, horizon):
+def forecast_xgboost(series, test_len, horizon):
   """
   Trains an XGBoost model using autoregressive lags.
   """
   import xgboost as xgb
+
+  # Extract splits
+  if test_len > 0:
+    train_series = series.iloc[:-test_len]
+  else:
+    train_series = series
 
   train_data = train_series.values.astype(float)
   n_samples = len(train_data)
@@ -253,16 +285,35 @@ def forecast_xgboost(train_series, test_len, horizon):
 
     # Recursive forecasting on test set
     test_preds = []
-    current_history = list(train_data)
-    for _ in range(test_len):
-      feats = np.array([[current_history[-lag] for lag in lags]])
-      pred = float(model.predict(feats)[0])
-      test_preds.append(pred)
-      current_history.append(pred)
+    if test_len > 0:
+      current_history = list(train_data)
+      for _ in range(test_len):
+        feats = np.array([[current_history[-lag] for lag in lags]])
+        pred = max(0.0, float(model.predict(feats)[0]))
+        test_preds.append(pred)
+        current_history.append(pred)
 
     # Re-train on full data
-    full_data = np.concatenate([train_data, test_preds])
-    X_full, y_full = build_features(full_data)
+    full_data = series.values.astype(float)
+    n_full = len(full_data)
+    
+    lags_full = [1, 2, 3]
+    if n_full >= 15:
+      lags_full.append(12)
+    max_lag_full = max(lags_full)
+    
+    if n_full <= max_lag_full:
+      raise ValueError("Not enough data points in full series for lag structure.")
+      
+    def build_features_full(data):
+      X_f, y_f = [], []
+      for i in range(max_lag_full, len(data)):
+        features = [data[i - lag] for lag in lags_full]
+        X_f.append(features)
+        y_f.append(data[i])
+      return np.array(X_f), np.array(y_f)
+
+    X_full, y_full = build_features_full(full_data)
     
     model_full = xgb.XGBRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=42)
     model_full.fit(X_full, y_full)
@@ -271,20 +322,26 @@ def forecast_xgboost(train_series, test_len, horizon):
     future_preds = []
     current_full_history = list(full_data)
     for _ in range(horizon):
-      feats = np.array([[current_full_history[-lag] for lag in lags]])
-      pred = float(model_full.predict(feats)[0])
+      feats = np.array([[current_full_history[-lag] for lag in lags_full]])
+      pred = max(0.0, float(model_full.predict(feats)[0]))
       future_preds.append(pred)
       current_full_history.append(pred)
 
-    params_summary = f"XGBRegressor(max_depth=3, n_estimators=50)\nLags used: {lags}"
+    params_summary = f"XGBRegressor(max_depth=3, n_estimators=50)\nLags used: {lags_full}"
     return test_preds, future_preds, params_summary
   except Exception as e:
-    return forecast_fallback(train_data, test_len, horizon, f"XGBoost failed, fallback used. Error: {str(e)}")
+    return forecast_fallback(series, test_len, horizon, f"XGBoost failed, fallback used. Error: {str(e)}")
 
-def forecast_lstm(train_series, test_len, horizon):
+def forecast_lstm(series, test_len, horizon):
   """
   Trains a PyTorch LSTM model using autoregressive sequencing.
   """
+  # Extract splits
+  if test_len > 0:
+    train_series = series.iloc[:-test_len]
+  else:
+    train_series = series
+
   train_data = train_series.values.astype(float)
   n_samples = len(train_data)
   
@@ -331,23 +388,35 @@ def forecast_lstm(train_series, test_len, horizon):
 
     # Recursive forecasting for test set
     model.eval()
-    test_preds_scaled = []
-    current_seq = list(scaled_train[-lookback:])
-    
-    with torch.no_grad():
-      for _ in range(test_len):
-        input_tensor = torch.tensor([current_seq], dtype=torch.float32).unsqueeze(-1)
-        pred = float(model(input_tensor)[0, 0])
-        test_preds_scaled.append(pred)
-        current_seq.pop(0)
-        current_seq.append(pred)
+    test_preds = []
+    if test_len > 0:
+      test_preds_scaled = []
+      current_seq = list(scaled_train[-lookback:])
+      
+      with torch.no_grad():
+        for _ in range(test_len):
+          input_tensor = torch.tensor([current_seq], dtype=torch.float32).unsqueeze(-1)
+          pred = float(model(input_tensor)[0, 0])
+          test_preds_scaled.append(pred)
+          current_seq.pop(0)
+          current_seq.append(pred)
 
-    test_preds = [float(p * range_val + min_val) for p in test_preds_scaled]
+      test_preds = [max(0.0, float(p * range_val + min_val)) for p in test_preds_scaled]
 
     # Re-train on full data
-    full_data = np.concatenate([train_data, test_preds])
-    scaled_full = (full_data - min_val) / range_val
-    X_full, y_full = create_sequences(scaled_full, lookback)
+    full_data = series.values.astype(float)
+    n_full = len(full_data)
+    lookback_full = min(12, max(3, n_full // 3))
+
+    if n_full <= lookback_full:
+      raise ValueError("Not enough data points in full series for LSTM lookback.")
+
+    min_val_full = float(full_data.min())
+    max_val_full = float(full_data.max())
+    range_val_full = max_val_full - min_val_full if max_val_full != min_val_full else 1.0
+
+    scaled_full = (full_data - min_val_full) / range_val_full
+    X_full, y_full = create_sequences(scaled_full, lookback_full)
 
     X_full_tensor = torch.tensor(X_full, dtype=torch.float32).unsqueeze(-1)
     y_full_tensor = torch.tensor(y_full, dtype=torch.float32).unsqueeze(-1)
@@ -365,7 +434,7 @@ def forecast_lstm(train_series, test_len, horizon):
 
     model_full.eval()
     future_preds_scaled = []
-    current_full_seq = list(scaled_full[-lookback:])
+    current_full_seq = list(scaled_full[-lookback_full:])
 
     with torch.no_grad():
       for _ in range(horizon):
@@ -375,29 +444,36 @@ def forecast_lstm(train_series, test_len, horizon):
         current_full_seq.pop(0)
         current_full_seq.append(pred)
 
-    future_preds = [float(p * range_val + min_val) for p in future_preds_scaled]
+    future_preds = [max(0.0, float(p * range_val_full + min_val_full)) for p in future_preds_scaled]
 
-    params_summary = f"PyTorch LSTMRegressor(hidden_dim=16)\nSequence Lookback: {lookback}\nEpochs: {epochs}"
+    params_summary = f"PyTorch LSTMRegressor(hidden_dim=16)\nSequence Lookback (Train/Full): {lookback}/{lookback_full}\nEpochs: {epochs}"
     return test_preds, future_preds, params_summary
   except Exception as e:
-    return forecast_fallback(train_data, test_len, horizon, f"LSTM failed, fallback used. Error: {str(e)}")
+    return forecast_fallback(series, test_len, horizon, f"LSTM failed, fallback used. Error: {str(e)}")
 
-def forecast_fallback(train_data, test_len, horizon, message="Fallback method used"):
+def forecast_fallback(series, test_len, horizon, message="Fallback method used"):
   """
   Simple Linear Trend + Average Seasonality model as a robust mathematical fallback.
   """
-  n = len(train_data)
-  indices = np.arange(n)
+  if isinstance(series, pd.Series):
+    series_values = series.values.astype(float)
+  else:
+    series_values = np.array(series, dtype=float)
+    
+  n_total = len(series_values)
+  n_train = n_total - test_len if test_len > 0 else n_total
+  train_data = series_values[:n_train]
   
-  # Fit linear trend: y = a * x + b
-  A = np.vstack([indices, np.ones(n)]).T
+  # Fit trend on train data: y = a * x + b
+  indices = np.arange(n_train)
+  A = np.vstack([indices, np.ones(n_train)]).T
   slope, intercept = np.linalg.lstsq(A, train_data, rcond=None)[0]
   
-  # Calculate seasonal indices if we have enough years
+  # Calculate seasonal indices if we have enough years (train data)
   seasonal_pattern = np.zeros(12)
-  if n >= 24:
+  if n_train >= 24:
     for month_idx in range(12):
-      month_values = [train_data[i] for i in range(month_idx, n, 12)]
+      month_values = [train_data[i] for i in range(month_idx, n_train, 12)]
       seasonal_pattern[month_idx] = np.mean(month_values) - (slope * month_idx + intercept)
   
   def predict_step(step_idx):
@@ -405,10 +481,27 @@ def forecast_fallback(train_data, test_len, horizon, message="Fallback method us
     seasonal = seasonal_pattern[step_idx % 12]
     return max(0.0, float(trend + seasonal))
 
-  test_preds = [predict_step(n + i) for i in range(test_len)]
+  test_preds = [predict_step(n_train + i) for i in range(test_len)]
   
-  # For future predictions, we extend beyond test
-  future_preds = [predict_step(n + test_len + i) for i in range(horizon)]
+  # Fit trend on full series for future prediction
+  indices_full = np.arange(n_total)
+  A_full = np.vstack([indices_full, np.ones(n_total)]).T
+  slope_full, intercept_full = np.linalg.lstsq(A_full, series_values, rcond=None)[0]
   
-  summary = f"Fallback Linear Trend + Seasonality Model\nReason: {message}\nSlope: {slope:.4f}"
+  # Seasonal pattern on full series
+  seasonal_pattern_full = np.zeros(12)
+  if n_total >= 24:
+    for month_idx in range(12):
+      month_values = [series_values[i] for i in range(month_idx, n_total, 12)]
+      seasonal_pattern_full[month_idx] = np.mean(month_values) - (slope_full * month_idx + intercept_full)
+      
+  def predict_step_full(step_idx):
+    trend = slope_full * step_idx + intercept_full
+    seasonal = seasonal_pattern_full[step_idx % 12]
+    return max(0.0, float(trend + seasonal))
+  
+  # Future predictions
+  future_preds = [predict_step_full(n_total + i) for i in range(horizon)]
+  
+  summary = f"Fallback Linear Trend + Seasonality Model\nReason: {message}\nSlope (Train): {slope:.4f}\nSlope (Full): {slope_full:.4f}"
   return test_preds, future_preds, summary

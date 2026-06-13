@@ -5494,7 +5494,10 @@ def sync_prediction_dropdowns(prediction_results, selected_series, selected_prod
     # 1. Determine Series Type
     available_series = sorted(list(set([c["series_type"] for c in combos])))
     if selected_series not in available_series:
-      selected_series = available_series[0] if available_series else None
+      if "supply" in available_series:
+        selected_series = "supply"
+      else:
+        selected_series = available_series[0] if available_series else None
 
     # 2. Determine Product Dropdown options and value
     products_for_series = sorted(list(set([c["product"] for c in combos if c["series_type"] == selected_series])))
@@ -5635,21 +5638,21 @@ def execute_prediction(n_clicks, model_name, test_size, horizon,
 
                 try:
                     if model_name == 'sarima':
-                        test_preds, future_preds, summary = forecast_sarima(train_series, test_len, horizon)
+                        test_preds, future_preds, summary = forecast_sarima(series, test_len, horizon)
                     elif model_name == 'prophet':
-                        test_preds, future_preds, summary = forecast_prophet(train_series, test_len, horizon)
+                        test_preds, future_preds, summary = forecast_prophet(series, test_len, horizon)
                     elif model_name == 'xgboost':
-                        test_preds, future_preds, summary = forecast_xgboost(train_series, test_len, horizon)
+                        test_preds, future_preds, summary = forecast_xgboost(series, test_len, horizon)
                     elif model_name == 'lstm':
-                        test_preds, future_preds, summary = forecast_lstm(train_series, test_len, horizon)
+                        test_preds, future_preds, summary = forecast_lstm(series, test_len, horizon)
                     else:
                         raise ValueError(f"Unknown model: {model_name}")
 
                     # Compute metrics
-                    mae, rmse, mape = 0.0, 0.0, 0.0
+                    mae, rmse, mape, wmape = 0.0, 0.0, 0.0, 0.0
                     residuals = []
                     if test_len > 0:
-                        mae, rmse, mape = calculate_metrics(test_series.values, test_preds)
+                        mae, rmse, mape, wmape = calculate_metrics(test_series.values, test_preds)
                         residuals = list(test_series.values - test_preds)
 
                     # Save residuals for optimization
@@ -5692,6 +5695,7 @@ def execute_prediction(n_clicks, model_name, test_size, horizon,
                         "mae": mae,
                         "rmse": rmse,
                         "mape": mape,
+                        "wmape": wmape,
                         "params": summary,
                         "residuals": residuals,
                         "residuals_dates": test_dates
@@ -5808,15 +5812,15 @@ def render_prediction_results(prediction_results, series_type, product, city, la
       )
       return "-", "-", "-", "-", {"color": UNB_THEME['UNB_GRAY_DARK']}, empty_fig, empty_fig, empty_fig, "", True
 
-    mape = combo_res.get("mape", 0.0)
+    wmape = combo_res.get("wmape", combo_res.get("mape", 0.0))
     rmse = combo_res.get("rmse", 0.0)
     mae = combo_res.get("mae", 0.0)
     
-    mape_str = f"{mape:.2f}%" if mape > 0 else "-"
+    mape_str = f"{wmape:.2f}%" if wmape > 0 else "-"
     rmse_str = f"{rmse:.2f}" if rmse > 0 else "-"
     mae_str = f"{mae:.2f}" if mae > 0 else "-"
     
-    quality_text, badge_color = get_quality_badge(mape, lang)
+    quality_text, badge_color = get_quality_badge(wmape, lang)
     color_map = {
       "success": UNB_THEME['UNB_GREEN'],
       "warning": UNB_THEME['UNB_YELLOW_DARK'],
@@ -5992,13 +5996,15 @@ def download_prediction_report(n_clicks, prediction_results, lang='pt'):
       mae = combo_res.get("mae", 0.0)
       rmse = combo_res.get("rmse", 0.0)
       mape = combo_res.get("mape", 0.0)
+      wmape = combo_res.get("wmape", mape)
       metrics_rows.append({
         "Série": s_label,
         "Produto": prod,
         "Cidade": city,
         "MAE": mae,
         "RMSE": rmse,
-        "MAPE (%)": mape
+        "MAPE (%)": mape,
+        "WMAPE (%)": wmape
       })
 
       residuals = combo_res.get("residuals", [])
@@ -6020,7 +6026,7 @@ def download_prediction_report(n_clicks, prediction_results, lang='pt'):
     df_residuals = pd.DataFrame(residuals_rows)
 
     df_forecast = df_forecast[["Série", "Produto", "Cidade", "Data", "Tipo", "Real", "Previsão"]]
-    df_metrics = df_metrics[["Série", "Produto", "Cidade", "MAE", "RMSE", "MAPE (%)"]]
+    df_metrics = df_metrics[["Série", "Produto", "Cidade", "MAE", "RMSE", "MAPE (%)", "WMAPE (%)"]]
     df_residuals = df_residuals[["Série", "Produto", "Cidade", "Data", "Resíduo"]]
 
     def to_xlsx(bytes_io):

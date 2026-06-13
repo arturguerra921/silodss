@@ -582,5 +582,17 @@
     "Previsões": "Previsões",
     "Não Previsto": "Não Previsto",
     "Dados Insuficientes": "Dados Insuficientes",
-    "Aguardando previsão": "Aguardando previsão"
+    "Aguardando previsão": "Aguardando previsão",
+    "Escolha o algoritmo de previsão. Modelos estatísticos (SARIMA/Prophet) são ideais para séries curtas. Modelos de ML/Redes Neurais (XGBoost/LSTM) são adequados para séries longas e volumosas.": "Escolha o algoritmo de previsão. Modelos estatísticos (SARIMA/Prophet) são ideais para séries curtas. Modelos de ML/Redes Neurais (XGBoost/LSTM) são adequados para séries longas e volumosas.",
+    "Quantidade de meses finais da série histórica reservados para testar a acurácia do modelo.": "Quantidade de meses finais da série histórica reservados para testar a acurácia do modelo.",
+    "Quantidade de meses futuros a serem previstos após o fim da série histórica.": "Quantidade de meses futuros a serem previstos após o fim da série histórica.",
+    "Selecione se deseja visualizar os resultados da Oferta (Origem) ou Demanda (Destino).": "Selecione se deseja visualizar os resultados da Oferta (Origem) ou Demanda (Destino).",
+    "Selecione o produto para visualizar o respectivo gráfico e métricas de previsão.": "Selecione o produto para visualizar o respectivo gráfico e métricas de previsão.",
+    "Selecione a cidade/município para visualizar o respectivo gráfico e métricas de previsão.": "Selecione a cidade/município para visualizar o respectivo gráfico e métricas de previsão.",
+    "Weighted Mean Absolute Percentage Error (Erro Percentual Médio Absoluto Ponderado). Mede o desvio médio ponderado pelo volume real. Valores menores indicam maior acurácia.": "Weighted Mean Absolute Percentage Error (Erro Percentual Médio Absoluto Ponderado). Mede o desvio médio ponderado pelo volume real. Valores menores indicam maior acurácia.",
+    "Root Mean Squared Error (Raiz do Erro Quadrático Médio). Mede o desvio padrão dos erros de previsão. Penaliza erros maiores de forma mais severa.": "Root Mean Squared Error (Raiz do Erro Quadrático Médio). Mede o desvio padrão dos erros de previsão. Penaliza erros maiores de forma mais severa.",
+    "Mean Absolute Error (Erro Médio Absoluto). Representa o erro médio absoluto físico (em toneladas) de cada mês no conjunto de teste.": "Mean Absolute Error (Erro Médio Absoluto). Representa o erro médio absoluto físico (em toneladas) de cada mês no conjunto de teste.",
+    "Classificação qualitativa do erro WMAPE: Excelente (<10%), Bom (<20%), Regular (<50%), Ruim (>=50%).": "Classificação qualitativa do erro WMAPE: Excelente (<10%), Bom (<20%), Regular (<50%), Ruim (>=50%).",
+    "Configure os parâmetros do modelo e execute a previsão.": "Configure os parâmetros do modelo e execute a previsão.",
+    "Visualize os resultados e resíduos nos gráficos abaixo.": "Visualize os resultados e resíduos nos gráficos abaixo."
 }

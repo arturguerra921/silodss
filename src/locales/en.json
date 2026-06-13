@@ -582,5 +582,17 @@
     "Previsões": "Predictions",
     "Não Previsto": "Not Predicted",
     "Dados Insuficientes": "Insufficient Data",
-    "Aguardando previsão": "Waiting for forecast"
+    "Aguardando previsão": "Waiting for forecast",
+    "Escolha o algoritmo de previsão. Modelos estatísticos (SARIMA/Prophet) são ideais para séries curtas. Modelos de ML/Redes Neurais (XGBoost/LSTM) são adequados para séries longas e volumosas.": "Choose the forecasting algorithm. Statistical models (SARIMA/Prophet) are ideal for short series. ML/Neural Network models (XGBoost/LSTM) are suitable for long and voluminous series.",
+    "Quantidade de meses finais da série histórica reservados para testar a acurácia do modelo.": "Number of final months of the historical series reserved to test the model's accuracy.",
+    "Quantidade de meses futuros a serem previstos após o fim da série histórica.": "Number of future months to be forecast after the end of the historical series.",
+    "Selecione se deseja visualizar os resultados da Oferta (Origem) ou Demanda (Destino).": "Select whether you want to view the results for Supply (Origin) or Demand (Destination).",
+    "Selecione o produto para visualizar o respectivo gráfico e métricas de previsão.": "Select the product to view its respective chart and forecasting metrics.",
+    "Selecione a cidade/município para visualizar o respectivo gráfico e métricas de previsão.": "Select the city/municipality to view its respective chart and forecasting metrics.",
+    "Weighted Mean Absolute Percentage Error (Erro Percentual Médio Absoluto Ponderado). Mede o desvio médio ponderado pelo volume real. Valores menores indicam maior acurácia.": "Weighted Mean Absolute Percentage Error. Measures the average deviation weighted by actual volume. Lower values indicate higher accuracy.",
+    "Root Mean Squared Error (Raiz do Erro Quadrático Médio). Mede o desvio padrão dos erros de previsão. Penaliza erros maiores de forma mais severa.": "Root Mean Squared Error. Measures the standard deviation of forecast errors. Penalizes larger errors more severely.",
+    "Mean Absolute Error (Erro Médio Absoluto). Representa o erro médio absoluto físico (em toneladas) de cada mês no conjunto de teste.": "Mean Absolute Error. Represents the physical average absolute error (in tons) of each month in the test set.",
+    "Classificação qualitativa do erro WMAPE: Excelente (<10%), Bom (<20%), Regular (<50%), Ruim (>=50%).": "Qualitative classification of the WMAPE error: Excellent (<10%), Good (<20%), Regular (<50%), Bad (>=50%).",
+    "Configure os parâmetros do modelo e execute a previsão.": "Configure the model parameters and run the forecast.",
+    "Visualize os resultados e resíduos nos gráficos abaixo.": "Visualize the results and residuals in the charts below."
 }

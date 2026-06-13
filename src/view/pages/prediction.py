@@ -22,7 +22,11 @@ def get_tab_prediction_layout(lang='pt'):
         [
           # Model Selector
           html.Div([
-            dbc.Label(translate("Modelo", lang), className="fw-bold small mb-1"),
+            html.Div([
+              dbc.Label(translate("Modelo", lang), className="fw-bold small mb-0 me-2"),
+              html.I(className="bi bi-question-circle-fill text-muted", id="help-pred-model", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+              dbc.Tooltip(translate("Escolha o algoritmo de previsão. Modelos estatísticos (SARIMA/Prophet) são ideais para séries curtas. Modelos de ML/Redes Neurais (XGBoost/LSTM) são adequados para séries longas e volumosas.", lang), target="help-pred-model", placement="top")
+            ], className="d-flex align-items-center mb-1"),
             dcc.Dropdown(
               id="prediction-model-select",
               options=[
@@ -40,11 +44,19 @@ def get_tab_prediction_layout(lang='pt'):
           # Test Split Size and Horizon
           dbc.Row([
             dbc.Col([
-              dbc.Label(translate("Tamanho do Teste (Meses)", lang), className="fw-bold small mb-1"),
+              html.Div([
+                dbc.Label(translate("Tamanho do Teste (Meses)", lang), className="fw-bold small mb-0 me-2"),
+                html.I(className="bi bi-question-circle-fill text-muted", id="help-pred-test-size", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                dbc.Tooltip(translate("Quantidade de meses finais da série histórica reservados para testar a acurácia do modelo.", lang), target="help-pred-test-size", placement="top")
+              ], className="d-flex align-items-center mb-1"),
               dbc.Input(id="prediction-test-size", type="number", min=0, value=12, className="mb-16")
             ], width=6),
             dbc.Col([
-              dbc.Label(translate("Horizonte (Meses)", lang), className="fw-bold small mb-1"),
+              html.Div([
+                dbc.Label(translate("Horizonte (Meses)", lang), className="fw-bold small mb-0 me-2"),
+                html.I(className="bi bi-question-circle-fill text-muted", id="help-pred-horizon", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                dbc.Tooltip(translate("Quantidade de meses futuros a serem previstos após o fim da série histórica.", lang), target="help-pred-horizon", placement="top")
+              ], className="d-flex align-items-center mb-1"),
               dbc.Input(id="prediction-horizon", type="number", min=1, value=12, className="mb-16")
             ], width=6)
           ], className="g-2"),
@@ -74,7 +86,11 @@ def get_tab_prediction_layout(lang='pt'):
 
           # Series Type Selector
           html.Div([
-            dbc.Label(translate("Série", lang), className="fw-bold small mb-1"),
+            html.Div([
+              dbc.Label(translate("Série", lang), className="fw-bold small mb-0 me-2"),
+              html.I(className="bi bi-question-circle-fill text-muted", id="help-pred-series", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+              dbc.Tooltip(translate("Selecione se deseja visualizar os resultados da Oferta (Origem) ou Demanda (Destino).", lang), target="help-pred-series", placement="top")
+            ], className="d-flex align-items-center mb-1"),
             dcc.Dropdown(
               id="prediction-series-type",
               options=[
@@ -90,7 +106,11 @@ def get_tab_prediction_layout(lang='pt'):
 
           # Product Dropdown
           html.Div([
-            dbc.Label(translate("Produto", lang), className="fw-bold small mb-1"),
+            html.Div([
+              dbc.Label(translate("Produto", lang), className="fw-bold small mb-0 me-2"),
+              html.I(className="bi bi-question-circle-fill text-muted", id="help-pred-prod", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+              dbc.Tooltip(translate("Selecione o produto para visualizar o respectivo gráfico e métricas de previsão.", lang), target="help-pred-prod", placement="top")
+            ], className="d-flex align-items-center mb-1"),
             dcc.Dropdown(
               id="prediction-product-dropdown",
               placeholder=translate("Aguardando previsão", lang),
@@ -102,7 +122,11 @@ def get_tab_prediction_layout(lang='pt'):
 
           # City Dropdown
           html.Div([
-            dbc.Label(translate("Cidade", lang), className="fw-bold small mb-1"),
+            html.Div([
+              dbc.Label(translate("Cidade", lang), className="fw-bold small mb-0 me-2"),
+              html.I(className="bi bi-question-circle-fill text-muted", id="help-pred-city", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+              dbc.Tooltip(translate("Selecione a cidade/município para visualizar o respectivo gráfico e métricas de previsão.", lang), target="help-pred-city", placement="top")
+            ], className="d-flex align-items-center mb-1"),
             dcc.Dropdown(
               id="prediction-city-dropdown",
               placeholder=translate("Aguardando previsão", lang),
@@ -127,7 +151,11 @@ def get_tab_prediction_layout(lang='pt'):
             html.Div([
               html.I(className="bi bi-graph-up fs-2 me-3", style={"color": UNB_THEME['UNB_BLUE']}),
               html.Div([
-                html.H6(translate("MAPE (%)", lang), className="text-muted small text-uppercase fw-bold mb-1"),
+                html.H6([
+                  html.Span(translate("WMAPE (%)", lang), className="me-2"),
+                  html.I(className="bi bi-question-circle-fill text-muted", id="tooltip-kpi-wmape", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                  dbc.Tooltip(translate("Weighted Mean Absolute Percentage Error (Erro Percentual Médio Absoluto Ponderado). Mede o desvio médio ponderado pelo volume real. Valores menores indicam maior acurácia.", lang), target="tooltip-kpi-wmape")
+                ], className="text-muted small text-uppercase fw-bold mb-1 d-flex align-items-center"),
                 html.H3(id="prediction-kpi-mape", children="-", className="mb-0", style={"color": UNB_THEME['UNB_BLUE']})
               ])
             ], className="d-flex align-items-center py-1")
@@ -143,7 +171,11 @@ def get_tab_prediction_layout(lang='pt'):
             html.Div([
               html.I(className="bi bi-calculator fs-2 me-3", style={"color": UNB_THEME['UNB_GREEN']}),
               html.Div([
-                html.H6(translate("RMSE", lang), className="text-muted small text-uppercase fw-bold mb-1"),
+                html.H6([
+                  html.Span(translate("RMSE", lang), className="me-2"),
+                  html.I(className="bi bi-question-circle-fill text-muted", id="tooltip-kpi-rmse", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                  dbc.Tooltip(translate("Root Mean Squared Error (Raiz do Erro Quadrático Médio). Mede o desvio padrão dos erros de previsão. Penaliza erros maiores de forma mais severa.", lang), target="tooltip-kpi-rmse")
+                ], className="text-muted small text-uppercase fw-bold mb-1 d-flex align-items-center"),
                 html.H3(id="prediction-kpi-rmse", children="-", className="mb-0", style={"color": UNB_THEME['UNB_GREEN']})
               ])
             ], className="d-flex align-items-center py-1")
@@ -159,7 +191,11 @@ def get_tab_prediction_layout(lang='pt'):
             html.Div([
               html.I(className="bi bi-activity fs-2 me-3", style={"color": UNB_THEME['UNB_BLUE_MED']}),
               html.Div([
-                html.H6(translate("MAE", lang), className="text-muted small text-uppercase fw-bold mb-1"),
+                html.H6([
+                  html.Span(translate("MAE", lang), className="me-2"),
+                  html.I(className="bi bi-question-circle-fill text-muted", id="tooltip-kpi-mae", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                  dbc.Tooltip(translate("Mean Absolute Error (Erro Médio Absoluto). Representa o erro médio absoluto físico (em toneladas) de cada mês no conjunto de teste.", lang), target="tooltip-kpi-mae")
+                ], className="text-muted small text-uppercase fw-bold mb-1 d-flex align-items-center"),
                 html.H3(id="prediction-kpi-mae", children="-", className="mb-0", style={"color": UNB_THEME['UNB_BLUE_MED']})
               ])
             ], className="d-flex align-items-center py-1")
@@ -175,7 +211,11 @@ def get_tab_prediction_layout(lang='pt'):
             html.Div([
               html.I(className="bi bi-award fs-2 me-3", id="prediction-kpi-badge-icon", style={"color": UNB_THEME['UNB_GRAY_DARK']}),
               html.Div([
-                html.H6(translate("Indicador de Qualidade", lang), className="text-muted small text-uppercase fw-bold mb-1"),
+                html.H6([
+                  html.Span(translate("Indicador de Qualidade", lang), className="me-2"),
+                  html.I(className="bi bi-question-circle-fill text-muted", id="tooltip-kpi-quality", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                  dbc.Tooltip(translate("Classificação qualitativa do erro WMAPE: Excelente (<10%), Bom (<20%), Regular (<50%), Ruim (>=50%).", lang), target="tooltip-kpi-quality")
+                ], className="text-muted small text-uppercase fw-bold mb-1 d-flex align-items-center"),
                 html.Div(id="prediction-kpi-quality-container", children="-", className="h4 mb-0 fw-bold")
               ])
             ], className="d-flex align-items-center py-1")
