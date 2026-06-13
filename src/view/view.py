@@ -3577,6 +3577,12 @@ def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, stored_d
         except Exception as e:
             return no_update, translate("Erro de conexão com OSRM (Trecho Armazéns -> Demanda):", lang) + f" {str(e)}", True
 
+        # Segment 3: Warehouses -> Warehouses
+        try:
+            matrix_3 = client.get_distance_matrix(destinations, destinations)
+        except Exception as e:
+            return no_update, translate("Erro de conexão com OSRM (Trecho Armazéns -> Armazéns):", lang) + f" {str(e)}", True
+
         # Format Result 1
         final_data_1 = []
         for i, row_vals in enumerate(matrix_1):
@@ -3603,10 +3609,26 @@ def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, stored_d
             final_data_2.append(row_dict)
         final_df_2 = pd.DataFrame(final_data_2)
 
+        # Format Result 3
+        final_data_3 = []
+        for i, row_vals in enumerate(matrix_3):
+            row_dict = {'Origem': dest_labels[i]}
+            for j, val in enumerate(row_vals):
+                col_name = dest_labels[j]
+                if i == j:
+                    row_dict[col_name] = 0.0
+                elif val is not None:
+                    row_dict[col_name] = round(val / 1000, 2)
+                else:
+                    row_dict[col_name] = "N/A"
+            final_data_3.append(row_dict)
+        final_df_3 = pd.DataFrame(final_data_3)
+
         # Save to store as a dict of JSONs
         stored_dict = {
             'supply_to_warehouses': final_df_1.to_json(date_format='iso', orient='split'),
-            'warehouses_to_demand': final_df_2.to_json(date_format='iso', orient='split')
+            'warehouses_to_demand': final_df_2.to_json(date_format='iso', orient='split'),
+            'warehouses_to_warehouses': final_df_3.to_json(date_format='iso', orient='split')
         }
 
         msg = translate("Cálculo concluído com sucesso! (Tempo de execução:", lang) + f" {time.time() - start_time:.2f} " + translate("segundos)", lang)
@@ -3666,6 +3688,9 @@ def download_matrix(n_clicks, stored_matrix_json, lang='pt'):
 
         df_supply_to_wh = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
         df_wh_to_demand = pd.read_json(io.StringIO(stored_dict['warehouses_to_demand']), orient='split')
+        df_wh_to_wh = None
+        if 'warehouses_to_warehouses' in stored_dict:
+            df_wh_to_wh = pd.read_json(io.StringIO(stored_dict['warehouses_to_warehouses']), orient='split')
     except Exception as e:
         print(f"Error loading matrix for download: {e}")
         return no_update
@@ -3674,6 +3699,8 @@ def download_matrix(n_clicks, stored_matrix_json, lang='pt'):
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df_supply_to_wh.to_excel(writer, sheet_name=translate("Oferta para Armazéns", lang), index=False)
         df_wh_to_demand.to_excel(writer, sheet_name=translate("Armazéns para Demanda", lang), index=False)
+        if df_wh_to_wh is not None:
+            df_wh_to_wh.to_excel(writer, sheet_name=translate("Armazéns para Armazéns", lang), index=False)
     
     return dcc.send_bytes(buffer.getvalue(), translate("Matriz_Distancias.xlsx", lang))
 
@@ -3776,6 +3803,16 @@ def update_route_map(active_cell, stored_data, stored_warehouses, stored_demand_
                 dest_row = dest_row.iloc[0]
 
             dest_coords = (dest_row['Latitude'], dest_row['Longitude'])
+
+        elif segment == 'warehouses_to_warehouses':
+            # Origin: Warehouse
+            if not stored_warehouses:
+                return default_fig
+            df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+            origin_coords = _find_warehouse_coords_by_label(df_warehouses, origin_name, lang)
+
+            # Destination: Warehouse
+            dest_coords = _find_warehouse_coords_by_label(df_warehouses, dest_label, lang)
 
         if not origin_coords or not dest_coords:
             return default_fig

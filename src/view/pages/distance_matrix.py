@@ -70,6 +70,7 @@ def get_tab_distance_matrix_layout(lang='pt'):
                         options=[
                             {"label": translate("De: Oferta | Para: Armazéns", lang), "value": "supply_to_warehouses"},
                             {"label": translate("De: Armazéns | Para: Demanda", lang), "value": "warehouses_to_demand"},
+                            {"label": translate("De: Armazéns | Para: Armazéns", lang), "value": "warehouses_to_warehouses"},
                         ],
                         value="supply_to_warehouses",
                         inline=False,
