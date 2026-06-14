@@ -2227,12 +2227,16 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
       cols_map['Armazenador'] = col
     elif 'tipo' in col_lower or 'type' in col_lower:
       cols_map['Tipo'] = col
+    elif 'cap' in col_lower and 'max' in col_lower:
+      cols_map['Cap. Estática Máxima (t)'] = col
     elif 'cap' in col_lower and ('est' in col_lower or 'capacidade' in col_lower or 'total' in col_lower or 'static' in col_lower):
       cols_map['Cap. Estática (t)'] = col
     elif 'recep' in col_lower or 'receb' in col_lower:
       cols_map['Cap. Recepção (t)'] = col
     elif 'exped' in col_lower or 'envio' in col_lower:
       cols_map['Cap. Expedição (t)'] = col
+    elif 'custo' in col_lower and ('abert' in col_lower or 'open' in col_lower):
+      cols_map['Custo de Abertura ($)'] = col
 
   new_df = pd.DataFrame()
   
@@ -2274,12 +2278,17 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
     new_df['Tipo'] = ''
 
   for col_key, col_target in [('Cap. Estática (t)', 'Cap. Estática (t)'),
+                              ('Cap. Estática Máxima (t)', 'Cap. Estática Máxima (t)'),
                               ('Cap. Recepção (t)', 'Cap. Recepção (t)'),
-                              ('Cap. Expedição (t)', 'Cap. Expedição (t)')]:
+                              ('Cap. Expedição (t)', 'Cap. Expedição (t)'),
+                              ('Custo de Abertura ($)', 'Custo de Abertura ($)')]:
     if col_key in cols_map:
       new_df[col_target] = df[cols_map[col_key]].apply(parse_brazilian_number)
     else:
-      new_df[col_target] = 0.0
+      if col_target == 'Cap. Estática Máxima (t)' and 'Cap. Estática (t)' in new_df.columns:
+        new_df[col_target] = new_df['Cap. Estática (t)']
+      else:
+        new_df[col_target] = 0.0
 
   if 'CDA' in cols_map:
     new_df['CDA'] = df[cols_map['CDA']].fillna('').astype(str).str.strip()
@@ -2338,7 +2347,11 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
   new_df.loc[cands_mask, ['Armazenador', 'Tipo']] = ''
   new_df.loc[cands_mask, ['Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
 
-  # Verification for Existing warehouses
+  exist_mask = new_df['Status'] == 'Existente'
+  if 'Custo de Abertura ($)' in new_df.columns:
+    new_df.loc[exist_mask, 'Custo de Abertura ($)'] = 0.0
+
+  # Verification for all warehouses in the uploaded file
   for idx, row in new_df.iterrows():
     st = str(row['Status']).strip().lower()
     is_existing = ('existente' in st or 'existing' in st)
@@ -2347,6 +2360,17 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
     if not mun:
       raise ValueError(translate("Erro no arquivo: Município não pode ser vazio.", lang))
     
+    # Static capacity max validation for both Existing and Candidate
+    val_max = row.get('Cap. Estática Máxima (t)')
+    if pd.isna(val_max) or val_max is None or str(val_max).strip() == '':
+      raise ValueError(translate("Erro no arquivo: O campo 'Capacidade Estática Máxima' deve ser preenchido.", lang))
+    try:
+      num_max = float(val_max)
+      if num_max < 0:
+        raise ValueError()
+    except ValueError:
+      raise ValueError(translate("Erro no arquivo: A Capacidade Estática Máxima deve ser um número maior ou igual a 0.", lang))
+
     if is_existing:
       prov = str(row['Armazenador']).strip()
       if not prov:
@@ -2371,11 +2395,27 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
             raise ValueError()
         except ValueError:
           raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang))
+      
+      # Check that Max Static Cap is >= Current Static Cap for existing
+      if num_max < float(row['Cap. Estática (t)']):
+        raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, a Capacidade Estática Máxima deve ser maior ou igual à Capacidade Estática atual.", lang))
+
+    else:
+      # Candidate validation
+      val_cost = row.get('Custo de Abertura ($)')
+      if pd.isna(val_cost) or val_cost is None or str(val_cost).strip() == '':
+        raise ValueError(translate("Erro no arquivo: Para armazéns Candidatos, o campo 'Custo de Abertura' deve ser preenchido.", lang))
+      try:
+        num_cost = float(val_cost)
+        if num_cost < 0:
+          raise ValueError()
+      except ValueError:
+        raise ValueError(translate("Erro no arquivo: Para armazéns Candidatos, o Custo de Abertura deve ser um número maior ou igual a 0.", lang))
 
   # Reorder columns to ensure CDA is always first, matching the strict pattern
   cols_order = [
     'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-    'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)'
+    'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Estática Máxima (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Custo de Abertura ($)'
   ]
   for col in cols_order:
     if col not in new_df.columns:
@@ -2404,15 +2444,18 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
    State('wh-input-provider', 'value'),
    State('wh-input-type', 'value'),
    State('wh-input-static-cap', 'value'),
+   State('wh-input-max-static-cap', 'value'),
    State('wh-input-reception-cap', 'value'),
    State('wh-input-expedition-cap', 'value'),
+   State('wh-input-opening-cost', 'value'),
    State('store-lang', 'data')],
   prevent_initial_call=True
 )
 def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn_clear_clicks,
                             store_data, table_data, upload_filename, status_val, city_val,
                             lat_val, lon_val, provider_val, type_val, static_cap_val,
-                            reception_cap_val, expedition_cap_val, lang):
+                            max_static_cap_val, reception_cap_val, expedition_cap_val,
+                            opening_cost_val, lang):
   ctx = dash.callback_context
   if not ctx.triggered:
     return no_update, no_update, no_update, no_update
@@ -2430,7 +2473,7 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
   if trigger_id == 'btn-confirm-clear-warehouses':
     empty_df = pd.DataFrame(columns=[
       'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)'
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Estática Máxima (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Custo de Abertura ($)'
     ])
     return empty_df.to_json(date_format='iso', orient='split'), None, no_update, no_update
 
@@ -2484,6 +2527,24 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       static_cap = 0.0
       reception_cap = 0.0
       expedition_cap = 0.0
+
+      if max_static_cap_val is None or str(max_static_cap_val).strip() == '':
+        return no_update, no_update, True, translate("Para armazéns Candidatos, o campo 'Capacidade Estática Máxima' deve ser preenchido.", lang)
+      try:
+        max_static_cap = float(max_static_cap_val)
+        if max_static_cap < 0:
+          raise ValueError()
+      except ValueError:
+        return no_update, no_update, True, translate("Para armazéns Candidatos, a Capacidade Estática Máxima deve ser um número maior ou igual a 0.", lang)
+
+      if opening_cost_val is None or str(opening_cost_val).strip() == '':
+        return no_update, no_update, True, translate("Para armazéns Candidatos, o campo 'Custo de Abertura' deve ser preenchido.", lang)
+      try:
+        opening_cost = float(opening_cost_val)
+        if opening_cost < 0:
+          raise ValueError()
+      except ValueError:
+        return no_update, no_update, True, translate("Para armazéns Candidatos, o Custo de Abertura deve ser um número maior ou igual a 0.", lang)
     else:
       provider = str(provider_val).strip() if provider_val else ''
       if not provider:
@@ -2512,6 +2573,20 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       reception_cap = float(reception_cap_val)
       expedition_cap = float(expedition_cap_val)
 
+      if max_static_cap_val is None or str(max_static_cap_val).strip() == '':
+        return no_update, no_update, True, translate("Para armazéns Existentes, o campo 'Capacidade Estática Máxima' deve ser preenchido.", lang)
+      try:
+        max_static_cap = float(max_static_cap_val)
+        if max_static_cap < 0:
+          raise ValueError()
+      except ValueError:
+        return no_update, no_update, True, translate("Para armazéns Existentes, a Capacidade Estática Máxima deve ser um número maior ou igual a 0.", lang)
+
+      if max_static_cap < static_cap:
+        return no_update, no_update, True, translate("Para armazéns Existentes, a Capacidade Estática Máxima deve ser maior ou igual à Capacidade Estática atual.", lang)
+
+      opening_cost = 0.0
+
     new_row = {
       'CDA': new_cda,
       'Status': status_val,
@@ -2522,8 +2597,10 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       'Armazenador': provider,
       'Tipo': wh_type,
       'Cap. Estática (t)': static_cap,
+      'Cap. Estática Máxima (t)': max_static_cap,
       'Cap. Recepção (t)': reception_cap,
-      'Cap. Expedição (t)': expedition_cap
+      'Cap. Expedição (t)': expedition_cap,
+      'Custo de Abertura ($)': opening_cost
     }
 
     if df.empty:
@@ -2550,6 +2627,11 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
     table_df.loc[cands_mask, ['Armazenador', 'Tipo']] = ''
     table_df.loc[cands_mask, ['Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
 
+    # Clear opening cost for Existente
+    exist_mask = table_df['Status'] == 'Existente'
+    if 'Custo de Abertura ($)' in table_df.columns:
+      table_df.loc[exist_mask, 'Custo de Abertura ($)'] = 0.0
+
     # Validate each row in table_df
     for idx, row in table_df.iterrows():
       st = str(row.get('Status', '')).strip().lower()
@@ -2559,6 +2641,17 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       if not mun:
         return no_update, no_update, True, translate("Por favor, selecione a Cidade.", lang)
       
+      # Capacidade Estática Máxima validation for both
+      max_static_cap_val = row.get('Cap. Estática Máxima (t)')
+      if pd.isna(max_static_cap_val) or max_static_cap_val is None or str(max_static_cap_val).strip() == '':
+        return no_update, no_update, True, translate("O campo 'Capacidade Estática Máxima' deve ser preenchido.", lang)
+      try:
+        max_static_cap = float(max_static_cap_val)
+        if max_static_cap < 0:
+          raise ValueError()
+      except ValueError:
+        return no_update, no_update, True, translate("A Capacidade Estática Máxima deve ser um número maior ou igual a 0.", lang)
+
       if is_existing:
         prov = str(row.get('Armazenador', '')).strip()
         if not prov:
@@ -2582,6 +2675,22 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
               raise ValueError()
           except ValueError:
             return no_update, no_update, True, translate("Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang)
+        
+        # Max capacity >= current capacity
+        curr_static_cap = float(row.get('Cap. Estática (t)', 0.0))
+        if max_static_cap < curr_static_cap:
+          return no_update, no_update, True, translate("Para armazéns Existentes, a Capacidade Estática Máxima deve ser maior ou igual à Capacidade Estática atual.", lang)
+      else:
+        # Candidate validation
+        opening_cost_val = row.get('Custo de Abertura ($)')
+        if pd.isna(opening_cost_val) or opening_cost_val is None or str(opening_cost_val).strip() == '':
+          return no_update, no_update, True, translate("Para armazéns Candidatos, o campo 'Custo de Abertura' deve ser preenchido.", lang)
+        try:
+          opening_cost = float(opening_cost_val)
+          if opening_cost < 0:
+            raise ValueError()
+        except ValueError:
+          return no_update, no_update, True, translate("Para armazéns Candidatos, o Custo de Abertura deve ser um número maior ou igual a 0.", lang)
     
     if 'CDA' not in table_df.columns:
       table_df['CDA'] = [f"WH-{i+1:03d}" for i in range(len(table_df))]
@@ -2593,7 +2702,7 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
     
     cols = [
       'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)'
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Estática Máxima (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Custo de Abertura ($)'
     ]
     for col in cols:
       if col not in table_df.columns:
@@ -2674,6 +2783,7 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
     mun_idx = col_names.index('Município')
     uf_idx = col_names.index('UF')
     cap_idx = col_names.index('Cap. Estática (t)')
+    max_cap_idx = col_names.index('Cap. Estática Máxima (t)')
     type_idx = col_names.index('Tipo')
     
     try:
@@ -2683,7 +2793,8 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
           f"<b>{row[prov_idx]}</b><br>"
           f"{row[mun_idx]} - {row[uf_idx]}<br>"
           f"{translate('Tipo', lang)}: {row[type_idx]}<br>"
-          f"{translate('Capacidade Estática (t)', lang)}: {row[cap_idx]:,.1f}"
+          f"{translate('Capacidade Estática (t)', lang)}: {row[cap_idx]:,.1f}<br>"
+          f"{translate('Capacidade Estática Máxima (t)', lang)}: {row[max_cap_idx]:,.1f}"
         )
     except (ValueError, IndexError):
       for _, row in df_existing.iterrows():
@@ -2692,7 +2803,8 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
           f"<b>{row['Armazenador']}</b><br>"
           f"{row['Município']} - {row['UF']}<br>"
           f"{translate('Tipo', lang)}: {row['Tipo']}<br>"
-          f"{translate('Capacidade Estática (t)', lang)}: {row['Cap. Estática (t)']:,.1f}"
+          f"{translate('Capacidade Estática (t)', lang)}: {row['Cap. Estática (t)']:,.1f}<br>"
+          f"{translate('Capacidade Estática Máxima (t)', lang)}: {row['Cap. Estática Máxima (t)']:,.1f}"
         )
 
     fig.add_trace(go.Scattermapbox(
@@ -2714,18 +2826,24 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
     col_names_cand = list(df_candidates.columns)
     mun_cand_idx = col_names_cand.index('Município')
     uf_cand_idx = col_names_cand.index('UF')
+    max_cap_cand_idx = col_names_cand.index('Cap. Estática Máxima (t)')
+    cost_cand_idx = col_names_cand.index('Custo de Abertura ($)')
     
     try:
       for row in df_candidates.itertuples(index=False):
         hover_texts_cand.append(
           f"<b>{translate('Candidato de Abertura', lang)}</b><br>"
-          f"{row[mun_cand_idx]} - {row[uf_cand_idx]}"
+          f"{row[mun_cand_idx]} - {row[uf_cand_idx]}<br>"
+          f"{translate('Capacidade Estática Máxima (t)', lang)}: {row[max_cap_cand_idx]:,.1f}<br>"
+          f"{translate('Custo de Abertura ($)', lang)}: {row[cost_cand_idx]:,.2f}"
         )
     except (ValueError, IndexError):
       for _, row in df_candidates.iterrows():
         hover_texts_cand.append(
           f"<b>{translate('Candidato de Abertura', lang)}</b><br>"
-          f"{row['Município']} - {row['UF']}"
+          f"{row['Município']} - {row['UF']}<br>"
+          f"{translate('Capacidade Estática Máxima (t)', lang)}: {row['Cap. Estática Máxima (t)']:,.1f}<br>"
+          f"{translate('Custo de Abertura ($)', lang)}: {row['Custo de Abertura ($)']:,.2f}"
         )
 
     fig.add_trace(go.Scattermapbox(
@@ -2776,13 +2894,14 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
 
 
 @app.callback(
-  Output('wh-conditional-fields-container', 'style'),
+  Output('wh-existing-fields-container', 'style'),
+  Output('wh-candidate-fields-container', 'style'),
   Input('wh-status-radio', 'value')
 )
 def toggle_wh_conditional_fields(status):
   if status == 'Candidato':
-    return {"display": "none"}
-  return {"display": "block"}
+    return {"display": "none"}, {"display": "block"}
+  return {"display": "block"}, {"display": "none"}
 
 
 @app.callback(
@@ -2897,8 +3016,10 @@ def download_warehouses_template(n_clicks, lang):
     'Armazenador': ['CONAB Exemplo', ''],
     'Tipo': ['Convencional', ''],
     'Cap. Estática (t)': [10000.0, 0.0],
+    'Cap. Estática Máxima (t)': [15000.0, 20000.0],
     'Cap. Recepção (t)': [1000.0, 0.0],
-    'Cap. Expedição (t)': [800.0, 0.0]
+    'Cap. Expedição (t)': [800.0, 0.0],
+    'Custo de Abertura ($)': [0.0, 50000.0]
   }
 
   translated_data = {}

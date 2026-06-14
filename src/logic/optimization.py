@@ -51,7 +51,7 @@ def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight,
 
     # Demand - Using Warehouse Capacity in tons (destination node)
     # Identify the capacity column correctly. Often it is 'Capacidade Estática (t)' or similar.
-    cap_col = next((c for c in df_demand.columns if 'cap' in str(c).lower() or 'ton' in str(c).lower()), None)
+    cap_col = next((c for c in df_demand.columns if ('cap' in str(c).lower() or 'ton' in str(c).lower()) and 'max' not in str(c).lower()), None)
     estoque_col = next((c for c in df_demand.columns if 'estoque' in str(c).lower()), None)
 
     # Identify Public/Private warehouse.

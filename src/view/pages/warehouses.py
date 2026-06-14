@@ -97,7 +97,14 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                     dbc.Row([
                         # Status toggle (Existente / Candidato)
                         dbc.Col([
-                            dbc.Label(translate("Status", lang), className="fw-bold small mb-1"),
+                            html.Div([
+                                dbc.Label(translate("Status", lang), className="fw-bold small mb-0 me-2"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-status", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Selecione 'Existente' se o armazém já estiver em operação ou 'Candidato' para avaliar a viabilidade de sua abertura.", lang),
+                                    target="help-wh-status",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center mb-1"),
                             dbc.RadioItems(
                                 id="wh-status-radio",
                                 options=[
@@ -112,7 +119,14 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                         
                         # City selection
                         dbc.Col([
-                            dbc.Label(translate("Cidade", lang), className="fw-bold small mb-1"),
+                            html.Div([
+                                dbc.Label(translate("Cidade", lang), className="fw-bold small mb-0 me-2"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-city", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Selecione o município onde o armazém está (ou será) localizado. O sistema preenche a latitude e longitude automaticamente.", lang),
+                                    target="help-wh-city",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center mb-1"),
                             dcc.Dropdown(
                                 id="wh-input-city",
                                 options=[],
@@ -124,46 +138,131 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
 
                         # Lat / Lon and Manual Edit
                         dbc.Col([
-                            dbc.Label(translate("Latitude", lang), className="fw-bold small mb-1"),
+                            html.Div([
+                                dbc.Label(translate("Latitude", lang), className="fw-bold small mb-0 me-2"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-lat", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Latitude geográfica do armazém, em graus decimais.", lang),
+                                    target="help-wh-lat",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center mb-1"),
                             dbc.Input(id="wh-input-lat", type="number", placeholder=translate("Lat", lang), className="mb-16", disabled=True)
                         ], width=5),
                         dbc.Col([
-                            dbc.Label(translate("Longitude", lang), className="fw-bold small mb-1"),
+                            html.Div([
+                                dbc.Label(translate("Longitude", lang), className="fw-bold small mb-0 me-2"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-lon", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Longitude geográfica do armazém, em graus decimais.", lang),
+                                    target="help-wh-lon",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center mb-1"),
                             dbc.Input(id="wh-input-lon", type="number", placeholder=translate("Lon", lang), className="mb-16", disabled=True)
                         ], width=5),
                         dbc.Col([
                             dbc.Button("🔒", id="btn-wh-manual-edit", color="none", className="btn-secondary-custom d-flex align-items-center justify-content-center w-100 mb-16", style={"height": "38px"}, n_clicks=0, title=translate("Editar Lat/Long manualmente", lang))
                         ], width=2, className="d-flex align-items-end"),
 
-                        # Conditional Fields Container
+                        # Capacidade Estática Máxima (Shared field)
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Capacidade Estática Máxima (t)", lang), className="fw-bold small mb-0 me-2"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-max-static-cap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Limite máximo permitido de capacidade estática (t). Para existentes, define o teto para uma eventual expansão. Para candidatos, define o limite superior da capacidade a ser construída.", lang),
+                                    target="help-wh-max-static-cap",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="wh-input-max-static-cap", type="number", placeholder=translate("Ex: 15000", lang), className="mb-16")
+                        ], width=12),
+
+                        # Existing-only Fields Container
                         dbc.Col([
                             html.Div(
-                                id="wh-conditional-fields-container",
+                                id="wh-existing-fields-container",
                                 children=[
                                     dbc.Row([
                                         dbc.Col([
-                                            dbc.Label(translate("Armazenador", lang), className="fw-bold small mb-1"),
+                                            html.Div([
+                                                dbc.Label(translate("Armazenador", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-provider", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Nome do proprietário ou operador responsável pelo armazém (ex: CONAB, privado).", lang),
+                                                    target="help-wh-provider",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
                                             dbc.Input(id="wh-input-provider", type="text", placeholder=translate("Ex: CONAB", lang), className="mb-16")
                                         ], width=12),
                                         dbc.Col([
-                                            dbc.Label(translate("Tipo", lang), className="fw-bold small mb-1"),
+                                            html.Div([
+                                                dbc.Label(translate("Tipo", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-type", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Tipo de estrutura de armazenagem (ex: Silo, Graneleiro, Convencional).", lang),
+                                                    target="help-wh-type",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
                                             dbc.Input(id="wh-input-type", type="text", placeholder=translate("Ex: Convencional", lang), className="mb-16")
                                         ], width=12),
                                         dbc.Col([
-                                            dbc.Label(translate("Capacidade Estática (t)", lang), className="fw-bold small mb-1"),
+                                            html.Div([
+                                                dbc.Label(translate("Capacidade Estática (t)", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-static-cap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Capacidade física atual de armazenagem em toneladas.", lang),
+                                                    target="help-wh-static-cap",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
                                             dbc.Input(id="wh-input-static-cap", type="number", placeholder=translate("Ex: 10000", lang), className="mb-16")
                                         ], width=12),
                                         dbc.Col([
-                                            dbc.Label(translate("Capacidade de Recepção", lang), className="fw-bold small mb-1"),
+                                            html.Div([
+                                                dbc.Label(translate("Capacidade de Recepção", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-reception-cap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Capacidade máxima diária de recebimento de produtos no armazém (t/dia).", lang),
+                                                    target="help-wh-reception-cap",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
                                             dbc.Input(id="wh-input-reception-cap", type="number", placeholder=translate("Ex: 1000", lang), className="mb-16")
                                         ], width=12),
                                         dbc.Col([
-                                            dbc.Label(translate("Cap. Expedição (t)", lang), className="fw-bold small mb-1"),
+                                            html.Div([
+                                                dbc.Label(translate("Cap. Expedição (t)", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-expedition-cap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Capacidade máxima diária de expedição/saída de produtos do armazém (t/dia).", lang),
+                                                    target="help-wh-expedition-cap",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
                                             dbc.Input(id="wh-input-expedition-cap", type="number", placeholder=translate("Ex: 800", lang), className="mb-16")
                                         ], width=12)
                                     ])
                                 ],
                                 style={"display": "block"}
+                            )
+                        ], width=12),
+
+                        # Candidate-only Fields Container
+                        dbc.Col([
+                            html.Div(
+                                id="wh-candidate-fields-container",
+                                children=[
+                                    dbc.Row([
+                                        dbc.Col([
+                                            html.Div([
+                                                dbc.Label(translate("Custo de Abertura ($)", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-opening-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Custo fixo de investimento para a abertura do armazém candidato ($).", lang),
+                                                    target="help-wh-opening-cost",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
+                                            dbc.Input(id="wh-input-opening-cost", type="number", placeholder=translate("Ex: 50000", lang), className="mb-16")
+                                        ], width=12)
+                                    ])
+                                ],
+                                style={"display": "none"}
                             )
                         ], width=12),
 
@@ -217,7 +316,7 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
     # Initial empty dataframe matching expected columns
     initial_cols = [
         "Status", "Município", "UF", "Latitude", "Longitude", 
-        "Armazenador", "Tipo", "Cap. Estática (t)", "Cap. Recepção (t)", "Cap. Expedição (t)"
+        "Armazenador", "Tipo", "Cap. Estática (t)", "Cap. Estática Máxima (t)", "Cap. Recepção (t)", "Cap. Expedição (t)", "Custo de Abertura ($)"
     ]
     initial_df = pd.DataFrame(columns=initial_cols)
 
