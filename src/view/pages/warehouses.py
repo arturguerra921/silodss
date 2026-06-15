@@ -163,19 +163,6 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                             dbc.Button("🔒", id="btn-wh-manual-edit", color="none", className="btn-secondary-custom d-flex align-items-center justify-content-center w-100 mb-16", style={"height": "38px"}, n_clicks=0, title=translate("Editar Lat/Long manualmente", lang))
                         ], width=2, className="d-flex align-items-end"),
 
-                        # Capacidade Estática Máxima (Shared field)
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Capacidade Estática Máxima (t)", lang), className="fw-bold small mb-0 me-2"),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-max-static-cap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Limite máximo permitido de capacidade estática (t). Para existentes, define o teto para uma eventual expansão. Para candidatos, define o limite superior da capacidade a ser construída.", lang),
-                                    target="help-wh-max-static-cap",
-                                    placement="right"
-                                ),
-                            ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="wh-input-max-static-cap", type="number", placeholder=translate("Ex: 15000", lang), className="mb-16")
-                        ], width=12),
-
                         # Existing-only Fields Container
                         dbc.Col([
                             html.Div(
@@ -217,6 +204,17 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                                         ], width=12),
                                         dbc.Col([
                                             html.Div([
+                                                dbc.Label(translate("Estoque Inicial (t)", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-initial-stock", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Estoque inicial de produto já presente no armazém (ton).", lang),
+                                                    target="help-wh-initial-stock",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
+                                            dbc.Input(id="wh-input-initial-stock", type="number", placeholder=translate("Ex: 500", lang), className="mb-16")
+                                        ], width=12),
+                                        dbc.Col([
+                                            html.Div([
                                                 dbc.Label(translate("Capacidade de Recepção", lang), className="fw-bold small mb-0 me-2"),
                                                 html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-reception-cap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
                                                 dbc.Tooltip(translate("Capacidade máxima diária de recebimento de produtos no armazém (t/dia).", lang),
@@ -249,6 +247,17 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                                 id="wh-candidate-fields-container",
                                 children=[
                                     dbc.Row([
+                                        dbc.Col([
+                                            html.Div([
+                                                dbc.Label(translate("Capacidade Estática Máxima (t)", lang), className="fw-bold small mb-0 me-2"),
+                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-max-static-cap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                dbc.Tooltip(translate("Limite máximo permitido de capacidade estática (t) para o armazém candidato a ser construído.", lang),
+                                                    target="help-wh-max-static-cap",
+                                                    placement="right"
+                                                ),
+                                            ], className="d-flex align-items-center mb-1"),
+                                            dbc.Input(id="wh-input-max-static-cap", type="number", placeholder=translate("Ex: 15000", lang), className="mb-16")
+                                        ], width=12),
                                         dbc.Col([
                                             html.Div([
                                                 dbc.Label(translate("Custo de Abertura ($)", lang), className="fw-bold small mb-0 me-2"),
@@ -316,7 +325,7 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
     # Initial empty dataframe matching expected columns
     initial_cols = [
         "Status", "Município", "UF", "Latitude", "Longitude", 
-        "Armazenador", "Tipo", "Cap. Estática (t)", "Cap. Estática Máxima (t)", "Cap. Recepção (t)", "Cap. Expedição (t)", "Custo de Abertura ($)"
+        "Armazenador", "Tipo", "Cap. Estática (t)", "Estoque Inicial (t)", "Cap. Recepção (t)", "Cap. Expedição (t)", "Cap. Estática Máxima (t)", "Custo de Abertura ($)"
     ]
     initial_df = pd.DataFrame(columns=initial_cols)
 
