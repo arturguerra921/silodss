@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import unicodedata
 import pandas as pd
 from dash import Dash, dcc, html, Input, Output, State, dash_table, no_update
 import dash
@@ -22,7 +23,7 @@ from src.logic.prediction import (
     forecast_lstm
 )
 from src.logic.osrm import OSRMClient
-from src.logic.optimization import run_optimization_model
+from src.logic.optimization import run_deterministic_model
 from src.logic.i18n import translate
 from src.logic.utils import validate_and_parse_supply_data
 import dash
@@ -49,6 +50,14 @@ def parse_brazilian_number(val):
         val_str = val_str.replace(',', '.')
     # If it only contains '.', leave it alone (could be US format decimal)
     return pd.to_numeric(val_str, errors='coerce')
+
+def strip_accents(text):
+    if not isinstance(text, str):
+        return text
+    return "".join(
+        c for c in unicodedata.normalize('NFD', text)
+        if unicodedata.category(c) != 'Mn'
+    )
 
 # --- Data Loading ---
 try:
@@ -2210,7 +2219,7 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
 
   cols_map = {}
   for col in df.columns:
-    col_lower = str(col).lower().strip()
+    col_lower = strip_accents(str(col).lower().strip())
     if 'status' in col_lower or 'classif' in col_lower:
       cols_map['Status'] = col
     elif 'cda' in col_lower:
@@ -4032,20 +4041,18 @@ def update_route_map(active_cell, stored_data, stored_warehouses, stored_demand_
 # --- Model Config Callbacks ---
 
 @app.callback(
-    Output("container-min-max-options", "style"),
-    Input("toggle-min-max-capacity", "value")
+    Output('input-bulk-eligible-types', 'options'),
+    Input('store-prod-warehouses', 'data')
 )
-def toggle_min_max_container(is_active):
-    if is_active:
-        return {"display": "block"}
-    return {"display": "none"}
-
-@app.callback(
-    Output("input-max-load", "disabled"),
-    Input("toggle-use-reception", "value")
-)
-def toggle_carga_max_input(use_reception):
-    return use_reception
+def update_bulk_eligible_options(stored_prod_warehouses):
+    if not stored_prod_warehouses:
+        return []
+    try:
+        df = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
+        types = [col for col in df.columns if col != 'Produto']
+        return [{'label': t, 'value': t} for t in types]
+    except Exception:
+        return []
 
 # 16. Run Optimization Model (Background Callback)
 @app.callback(
@@ -4062,15 +4069,22 @@ def toggle_carga_max_input(use_reception):
         State('store-warehouses', 'data'),
         State('store-prod-warehouses', 'data'),
         State('store-distance-matrix', 'data'),
+        State('stored-demand-data', 'data'),
         State('toggle-detailed-log', 'value'),
         State('toggle-pareto-routes', 'value'),
-        State('toggle-min-max-capacity', 'value'),
-        State('input-min-load', 'value'),
-        State('input-max-load', 'value'),
-        State('toggle-use-reception', 'value'),
         State('input-allocation-days', 'value'),
-        State('input-min-freight', 'value'),
-        State('input-max-freight', 'value'),
+        State('input-transshipment-discount', 'value'),
+        State('input-solver-gap', 'value'),
+        State('input-solver-time-limit', 'value'),
+        State('input-ratio-expand-rec', 'value'),
+        State('input-ratio-expand-ship', 'value'),
+        State('input-max-expand-capacity', 'value'),
+        State('input-expand-fixed-cost', 'value'),
+        State('input-expand-var-cost', 'value'),
+        State('input-max-bulk-capacity', 'value'),
+        State('input-bulk-fixed-cost', 'value'),
+        State('input-bulk-var-cost', 'value'),
+        State('input-bulk-eligible-types', 'value'),
         State('store-lang', 'data')
     ],
     background=True,
@@ -4081,28 +4095,63 @@ def toggle_carga_max_input(use_reception):
     cancel=[Input("btn-cancel-model", "n_clicks")],
     prevent_initial_call=True
 )
-def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, detailed_log,
-                  toggle_pareto, toggle_min_max_capacity, input_min_load, input_max_load, toggle_use_reception, input_allocation_days, input_min_freight, input_max_freight, lang='pt'):
+def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
+                  toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
+                  ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
+                  max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types, lang='pt'):
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-    if not stored_data or not stored_warehouses or not stored_prod_warehouses or not stored_matrix:
-        return translate("Erro: Faltam dados. Certifique-se de preencher todas as abas anteriores (Oferta, Armazéns, Relação Produto x Armazém, Matriz de Distâncias) antes de rodar o modelo.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+    if not stored_data or not stored_warehouses or not stored_prod_warehouses or not stored_matrix or not stored_demand:
+        return translate("Erro: Faltam dados. Certifique-se de preencher todas as abas anteriores (Oferta, Armazéns, Relação Produto x Armazém, Demanda, Matriz de Distâncias) antes de rodar o modelo.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+
+    # Parameters required verification (no defaults allowed, must highlight missing fields)
+    required_params = {
+        translate("Dias operacionais por período", lang): input_allocation_days,
+        translate("Desconto de transbordo (α)", lang): transshipment_discount,
+        translate("Gap do solver (%)", lang): solver_gap,
+        translate("Tempo limite do solver (s)", lang): solver_time_limit,
+        translate("Fator β^rec (recepção)", lang): ratio_expand_rec,
+        translate("Fator β^ship (expedição)", lang): ratio_expand_ship,
+        translate("Expansão máxima (t)", lang): max_expand_capacity,
+        translate("Custo fixo de expansão ($)", lang): expand_fixed_cost,
+        translate("Custo variável de expansão ($/t)", lang): expand_var_cost,
+        translate("Granelização máxima (t/dia)", lang): max_bulk_capacity,
+        translate("Custo fixo de granelização ($)", lang): bulk_fixed_cost,
+        translate("Custo var. de granelização ($/(t/dia))", lang): bulk_var_cost,
+    }
+
+    missing = [name for name, val in required_params.items() if val is None or str(val).strip() == ""]
+    if missing:
+        msg = translate("Erro: Os seguintes parâmetros de configuração são obrigatórios e não foram preenchidos: ", lang) + ", ".join(missing)
+        return msg, "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
 
     try:
-        # Load DataFrames
-        df_supply = pd.read_json(io.StringIO(stored_data), orient='split')
-        df_demand = pd.read_json(io.StringIO(stored_warehouses), orient='split')
-        df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
-        # Safely handle both the old single-dataframe format and the new multi-dataframe JSON dict format
+        # Load distance matrices
         try:
+            import json
             stored_dict = json.loads(stored_matrix)
             if isinstance(stored_dict, dict) and 'supply_to_warehouses' in stored_dict:
-                df_dist = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
+                df_dist_supply_wh = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
+                df_dist_wh_demand = pd.read_json(io.StringIO(stored_dict['warehouses_to_demand']), orient='split')
+                df_dist_wh_wh = pd.read_json(io.StringIO(stored_dict['warehouses_to_warehouses']), orient='split')
             else:
-                df_dist = pd.read_json(io.StringIO(stored_matrix), orient='split')
+                df_dist_supply_wh = pd.DataFrame()
+                df_dist_wh_demand = pd.DataFrame()
+                df_dist_wh_wh = pd.DataFrame()
         except Exception:
-            df_dist = pd.read_json(io.StringIO(stored_matrix), orient='split')
+            df_dist_supply_wh = pd.DataFrame()
+            df_dist_wh_demand = pd.DataFrame()
+            df_dist_wh_wh = pd.DataFrame()
+
+        if df_dist_supply_wh.empty or df_dist_wh_demand.empty or df_dist_wh_wh.empty:
+            return translate("Erro: Matrizes de distância incompletas. Certifique-se de calcular a Matriz de Distâncias na aba anterior antes de rodar o modelo.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+
+        # Load input DataFrames
+        df_supply = pd.read_json(io.StringIO(stored_data), orient='split')
+        df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+        df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
+        df_demand = pd.read_json(io.StringIO(stored_demand), orient='split')
 
         # Load local CSVs for Freight and Storage
         import os
@@ -4121,23 +4170,31 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
             df_storage = pd.DataFrame()
 
         # Run model
-        log_filename, results_dict = run_optimization_model(
+        log_filename, results_dict = run_deterministic_model(
             df_supply=df_supply,
-            df_demand=df_demand,
+            df_warehouses=df_warehouses,
             df_compat=df_compat,
-            df_dist=df_dist,
+            df_dist_supply_wh=df_dist_supply_wh,
+            df_dist_wh_demand=df_dist_wh_demand,
+            df_dist_wh_wh=df_dist_wh_wh,
+            df_demand=df_demand,
             df_freight=df_freight,
             df_storage=df_storage,
             detailed_log=detailed_log,
             toggle_pareto=toggle_pareto,
-            toggle_min_max_capacity=toggle_min_max_capacity,
-            input_min_load=input_min_load,
-            input_max_load=input_max_load,
-            toggle_use_reception=toggle_use_reception,
             input_allocation_days=input_allocation_days,
-            input_min_freight=input_min_freight,
-            input_max_freight=input_max_freight,
-            solver_gap=0.01,
+            transshipment_discount=transshipment_discount,
+            solver_gap=solver_gap,
+            solver_time_limit=solver_time_limit,
+            ratio_expand_rec=ratio_expand_rec,
+            ratio_expand_ship=ratio_expand_ship,
+            max_expand_capacity=max_expand_capacity,
+            expand_fixed_cost=expand_fixed_cost,
+            expand_var_cost=expand_var_cost,
+            max_bulk_capacity=max_bulk_capacity,
+            bulk_fixed_cost=bulk_fixed_cost,
+            bulk_var_cost=bulk_var_cost,
+            bulk_eligible_types=bulk_eligible_types,
             lang=lang
         )
 
@@ -4151,7 +4208,6 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
         # Redirect to results tab on success
         next_tab = "tab-results" if results_dict.get("status") == "optimal" else dash.no_update
 
-        # The log_filename is just a string (filename) and will be stored in store-model-log
         return status_msg, status_class, results_dict, log_filename, next_tab
 
     except Exception as e:
@@ -4204,6 +4260,12 @@ def update_results_kpis_and_table(results_data, lang='pt'):
             has_viagens = True
             row_data["Qtd. de Viagens"] = r["Qtd. de Viagens"]
 
+        if "Período" in r:
+            row_data["Período"] = r["Período"]
+
+        if "Tipo de Rota" in r:
+            row_data["Tipo de Rota"] = r["Tipo de Rota"]
+
         table_data.append(row_data)
 
     columns = [
@@ -4215,6 +4277,12 @@ def update_results_kpis_and_table(results_data, lang='pt'):
 
     if has_viagens:
         columns.append({'name': translate('Qtd. de Viagens', lang), 'id': 'Qtd. de Viagens'})
+
+    if any("Período" in r for r in routes):
+        columns.append({'name': translate('Período', lang), 'id': 'Período'})
+
+    if any("Tipo de Rota" in r for r in routes):
+        columns.append({'name': translate('Tipo de Rota', lang), 'id': 'Tipo de Rota'})
 
     # Render warnings
     warnings_html = []
@@ -4392,10 +4460,11 @@ def manage_all_routes_modal(n_show, n_cancel, n_confirm, results_data, is_open):
      State("store-model-results", "data"),
      State("stored-data", "data"),
      State("store-warehouses", "data"),
+     State("stored-demand-data", "data"),
      State("store-lang", "data")],
     prevent_initial_call=True
 )
-def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data, results_data, stored_data, stored_warehouses, lang='pt'):
+def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data, results_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     ctx = dash.callback_context
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
@@ -4476,8 +4545,6 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
                     labels = labels.mask(mask, val)
                     first = False
                 else:
-                    # For non-empty current labels, append " - " and the new value.
-                    # For empty current labels, just set the new value.
                     labels = labels.mask(mask, labels.where(~mask | (labels == ""), labels + " - " + val).where(labels != "", val))
 
         empty_mask = labels == ""
@@ -4485,25 +4552,48 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
             labels.loc[empty_mask] = [f"Dest {i}" for i in dests_df.index[empty_mask]]
 
         dests_df['__label'] = labels
-        # Handle duplicate labels by keeping the first occurrence
         dests_df = dests_df.drop_duplicates(subset=['__label'])
         dest_mapping = dests_df.set_index('__label')[['Latitude', 'Longitude']].to_dict('index')
+
+    # 3. Customer Mappings
+    customer_mapping = {}
+    if stored_demand_data:
+        try:
+            df_demand = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+            demand_df_map = df_demand[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+            demand_city_counts_map = demand_df_map['Cidade'].value_counts()
+            demand_duplicates_map = demand_city_counts_map[demand_city_counts_map > 1].index
+
+            demand_df_map['Cidade_Display'] = demand_df_map.apply(
+                lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+                if row['Cidade'] in demand_duplicates_map else row['Cidade'],
+                axis=1
+            )
+            customer_mapping = demand_df_map.set_index('Cidade_Display')[['Latitude', 'Longitude']].to_dict('index')
+        except Exception as e:
+            print(f"Error building customer mapping: {e}")
 
     def get_coords_optimized(orig_name, dest_name):
         origin_coords = None
         if orig_name in origin_mapping:
             o = origin_mapping[orig_name]
             origin_coords = (o['Latitude'], o['Longitude'])
-        else:
-            # Fallback for origin
-            fallback_row = df_input[df_input['Cidade'] == orig_name]
-            if not fallback_row.empty:
-                origin_coords = (fallback_row.iloc[0]['Latitude'], fallback_row.iloc[0]['Longitude'])
+        elif orig_name in dest_mapping:
+            o = dest_mapping[orig_name]
+            origin_coords = (o['Latitude'], o['Longitude'])
 
         dest_coords = None
         if dest_name in dest_mapping:
             d = dest_mapping[dest_name]
             dest_coords = (d['Latitude'], d['Longitude'])
+        elif dest_name in customer_mapping:
+            d = customer_mapping[dest_name]
+            dest_coords = (d['Latitude'], d['Longitude'])
+        else:
+            # Fallback for customer/origin
+            fallback_row = df_input[df_input['Cidade'] == dest_name]
+            if not fallback_row.empty:
+                dest_coords = (fallback_row.iloc[0]['Latitude'], fallback_row.iloc[0]['Longitude'])
 
         return origin_coords, dest_coords
 

@@ -41,10 +41,11 @@ class TestPrediction(unittest.TestCase):
     # Test metrics helper
     y_true = [100.0, 110.0, 120.0]
     y_pred = [105.0, 108.0, 122.0]
-    mae, rmse, mape = calculate_metrics(y_true, y_pred)
+    mae, rmse, mape, wmape = calculate_metrics(y_true, y_pred)
     self.assertGreater(mae, 0.0)
     self.assertGreater(rmse, 0.0)
     self.assertGreater(mape, 0.0)
+    self.assertGreater(wmape, 0.0)
 
   def test_quality_badge(self):
     # Test badges
@@ -111,9 +112,9 @@ class TestPrediction(unittest.TestCase):
     self.assertFalse(dis_s)
     self.assertFalse(dis_p)
     self.assertFalse(dis_c)
-    self.assertEqual(val_s, "demand")  # defaults to first series type alphabetically
-    self.assertEqual(val_p, "Milho")   # defaults to first product for 'demand'
-    self.assertEqual(val_c, "Goiânia")  # defaults to first city for Milho in 'demand'
+    self.assertEqual(val_s, "supply")  # defaults to 'supply' if present in available series
+    self.assertEqual(val_p, "Soja")    # defaults to first product for 'supply'
+    self.assertEqual(val_c, "Brasília") # defaults to first city for Soja in 'supply'
 
 if __name__ == '__main__':
   unittest.main()

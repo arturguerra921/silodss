@@ -7,7 +7,6 @@ import io
 import tempfile
 import os
 import math
-
 import time
 
 def safe_parse_numeric(val):
@@ -21,19 +20,45 @@ def safe_parse_numeric(val):
         return 0.0
     return float(val_str.replace('.', '').replace(',', '.'))
 
-def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight, df_storage, detailed_log=False,
-                           toggle_pareto=False, toggle_min_max_capacity=False, input_min_load=None, input_max_load=None,
-                           toggle_use_reception=False, input_allocation_days=None, input_min_freight=None, input_max_freight=None, solver_gap=None, force_milp=False, lang="pt"):
+def run_deterministic_model(
+    df_supply,
+    df_warehouses,
+    df_compat,
+    df_dist_supply_wh,
+    df_dist_wh_demand,
+    df_dist_wh_wh,
+    df_demand,
+    df_freight,
+    df_storage,
+    detailed_log=False,
+    toggle_pareto=False,
+    input_allocation_days=None,
+    transshipment_discount=None,
+    solver_gap=None,
+    solver_time_limit=None,
+    ratio_expand_rec=None,
+    ratio_expand_ship=None,
+    max_expand_capacity=None,
+    expand_fixed_cost=None,
+    expand_var_cost=None,
+    max_bulk_capacity=None,
+    bulk_fixed_cost=None,
+    bulk_var_cost=None,
+    bulk_eligible_types=None,
+    lang="pt"
+):
     """
-    Runs the linear optimization mathematical model for product allocation.
+    Executes the deterministic multi-period MILP optimization model.
+    Organizes supply, multi-period inventory, transshipment routing, customers demand,
+    and facility upgrades/locations.
     """
-    # Start of the timer to measure total time from call to solution
     start_time = time.time()
 
-    # 1. Data preparation
+    # =========================================================================
+    # 1. DATA PREPARATION & PARSING
+    # =========================================================================
 
-    # Supply
-    # First, apply the same deduplication logic to ensure names in df_supply match df_dist
+    # Deduplicate supply origin names (same logic as OSRM/distance calculations)
     if 'Latitude' in df_supply.columns and 'Longitude' in df_supply.columns:
         origins_df = df_supply[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
         city_counts = origins_df['Cidade'].value_counts()
@@ -46,164 +71,211 @@ def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight,
 
         df_supply['Cidade'] = df_supply.apply(rename_city, axis=1)
 
-    # Group by Cidade and Produto, sum over Peso (ton)
-    supply = df_supply.groupby(['Cidade', 'Produto'])['Peso (ton)'].sum().to_dict()
+    # Unique chronological time periods (months) from supply dates
+    periods = sorted(df_supply['Data'].dropna().unique().tolist())
+    prev_period_map = {p: periods[i-1] for i, p in enumerate(periods) if i > 0}
+    all_products = df_supply['Produto'].unique().tolist()
+    
+    # 1.1 Supply dict: {(origin, product, period): tons}
+    supply_dict = df_supply.groupby(['Cidade', 'Produto', 'Data'])['Peso (ton)'].sum().to_dict()
 
-    # Demand - Using Warehouse Capacity in tons (destination node)
-    # Identify the capacity column correctly. Often it is 'Capacidade Estática (t)' or similar.
-    cap_col = next((c for c in df_demand.columns if ('cap' in str(c).lower() or 'ton' in str(c).lower()) and 'max' not in str(c).lower()), None)
-    estoque_col = next((c for c in df_demand.columns if 'estoque' in str(c).lower()), None)
-
-    # Identify Public/Private warehouse.
-    armazenador_col = next((c for c in df_demand.columns if 'armazenador' in str(c).lower()), None)
-    name_col = next((c for c in df_demand.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
-    mun_col_dest = next((c for c in df_demand.columns if 'munic' in str(c).lower()), None)
-    cda_col = next((c for c in df_demand.columns if 'cda' in str(c).lower()), None)
-    reception_col = next((c for c in df_demand.columns if 'recep' in str(c).lower() or 'receb' in str(c).lower()), None)
-
-    # Separate dictionaries for total capacity and initial inventory
-    demand_total_capacity = {}
+    # 1.2 Parse Warehouses (existing and candidate hubs)
+    existing_warehouses_list = []
+    candidate_warehouses_list = []
+    all_warehouses_list = []
+    
+    static_capacity = {}
+    reception_capacity = {}
+    shipping_capacity = {}
+    opening_cost = {}
+    max_cand_static_capacity = {}
+    warehouse_type = {}
+    warehouse_uf = {}
     demand_initial_inventory = {}
-    demand_reception_capacity = {}
-    is_public = {}
-
-    # Store the mapping from CDA back to full formatted name for the final output
+    
     cda_to_name = {}
 
-    for idx, row in df_demand.iterrows():
-        # Retrieve the CDA string
-        if cda_col and pd.notna(row[cda_col]):
-            cda = str(row[cda_col]).strip()
-        else:
-            cda = f"Dest {idx}"
-
-        # Match the exact naming convention used in the distance matrix view (CDA - Armazem - Municipio)
+    for _, row in df_warehouses.iterrows():
+        cda = str(row['CDA']).strip()
+        status = str(row['Status']).strip()
+        all_warehouses_list.append(cda)
+        warehouse_type[cda] = str(row['Tipo']).strip()
+        warehouse_uf[cda] = str(row['UF']).strip()
+        
+        # Format the CDA display name for results visualization
         parts = []
-        if cda_col and pd.notna(row[cda_col]):
-            parts.append(str(row[cda_col]).strip())
-        if name_col and pd.notna(row[name_col]):
-            parts.append(str(row[name_col]).strip())
-        if mun_col_dest and pd.notna(row[mun_col_dest]):
-            parts.append(str(row[mun_col_dest]).strip())
+        if pd.notna(row['CDA']):
+            parts.append(str(row['CDA']).strip())
+        if 'Armazenador' in row and pd.notna(row['Armazenador']):
+            parts.append(str(row['Armazenador']).strip())
+        if 'Município' in row and pd.notna(row['Município']):
+            parts.append(str(row['Município']).strip())
+            
+        cda_to_name[cda] = " - ".join(parts) if parts else cda
 
-        if parts:
-            dest_name_full = " - ".join(parts)
-        else:
-            dest_name_full = f"Dest {idx}"
+        if status == 'Existente':
+            existing_warehouses_list.append(cda)
+            static_capacity[cda] = safe_parse_numeric(row['Cap. Estática (t)'])
+            reception_capacity[cda] = safe_parse_numeric(row['Cap. Recepção (t)'])
+            shipping_capacity[cda] = safe_parse_numeric(row['Cap. Expedição (t)'])
+            demand_initial_inventory[cda] = safe_parse_numeric(row['Estoque Inicial (t)'])
+        else: # Candidate
+            candidate_warehouses_list.append(cda)
+            opening_cost[cda] = safe_parse_numeric(row['Custo de Abertura ($)'])
+            max_cand_static_capacity[cda] = safe_parse_numeric(row['Cap. Estática Máxima (t)'])
+            demand_initial_inventory[cda] = 0.0
 
-        cda_to_name[cda] = dest_name_full
-
-        # Parse capacity correctly (cleaning Brazilian number formats)
-        try:
-            cap = safe_parse_numeric(row[cap_col]) if cap_col else 0.0
-        except:
-            cap = 0.0
-
-        # Parse initial stock correctly
-        try:
-            estoque = safe_parse_numeric(row[estoque_col]) if estoque_col else 0.0
-        except:
-            estoque = 0.0
-
-        # Parse reception capacity correctly
-        try:
-            recepcao = safe_parse_numeric(row[reception_col]) if reception_col else 0.0
-        except:
-            recepcao = 0.0
-
-        # Now we keep capacity, inventory and reception separated
-        demand_total_capacity[cda] = cap
-        demand_initial_inventory[cda] = estoque
-        demand_reception_capacity[cda] = recepcao
-
-        # Determine if public or private
-        if armazenador_col and str(row[armazenador_col]).upper() == "COMPANHIA NACIONAL DE ABASTECIMENTO":
-            is_public[cda] = True
-        else:
-            is_public[cda] = False
-
-    # Compatibility (Product x Warehouse)
-    # The df_compat matrix has products in rows ('Produto') and columns for each warehouse type.
-    # But we need to relate each 'Destination' (warehouse) with the 'Product' based on warehouse 'Type'.
-    # Let's create a compatibility dictionary: (product, dest_name) -> bool
-
-    # Identificar coluna de tipo no df_demand
-    tipo_col = next((c for c in df_demand.columns if 'tipo' in str(c).lower()), None)
-
-    # Build permissions dictionary from df_compat
-    # df_compat has 'Produto' and columns with Warehouse Types, values '☑' or '☐'
+    # 1.3 Product Compatibility
     compat_dict = {}
     if not df_compat.empty:
         for _, row in df_compat.iterrows():
             prod = row['Produto']
-            for t in df_compat.columns:
-                if t != 'Produto':
-                    # True se aceita
-                    compat_dict[(prod, t)] = (row[t] == '☑')
+            for col in df_compat.columns:
+                if col != 'Produto':
+                    compat_dict[(prod, col)] = (row[col] == '☑')
 
-    # Agora associar produto x destino
     prod_dest_compat = {}
-    all_products = df_supply['Produto'].unique().tolist()
-
     for prod in all_products:
-        for idx, row in df_demand.iterrows():
-            if cda_col and pd.notna(row[cda_col]):
-                cda = str(row[cda_col]).strip()
+        for cda in all_warehouses_list:
+            t = warehouse_type.get(cda)
+            if t and (prod, t) in compat_dict:
+                prod_dest_compat[(prod, cda)] = compat_dict[(prod, t)]
             else:
-                cda = f"Dest {idx}"
+                prod_dest_compat[(prod, cda)] = True # fallback default
 
-            tipo_armazem = row[tipo_col] if tipo_col else None
+    # 1.4 Initial inventory mapping distributed across compatible products
+    initial_inventory_dp = {}
+    for d in all_warehouses_list:
+        for p in all_products:
+            initial_inventory_dp[(d, p)] = 0.0
+            
+    for d in existing_warehouses_list:
+        compat_prods = [p for p in all_products if prod_dest_compat.get((p, d), True)]
+        total_init_stock = demand_initial_inventory.get(d, 0.0)
+        if compat_prods and total_init_stock > 0:
+            split_stock = total_init_stock / len(compat_prods)
+            for p in compat_prods:
+                initial_inventory_dp[(d, p)] = split_stock
 
-            # If we have no type information, we assume it accepts (or we could reject, but assuming True is safer if it fails)
-            if tipo_armazem and (prod, tipo_armazem) in compat_dict:
-                prod_dest_compat[(prod, cda)] = compat_dict[(prod, tipo_armazem)]
-            else:
-                prod_dest_compat[(prod, cda)] = True # Default fallback
+    # 1.5 Bulkification eligibility based on type selection
+    bulk_eligible_types_set = set(bulk_eligible_types or [])
+    bulk_eligible_list = [
+        d for d in all_warehouses_list
+        if warehouse_type.get(d) in bulk_eligible_types_set
+    ]
 
-    # Matriz de Distâncias
-    # df_dist tem 'Origem' e colunas com 'CDA - Armazem - Municipio' ...
-    distance = {}
-    for _, row in df_dist.iterrows():
+    # 1.6 Parse Customer Demand Data & Coordinates Matching
+    demand_df = df_demand.copy()
+    city_coords_df = demand_df[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+    city_counts = city_coords_df['Cidade'].value_counts()
+    duplicates = city_counts[city_counts > 1].index
+    
+    def get_city_display(row):
+        if row['Cidade'] in duplicates:
+            return f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+        return row['Cidade']
+        
+    demand_df['Cliente'] = demand_df.apply(get_city_display, axis=1)
+    
+    Customers = demand_df['Cliente'].unique().tolist()
+    
+    # Classify Customer nodes into Domestic vs Export
+    Customers_exp = set()
+    for _, row in demand_df.iterrows():
+        if pd.isna(row['Peso (ton)']):
+            Customers_exp.add(row['Cliente'])
+            
+    Customers_dom = set(Customers) - Customers_exp
+    
+    Customers_exp = list(Customers_exp)
+    Customers_dom = list(Customers_dom)
+
+    # Pre-calculate monthly product supply sum for export clearing sinks
+    total_supply_pt = {}
+    for (o, p, t), val in supply_dict.items():
+        total_supply_pt[(p, t)] = total_supply_pt.get((p, t), 0.0) + val
+
+    demand_min = {}
+    demand_max = {}
+    
+    for c in Customers_dom:
+        for p in all_products:
+            for t in periods:
+                demand_min[(c, p, t)] = 0.0
+                
+    for c in Customers_exp:
+        for p in all_products:
+            for t in periods:
+                demand_max[(c, p, t)] = total_supply_pt.get((p, t), 0.0)
+
+    for _, row in demand_df.iterrows():
+        c = row['Cliente']
+        p = row['Produto']
+        t = row['Data']
+        val = row['Peso (ton)']
+        
+        if t not in periods:
+            continue
+            
+        if c in Customers_dom:
+            if pd.notna(val):
+                demand_min[(c, p, t)] = float(val)
+        else:
+            if pd.notna(val):
+                demand_max[(c, p, t)] = float(val)
+
+    # 1.7 Parse Distance Matrices
+    distance_od = {}
+    for _, row in df_dist_supply_wh.iterrows():
         orig = row['Origem']
-        for col in df_dist.columns:
+        for col in df_dist_supply_wh.columns:
             if col != 'Origem':
-                dest_full_name = col
-                # Retrieve the CDA from the first part of the column name
-                # format: "CDA - Armazem - Municipio" -> split by " - " -> get [0]
-                cda = dest_full_name.split(' - ')[0].strip() if ' - ' in str(dest_full_name) else str(dest_full_name).strip()
+                cda = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
+                val = row[col]
+                if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                    distance_od[(orig, cda)] = safe_parse_numeric(val)
 
-                try:
-                    distance[(orig, cda)] = float(row[col])
-                except:
-                    # Se for "N/A" ou falhar
-                    pass
+    distance_dc = {}
+    for _, row in df_dist_wh_demand.iterrows():
+        orig_wh = row['Origem']
+        cda = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+        for col in df_dist_wh_demand.columns:
+            if col != 'Origem':
+                val = row[col]
+                if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                    distance_dc[(cda, col)] = safe_parse_numeric(val)
 
-    # Custos de Frete (Valor_Tonelada_km)
-    # We need the cost for each origin. We'll use the average or by state.
-    # df_freight tem 'Estado' e 'Frete Tonelada Km'.
-    # To simplify, let's take the general average if we don't know the origin state,
-    # or we can try to extract the state from the city name (Ex: 'Brasília - DF').
+    distance_dd = {}
+    for _, row in df_dist_wh_wh.iterrows():
+        orig_wh = row['Origem']
+        cda1 = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+        for col in df_dist_wh_wh.columns:
+            if col != 'Origem':
+                cda2 = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
+                val = row[col]
+                if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                    distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
 
-    # Parse Brazilian numbers for freight
+    # 1.8 Parse Freight Rates (Valor_Tonelada_km)
     try:
         df_freight['Frete_Num'] = df_freight['Frete Tonelada Km'].apply(safe_parse_numeric)
         freight_dict = df_freight.set_index('Estado')['Frete_Num'].to_dict()
         avg_freight = df_freight['Frete_Num'].mean()
-    except:
+    except Exception:
         freight_dict = {}
-        avg_freight = 0.3 # default fallback
+        avg_freight = 0.3
 
-    freight_cost = {}
+    freight_origin = {}
     for orig in df_supply['Cidade'].unique():
-        # Tentativa de extrair UF
         uf = str(orig).split('-')[-1].strip() if '-' in str(orig) else None
-        if uf in freight_dict:
-            freight_cost[orig] = freight_dict[uf]
-        else:
-            freight_cost[orig] = avg_freight
+        freight_origin[orig] = freight_dict.get(uf, avg_freight)
+        
+    freight_dest = {}
+    for d in all_warehouses_list:
+        uf = warehouse_uf.get(d)
+        freight_dest[d] = freight_dict.get(uf, avg_freight)
 
-    # Tarifas de Armazenagem
-    # df_storage tem 'Produto', 'Armazenar'
+    # 1.9 Parse Storage Tariff
     storage_cost = {}
     try:
         import unicodedata
@@ -217,73 +289,416 @@ def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight,
 
         df_storage['Cost'] = df_storage['Armazenar'].apply(safe_parse_numeric)
         df_storage['Prod_Norm'] = df_storage['Produto'].apply(normalize_str)
-
-        # Build lookup dictionary
         cost_dict = df_storage.set_index('Prod_Norm')['Cost'].to_dict()
-
-        # Try to find "outros" as fallback, otherwise use 50.0
         fallback_cost = cost_dict.get('outros', 50.0)
 
         for prod in all_products:
             prod_norm = normalize_str(prod)
             val = cost_dict.get(prod_norm, fallback_cost)
-
-            for dest in demand_total_capacity.keys():
-                storage_cost[(dest, prod)] = val
-
+            for d in all_warehouses_list:
+                storage_cost[(d, prod)] = val
     except Exception as e:
-        print(translate("Erro ao processar tarifas de armazenagem: {e}", lang).format(e=e))
-        # Default fallback
+        print(f"Error processing storage tariffs: {e}")
         for prod in all_products:
-            for dest in demand_total_capacity.keys():
-                storage_cost[(dest, prod)] = 50.0
+            for d in all_warehouses_list:
+                storage_cost[(d, prod)] = 50.0
 
+    # =========================================================================
+    # 2. SPARSE ROUTE BUILDING & PARETO FILTER
+    # =========================================================================
+    
+    valid_routes_od = []
+    for o in df_supply['Cidade'].unique():
+        for p in all_products:
+            dests = []
+            for d in all_warehouses_list:
+                if (o, d) in distance_od and prod_dest_compat.get((p, d), True):
+                    dests.append((d, distance_od[(o, d)]))
+            if dests:
+                if toggle_pareto:
+                    dests.sort(key=lambda x: x[1])
+                    limit = max(1, math.ceil(len(dests) * 0.20))
+                    dests = dests[:limit]
+                for d, _ in dests:
+                    valid_routes_od.append((o, d, p))
 
-    # 2. Despacho: LP ou MILP
+    valid_routes_dc = []
+    for d in all_warehouses_list:
+        for p in all_products:
+            if prod_dest_compat.get((p, d), True):
+                custs = []
+                for c in Customers:
+                    if (d, c) in distance_dc:
+                        custs.append((c, distance_dc[(d, c)]))
+                if custs:
+                    if toggle_pareto:
+                        custs.sort(key=lambda x: x[1])
+                        limit = max(1, math.ceil(len(custs) * 0.20))
+                        custs = custs[:limit]
+                    for c, _ in custs:
+                        valid_routes_dc.append((d, c, p))
 
-    use_milp = force_milp
-    if not use_milp and toggle_min_max_capacity:
-        if (input_min_load is not None and str(input_min_load).strip() != "") or \
-           (input_max_load is not None and str(input_max_load).strip() != "") or \
-           (input_min_freight is not None and str(input_min_freight).strip() != "") or \
-           (input_max_freight is not None and str(input_max_freight).strip() != "") or \
-           toggle_use_reception:
-            use_milp = True
+    valid_routes_dd = []
+    for d1 in all_warehouses_list:
+        for p in all_products:
+            if prod_dest_compat.get((p, d1), True):
+                d2s = []
+                for d2 in all_warehouses_list:
+                    if d1 != d2 and (d1, d2) in distance_dd and prod_dest_compat.get((p, d2), True):
+                        d2s.append((d2, distance_dd[(d1, d2)]))
+                if d2s:
+                    if toggle_pareto:
+                        d2s.sort(key=lambda x: x[1])
+                        limit = max(1, math.ceil(len(d2s) * 0.20))
+                        d2s = d2s[:limit]
+                    for d2, _ in d2s:
+                        valid_routes_dd.append((d1, d2, p))
 
-    if use_milp:
-        return _run_milp_optimization_model(
-            start_time=start_time,
-            supply=supply, demand_total_capacity=demand_total_capacity,
-            demand_initial_inventory=demand_initial_inventory,
-            demand_reception_capacity=demand_reception_capacity,
-            is_public=is_public, cda_to_name=cda_to_name,
-            prod_dest_compat=prod_dest_compat, distance=distance,
-            freight_cost=freight_cost, storage_cost=storage_cost, avg_freight=avg_freight,
-            all_products=all_products, origins_list=df_supply['Cidade'].unique().tolist(),
-            detailed_log=detailed_log,
-            input_min_load=input_min_load, input_max_load=input_max_load,
-            toggle_use_reception=toggle_use_reception, input_allocation_days=input_allocation_days,
-            input_min_freight=input_min_freight, input_max_freight=input_max_freight,
-            toggle_pareto=toggle_pareto,
-            solver_gap=solver_gap,
-            lang=lang
+    # =========================================================================
+    # 3. PYOMO CONCRETE MODEL CONSTRUCTION
+    # =========================================================================
+    model = pyo.ConcreteModel()
+    
+    # Define Sets
+    model.Origins = pyo.Set(initialize=df_supply['Cidade'].unique().tolist())
+    model.Destinations = pyo.Set(initialize=all_warehouses_list)
+    model.Destinations_exist = pyo.Set(initialize=existing_warehouses_list)
+    model.Destinations_cand = pyo.Set(initialize=candidate_warehouses_list)
+    model.BulkEligible = pyo.Set(initialize=bulk_eligible_list)
+    model.Customers = pyo.Set(initialize=Customers)
+    model.Customers_dom = pyo.Set(initialize=Customers_dom)
+    model.Customers_exp = pyo.Set(initialize=Customers_exp)
+    model.Products = pyo.Set(initialize=all_products)
+    model.TimePeriods = pyo.Set(initialize=periods, ordered=True)
+    
+    model.ValidRoutesOD = pyo.Set(initialize=valid_routes_od, dimen=3)
+    model.ValidRoutesDC = pyo.Set(initialize=valid_routes_dc, dimen=3)
+    model.ValidRoutesDD = pyo.Set(initialize=valid_routes_dd, dimen=3)
+
+    # Define Parameters
+    def supply_init(m, o, p, t):
+        return supply_dict.get((o, p, t), 0.0)
+    model.Supply = pyo.Param(model.Origins, model.Products, model.TimePeriods, initialize=supply_init)
+
+    def demand_min_init(m, c, p, t):
+        return demand_min.get((c, p, t), 0.0)
+    model.DemandMin = pyo.Param(model.Customers_dom, model.Products, model.TimePeriods, initialize=demand_min_init)
+
+    def demand_max_init(m, c, p, t):
+        return demand_max.get((c, p, t), 0.0)
+    model.DemandMax = pyo.Param(model.Customers_exp, model.Products, model.TimePeriods, initialize=demand_max_init)
+
+    def static_cap_init(m, d):
+        return static_capacity.get(d, 0.0)
+    model.StaticCapacity = pyo.Param(model.Destinations_exist, initialize=static_cap_init)
+
+    def recep_cap_init(m, d):
+        return reception_capacity.get(d, 0.0)
+    model.ReceptionCapacity = pyo.Param(model.Destinations_exist, initialize=recep_cap_init)
+
+    def ship_cap_init(m, d):
+        return shipping_capacity.get(d, 0.0)
+    model.ShippingCapacity = pyo.Param(model.Destinations_exist, initialize=ship_cap_init)
+
+    def init_inv_init(m, d, p):
+        return initial_inventory_dp.get((d, p), 0.0)
+    model.InitialInventory = pyo.Param(model.Destinations, model.Products, initialize=init_inv_init)
+
+    def open_cost_init(m, d):
+        return opening_cost.get(d, 0.0)
+    model.OpeningCost = pyo.Param(model.Destinations_cand, initialize=open_cost_init)
+
+    def max_cand_static_init(m, d):
+        return max_cand_static_capacity.get(d, 0.0)
+    model.MaxCandStaticCapacity = pyo.Param(model.Destinations_cand, initialize=max_cand_static_init)
+
+    def storage_tariff_init(m, d, p):
+        return storage_cost.get((d, p), 50.0)
+    model.StorageTariff = pyo.Param(model.Destinations, model.Products, initialize=storage_tariff_init)
+
+    def freight_origin_init(m, o):
+        return freight_origin.get(o, avg_freight)
+    model.FreightOrigin = pyo.Param(model.Origins, initialize=freight_origin_init)
+
+    def freight_dest_init(m, d):
+        return freight_dest.get(d, avg_freight)
+    model.FreightDest = pyo.Param(model.Destinations, initialize=freight_dest_init)
+
+    def dist_od_init(m, o, d):
+        return distance_od.get((o, d), 999999.0)
+    model.DistanceOD = pyo.Param(model.Origins, model.Destinations, initialize=dist_od_init)
+
+    def dist_dc_init(m, d, c):
+        return distance_dc.get((d, c), 999999.0)
+    model.DistanceDC = pyo.Param(model.Destinations, model.Customers, initialize=dist_dc_init)
+
+    def dist_dd_init(m, d1, d2):
+        return distance_dd.get((d1, d2), 999999.0)
+    model.DistanceDD = pyo.Param(model.Destinations, model.Destinations, initialize=dist_dd_init)
+
+    model.TransshipmentDiscount = pyo.Param(initialize=float(transshipment_discount))
+    model.Days = pyo.Param(initialize=float(input_allocation_days))
+    
+    # Upgrade parameters
+    def max_expand_init(m, d):
+        return float(max_expand_capacity)
+    model.MaxExpandCapacity = pyo.Param(model.Destinations, initialize=max_expand_init)
+    
+    def expand_fixed_cost_init(m, d):
+        return float(expand_fixed_cost)
+    model.ExpandFixedCost = pyo.Param(model.Destinations, initialize=expand_fixed_cost_init)
+    
+    def expand_var_cost_init(m, d):
+        return float(expand_var_cost)
+    model.ExpandVarCost = pyo.Param(model.Destinations, initialize=expand_var_cost_init)
+    
+    def max_bulk_init(m, d):
+        return float(max_bulk_capacity)
+    model.MaxBulkCapacity = pyo.Param(model.Destinations, initialize=max_bulk_init)
+    
+    def bulk_fixed_cost_init(m, d):
+        return float(bulk_fixed_cost)
+    model.BulkFixedCost = pyo.Param(model.Destinations, initialize=bulk_fixed_cost_init)
+    
+    def bulk_var_cost_init(m, d):
+        return float(bulk_var_cost)
+    model.BulkVarCost = pyo.Param(model.Destinations, initialize=bulk_var_cost_init)
+    
+    model.RatioExpandRec = pyo.Param(initialize=float(ratio_expand_rec))
+    model.RatioExpandShip = pyo.Param(initialize=float(ratio_expand_ship))
+
+    # Decision Variables
+    model.FlowOD = pyo.Var(model.ValidRoutesOD, model.TimePeriods, within=pyo.NonNegativeReals)
+    model.FlowDC = pyo.Var(model.ValidRoutesDC, model.TimePeriods, within=pyo.NonNegativeReals)
+    model.FlowDD = pyo.Var(model.ValidRoutesDD, model.TimePeriods, within=pyo.NonNegativeReals)
+    model.Inventory = pyo.Var(model.Destinations, model.Products, model.TimePeriods, within=pyo.NonNegativeReals)
+    model.CandStaticCapacity = pyo.Var(model.Destinations_cand, within=pyo.NonNegativeReals)
+    model.ExpandedCapacity = pyo.Var(model.Destinations, within=pyo.NonNegativeReals)
+    model.BulkCapacity = pyo.Var(model.Destinations, within=pyo.NonNegativeReals)
+    
+    model.WarehouseOpen = pyo.Var(model.Destinations_cand, within=pyo.Binary)
+    model.IsExpanded = pyo.Var(model.Destinations, within=pyo.Binary)
+    model.IsBulkified = pyo.Var(model.Destinations, within=pyo.Binary)
+
+    # Helper function to represent open decision variables / fixed parameter
+    def get_open_expr(m, d):
+        if d in m.Destinations_exist:
+            return 1
+        else:
+            return m.WarehouseOpen[d]
+
+    # =========================================================================
+    # 4. OBJECTIVE FUNCTION DEFINITION
+    # =========================================================================
+    
+    # 4.1 Freight cost from supply origins to warehouse hubs (OD)
+    freight_od_expr = sum(
+        model.FlowOD[o, d, p, t] * (model.DistanceOD[o, d] * model.FreightOrigin[o])
+        for (o, d, p) in model.ValidRoutesOD
+        for t in model.TimePeriods
+    )
+    
+    # 4.2 Freight cost from warehouses to demand customers (DC)
+    freight_dc_expr = sum(
+        model.FlowDC[d, c, p, t] * (model.DistanceDC[d, c] * model.FreightDest[d])
+        for (d, c, p) in model.ValidRoutesDC
+        for t in model.TimePeriods
+    )
+    
+    # 4.3 Freight cost of transshipments between warehouses (DD) with discount factor alpha
+    freight_dd_expr = sum(
+        model.FlowDD[d1, d2, p, t] * (model.TransshipmentDiscount * model.DistanceDD[d1, d2] * model.FreightDest[d1])
+        for (d1, d2, p) in model.ValidRoutesDD
+        for t in model.TimePeriods
+    )
+    
+    # 4.4 Cumulative storage holding tariffs per product per warehouse per period
+    storage_cost_expr = sum(
+        model.Inventory[d, p, t] * model.StorageTariff[d, p]
+        for d in model.Destinations
+        for p in model.Products
+        for t in model.TimePeriods
+    )
+    
+    # 4.5 Fixed construction/opening cost of candidate warehouses
+    opening_cost_expr = sum(
+        model.WarehouseOpen[d] * model.OpeningCost[d]
+        for d in model.Destinations_cand
+    )
+    
+    # 4.6 Fixed and variable capital costs of static capacity expansion projects
+    expand_cost_expr = sum(
+        model.IsExpanded[d] * model.ExpandFixedCost[d] + model.ExpandedCapacity[d] * model.ExpandVarCost[d]
+        for d in model.Destinations
+    )
+    
+    # 4.7 Fixed and variable capital costs of bulkification modernization projects
+    bulk_cost_expr = sum(
+        model.IsBulkified[d] * model.BulkFixedCost[d] + model.BulkCapacity[d] * model.BulkVarCost[d]
+        for d in model.BulkEligible
+    )
+    
+    def obj_rule(m):
+        return freight_od_expr + freight_dc_expr + freight_dd_expr + storage_cost_expr + opening_cost_expr + expand_cost_expr + bulk_cost_expr
+        
+    model.Objective = pyo.Objective(rule=obj_rule, sense=pyo.minimize, doc="Total Supply Chain Minimization Objective")
+
+    # =========================================================================
+    # 5. MODEL CONSTRAINTS
+    # =========================================================================
+
+    # 5.1 Supply Allocation Bound (Hard Equality constraint: all supply must be dispatched)
+    def supply_allocation_rule(m, o, p, t):
+        valid_dests = [d for d_ in m.Destinations if (o, d_, p) in m.ValidRoutesOD]
+        if not valid_dests:
+            return pyo.Constraint.Skip
+        return sum(m.FlowOD[o, d, p, t] for d in valid_dests) == m.Supply[o, p, t]
+        
+    model.SupplyAllocationConstraint = pyo.Constraint(model.Origins, model.Products, model.TimePeriods, rule=supply_allocation_rule, doc="Restrição de Limite de Oferta (Dispatch)")
+
+    # 5.2 Inventory Balance and Conservation (temporal carryover loop)
+    def inventory_balance_rule(m, d, p, t):
+        # Gathering inflows (supply flows + transshipment inputs)
+        valid_origins = [o for o in m.Origins if (o, d, p) in m.ValidRoutesOD]
+        valid_trans_in = [d1 for d1 in m.Destinations if (d1, d, p) in m.ValidRoutesDD]
+        
+        inflow = sum(m.FlowOD[o, d, p, t] for o in valid_origins) + \
+                 sum(m.FlowDD[d1, d, p, t] for d1 in valid_trans_in)
+                 
+        # Gathering outflows (customer flows + transshipment outputs)
+        valid_customers = [c for c in m.Customers if (d, c, p) in m.ValidRoutesDC]
+        valid_trans_out = [d2 for d2 in m.Destinations if (d, d2, p) in m.ValidRoutesDD]
+        
+        outflow = sum(m.FlowDC[d, c, p, t] for c in valid_customers) + \
+                  sum(m.FlowDD[d, d2, p, t] for d2 in valid_trans_out)
+                  
+        # Check index for boundary condition using predecessor map
+        if t == periods[0]:
+            prev_inv = m.InitialInventory[d, p]
+        else:
+            prev_t = prev_period_map[t]
+            prev_inv = m.Inventory[d, p, prev_t]
+            
+        return m.Inventory[d, p, t] == prev_inv + inflow - outflow
+        
+    model.InventoryBalanceConstraint = pyo.Constraint(model.Destinations, model.Products, model.TimePeriods, rule=inventory_balance_rule, doc="Restrição de Balanço e Conservação de Estoque")
+
+    # 5.3 Static Capacity Bound (Existing vs Candidate static limit)
+    def static_capacity_rule(m, d, t):
+        total_inv = sum(m.Inventory[d, p, t] for p in m.Products)
+        if d in m.Destinations_exist:
+            return total_inv <= m.StaticCapacity[d] + m.ExpandedCapacity[d]
+        else:
+            return total_inv <= m.CandStaticCapacity[d] + m.ExpandedCapacity[d]
+            
+    model.StaticCapacityConstraint = pyo.Constraint(model.Destinations, model.TimePeriods, rule=static_capacity_rule, doc="Restrição de Capacidade Estática Efetiva")
+
+    # 5.4 Physical Reception Handling Bound
+    def reception_handling_rule(m, d, t):
+        inflow_sum = sum(
+            m.FlowOD[o, d, p, t] for (o, d_, p) in m.ValidRoutesOD if d_ == d
+        ) + sum(
+            m.FlowDD[d1, d, p, t] for (d1, d_, p) in m.ValidRoutesDD if d_ == d
         )
+        
+        bulk_increase = m.BulkCapacity[d] if d in m.BulkEligible else 0.0
+        
+        if d in m.Destinations_exist:
+            max_inflow = (m.ReceptionCapacity[d] + m.RatioExpandRec * m.ExpandedCapacity[d] + bulk_increase) * m.Days
+        else: # Candidate
+            max_inflow = (m.RatioExpandRec * m.CandStaticCapacity[d] + m.RatioExpandRec * m.ExpandedCapacity[d] + bulk_increase) * m.Days
+            
+        return inflow_sum <= max_inflow
 
-    # 2. Pyomo Model Construction (Original LP)
+    # 5.5 Physical Shipping Handling Bound
+    def shipping_handling_rule(m, d, t):
+        outflow_sum = sum(
+            m.FlowDC[d, c, p, t] for (d_, c, p) in m.ValidRoutesDC if d_ == d
+        ) + sum(
+            m.FlowDD[d, d2, p, t] for (d_, d2, p) in m.ValidRoutesDD if d_ == d
+        )
+        
+        bulk_increase = m.BulkCapacity[d] if d in m.BulkEligible else 0.0
+        
+        if d in m.Destinations_exist:
+            max_outflow = (m.ShippingCapacity[d] + m.RatioExpandShip * m.ExpandedCapacity[d] + bulk_increase) * m.Days
+        else: # Candidate
+            max_outflow = (m.RatioExpandShip * m.CandStaticCapacity[d] + m.RatioExpandShip * m.ExpandedCapacity[d] + bulk_increase) * m.Days
+            
+        return outflow_sum <= max_outflow
+        
+    model.ReceptionHandlingConstraint = pyo.Constraint(model.Destinations, model.TimePeriods, rule=reception_handling_rule, doc="Restrição de Limite Físico de Recepção (Handling)")
+    model.ShippingHandlingConstraint = pyo.Constraint(model.Destinations, model.TimePeriods, rule=shipping_handling_rule, doc="Restrição de Limite Físico de Expedição (Handling)")
 
-    # Redirect output directly to a temporary file on disk (to avoid Out of Memory)
+    # 5.6 Mutual Exclusion of Modifications (Expansion vs Bulkification)
+    def mutual_exclusion_rule(m, d):
+        h_val = get_open_expr(m, d)
+        if d in m.BulkEligible:
+            return m.IsExpanded[d] + m.IsBulkified[d] <= h_val
+        else:
+            return m.IsExpanded[d] <= h_val
+            
+    model.MutualExclusionConstraint = pyo.Constraint(model.Destinations, rule=mutual_exclusion_rule, doc="Restrição de Exclusividade de Modernização")
+
+    # 5.7 Bulkification Compatibility and Bounding Locks
+    def bulk_eligibility_lock_rule_var(m, d):
+        if d not in m.BulkEligible:
+            return m.IsBulkified[d] == 0
+        return pyo.Constraint.Skip
+        
+    def bulk_eligibility_lock_rule_cap(m, d):
+        if d not in m.BulkEligible:
+            return m.BulkCapacity[d] == 0
+        return pyo.Constraint.Skip
+        
+    model.BulkEligibilityLockVar = pyo.Constraint(model.Destinations, rule=bulk_eligibility_lock_rule_var, doc="Trava de Inelegibilidade de Granelização (Var)")
+    model.BulkEligibilityLockCap = pyo.Constraint(model.Destinations, rule=bulk_eligibility_lock_rule_cap, doc="Trava de Inelegibilidade de Granelização (Cap)")
+
+    # 5.8 Sizing bounds for candidate warehouses
+    def cand_static_bounding_rule(m, d):
+        return m.CandStaticCapacity[d] <= m.WarehouseOpen[d] * m.MaxCandStaticCapacity[d]
+        
+    model.CandStaticBoundingConstraint = pyo.Constraint(model.Destinations_cand, rule=cand_static_bounding_rule, doc="Limite de Dimensionamento de Novo Hub")
+
+    # 5.9 upgrade bounding rules for physical expansion and bulkification capacity
+    def bulk_bounding_rule(m, d):
+        return m.BulkCapacity[d] <= m.IsBulkified[d] * m.MaxBulkCapacity[d]
+        
+    def expand_bounding_rule(m, d):
+        return m.ExpandedCapacity[d] <= m.IsExpanded[d] * m.MaxExpandCapacity[d]
+        
+    model.BulkBoundingConstraint = pyo.Constraint(model.BulkEligible, rule=bulk_bounding_rule, doc="Limite Contínuo de Granelização")
+    model.ExpandBoundingConstraint = pyo.Constraint(model.Destinations, rule=expand_bounding_rule, doc="Limite Contínuo de Expansão Estática")
+
+    # 5.10 Customer Demand Satisfaction (Domestic Strict Equality vs Export Max upper bound)
+    def domestic_demand_rule(m, c, p, t):
+        valid_dests = [d for d_ in m.Destinations if (d_, c, p) in m.ValidRoutesDC]
+        if not valid_dests:
+            return pyo.Constraint.Skip
+        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) == m.DemandMin[c, p, t]
+
+    def export_demand_rule(m, c, p, t):
+        valid_dests = [d for d_ in m.Destinations if (d_, c, p) in m.ValidRoutesDC]
+        if not valid_dests:
+            return pyo.Constraint.Skip
+        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) <= m.DemandMax[c, p, t]
+        
+    model.DomesticDemandConstraint = pyo.Constraint(model.Customers_dom, model.Products, model.TimePeriods, rule=domestic_demand_rule, doc="Restrição de Atendimento da Demanda Interna")
+    model.ExportDemandConstraint = pyo.Constraint(model.Customers_exp, model.Products, model.TimePeriods, rule=export_demand_rule, doc="Restrição Quota Máxima de Exportação (Sink)")
+
+    # =========================================================================
+    # 6. SOLVER WRAPPER & EXECUTION
+    # =========================================================================
+
     old_stdout = sys.stdout
-
     log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
     os.makedirs(log_dir, exist_ok=True)
 
-    # Clean up old files so we don't run out of disk space
-
+    # Clean old logs to save disk space
     now = time.time()
     for filename in os.listdir(log_dir):
         filepath = os.path.join(log_dir, filename)
         if os.path.isfile(filepath):
-            # Deletes files created more than 1 hour ago
             if os.stat(filepath).st_mtime < now - 3600:
                 try:
                     os.remove(filepath)
@@ -295,437 +710,49 @@ def run_optimization_model(df_supply, df_demand, df_compat, df_dist, df_freight,
     new_stdout = os.fdopen(log_fd, 'w', encoding='utf-8')
     sys.stdout = new_stdout
 
-    # Variables to hold structured results
-    results_dict = {
-        "status": "error",
-        "objective": 0.0,
-        "routes": [],
-        "kpis": {
-            "total_tons": 0.0,
-            "total_km": 0.0,
-            "total_freight_cost": 0.0,
-            "total_storage_cost": 0.0,
-            "execution_time": 0.0
-        },
-        "model_stats": {
-            "total_variables": 0,
-            "binary_variables": 0,
-            "integer_variables": 0,
-            "continuous_variables": 0,
-            "total_constraints": 0,
-            "iterations": 0,
-            "nodes": 0
-        },
-        "warnings": {
-            "capacity": [],
-            "unallocated": [],
-            "general": []
-        }
-    }
-
     try:
-        print(translate("Iniciando a construção do modelo matemático...", lang))
-        model = pyo.ConcreteModel(name="Alocacao_Armazens")
-
-        # =========================================================================
-        # 2.1 CONJUNTOS (SETS)
-        # =========================================================================
-        # Defines the indices over which the model will operate.
-
-        model.Origins = pyo.Set(initialize=df_supply['Cidade'].unique().tolist(), doc=translate("Cidades de Origem da Oferta", lang))
-        model.Destinations = pyo.Set(initialize=list(demand_total_capacity.keys()), doc=translate("Armazéns de Destino", lang))
-        model.Products = pyo.Set(initialize=all_products, doc=translate("Tipos de Produtos", lang))
-
-        # [PERFORMANCE BEST PRACTICE]
-        # We pre-filter valid routes in Python before creating decision variables.
-        # This avoids the 'combinatorial explosion' of empty variables in the solver, improving
-        # significantly memory usage and optimization speed.
-        valid_routes = []
-        for o in model.Origins:
-            for p in model.Products:
-                compatible_dests = []
-                # Reúne todos os destinos válidos para esta origem e produto
-                for d in model.Destinations:
-                    if (o, d) in distance and prod_dest_compat.get((p, d), False):
-                        dist_val = distance[(o, d)]
-                        # Armazena apenas a distância para o Pareto
-                        compatible_dests.append((d, dist_val))
-
-                if compatible_dests:
-                    if toggle_pareto:
-                        # Ordena pela menor distância
-                        compatible_dests.sort(key=lambda x: x[1])
-                        # Aplica a regra 80/20, arredondando sempre para cima
-                        limit = max(1, math.ceil(len(compatible_dests) * 0.20))
-                        compatible_dests = compatible_dests[:limit]
-
-                    # Adiciona os destinos filtrados às rotas válidas
-                    for d, _ in compatible_dests:
-                        valid_routes.append((o, d, p))
-
-        print(translate("Total de combinações (Origem x Destino x Produto) válidas: {val}", lang).format(val=len(valid_routes)))
-        model.ValidRoutes = pyo.Set(initialize=valid_routes, dimen=3, doc=translate("Rotas Válidas (Origem, Destino, Produto)", lang))
-
-        # =========================================================================
-        # 2.2 PARÂMETROS (PARAMETERS)
-        # =========================================================================
-        # Valores fixos conhecidos fornecidos como dados de entrada para o modelo.
-
-        # --- Parâmetros de Oferta e Demanda ---
-        def supply_init(model, o, p):
-            return supply.get((o, p), 0.0)
-        model.Supply = pyo.Param(model.Origins, model.Products, initialize=supply_init, doc=translate("Oferta disponível por (Origem, Produto)", lang))
-
-        def total_capacity_init(model, d):
-            return demand_total_capacity.get(d, 0.0)
-        model.TotalCapacity = pyo.Param(model.Destinations, initialize=total_capacity_init, doc=translate("Capacidade estática total do armazém (ton)", lang))
-
-        def initial_inventory_init(model, d):
-            return demand_initial_inventory.get(d, 0.0)
-        model.InitialInventory = pyo.Param(model.Destinations, initialize=initial_inventory_init, doc=translate("Estoque inicial presente no armazém (ton)", lang))
-
-        # --- Parâmetros de Custos e Distâncias ---
-        def dist_init(model, o, d):
-            return distance.get((o, d), 999999.0)
-        model.Distance = pyo.Param(model.Origins, model.Destinations, initialize=dist_init, doc=translate("Distância entre Origem e Destino (km)", lang))
-
-        def freight_init(model, o):
-            return freight_cost.get(o, avg_freight)
-        model.Freight = pyo.Param(model.Origins, initialize=freight_init, doc=translate("Custo unitário de frete (R$/ton-km) a partir da Origem", lang))
-
-        def storage_init(model, d, p):
-            return storage_cost.get((d, p), 50.0)
-        model.Storage = pyo.Param(model.Destinations, model.Products, initialize=storage_init, doc=translate("Tarifa de armazenagem no Destino para o Produto (R$/ton)", lang))
-
-        # --- Penalty Parameters (Big M) ---
-        # We calculate a dynamic Big M based on maximum system costs
-        max_freight = max(freight_cost.values()) if freight_cost else 0.0
-        max_dist = max(distance.values()) if distance else 0.0
-        max_storage = max(storage_cost.values()) if storage_cost else 0.0
-
-        # Big M da Capacidade: ordens de grandeza maior que o custo de transportar e armazenar
-        val_big_m_cap = (max_freight * max_dist + max_storage) * 1000
-        if val_big_m_cap == 0:
-            val_big_m_cap = 10000
-
-        # Unallocated Big M: must be even higher than lack of capacity, forcing allocation whenever possible
-        val_big_m_unalloc = val_big_m_cap * 10
-
-        print(translate("Valor dinâmico para Big_M (Capacidade Artificial): {val:.2e}", lang).format(val=val_big_m_cap))
-        print(translate("Valor dinâmico para Big_M (Oferta Não Alocada): {val:.2e}", lang).format(val=val_big_m_unalloc))
-
-        model.BigMCapacity = pyo.Param(initialize=val_big_m_cap, doc=translate("Custo de penalização por tonelada de capacidade artificial", lang))
-        model.BigMUnallocated = pyo.Param(initialize=val_big_m_unalloc, doc=translate("Custo de penalização por tonelada de oferta não alocada", lang))
-
-        # =========================================================================
-        # 2.3 DECISION VARIABLES
-        # =========================================================================
-        # Values the solver will attempt to determine to optimize the result.
-
-        # Fluxo de produto (quantidade a ser transportada) em toneladas
-        model.Flow = pyo.Var(model.ValidRoutes, domain=pyo.NonNegativeReals, doc=translate("Quantidade transportada (o, d, p)", lang))
-
-        # Slack variables (Dummies) to ensure mathematical viability of the model
-        model.DummyCapacity = pyo.Var(model.Destinations, domain=pyo.NonNegativeReals, doc=translate("Capacidade extra artificial alocada (ton)", lang))
-        model.DummyUnallocated = pyo.Var(model.Origins, model.Products, domain=pyo.NonNegativeReals, doc=translate("Oferta não alocada a nenhum destino (ton)", lang))
-
-        # =========================================================================
-        # 2.4 OBJECTIVE FUNCTION
-        # =========================================================================
-        # Mathematical expression to be minimized (Minimize Costs).
-
-        def objective_rule(model):
-            # Custo normal do sistema = (Custo de Frete) + (Custo de Armazenagem)
-            normal_costs = sum(
-                (model.Flow[o, d, p] * model.Distance[o, d] * model.Freight[o]) +
-                (model.Flow[o, d, p] * model.Storage[d, p])
-                for (o, d, p) in model.ValidRoutes
-            )
-
-            # Penalty cost for violating logical constraints
-            dummy_capacity_costs = sum(model.DummyCapacity[d] * model.BigMCapacity for d in model.Destinations)
-            dummy_unallocated_costs = sum(model.DummyUnallocated[o, p] * model.BigMUnallocated for o in model.Origins for p in model.Products)
-
-            return normal_costs + dummy_capacity_costs + dummy_unallocated_costs
-
-        model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize, doc=translate("Minimização dos Custos Totais", lang))
-
-        # =========================================================================
-        # 2.5 CONSTRAINTS
-        # =========================================================================
-        # Rules that decision variables must strictly obey.
-
-        # Constraint 1: Flow Conservation (Supply Limit)
-        # The total available supply in an origin for a product MUST be routed,
-        # whether via actual allocation (Flow) or slack (DummyUnallocated).
-        def supply_rule(model, o, p):
-            if model.Supply[o, p] <= 0:
-                return pyo.Constraint.Skip
-
-            valid_dests = [d for d in model.Destinations if (o, d, p) in model.ValidRoutes]
-            if not valid_dests:
-                # There are no valid routes, all supply goes to the dummy variable
-                return model.DummyUnallocated[o, p] == model.Supply[o, p]
-
-            flow_sum = sum(model.Flow[o, d, p] for d in valid_dests)
-            return flow_sum + model.DummyUnallocated[o, p] == model.Supply[o, p]
-
-        model.SupplyConstraint = pyo.Constraint(model.Origins, model.Products, rule=supply_rule, doc=translate("Restrição de Limite de Oferta", lang))
-
-        # Constraint 2: Warehouse Capacity Limit
-        # The total quantity arriving at a destination cannot exceed its real available capacity.
-        # Available Capacity = (Total Capacity - Initial Inventory)
-        # If the solver has no alternative, it will use DummyCapacity paying the penalty.
-        def capacity_rule(model, d):
-            valid_ops = [(o, p) for o in model.Origins for p in model.Products if (o, d, p) in model.ValidRoutes]
-            if not valid_ops:
-                return pyo.Constraint.Skip
-
-            flow_sum = sum(model.Flow[o, d, p] for (o, p) in valid_ops)
-
-            # Tratamento para evitar capacidade efetiva negativa caso estoque inicial > total
-            # Extracting numerical value to allow boolean verification
-            effective_cap = max(0.0, pyo.value(model.TotalCapacity[d]) - pyo.value(model.InitialInventory[d]))
-
-            if effective_cap > 0:
-                return flow_sum <= (model.TotalCapacity[d] - model.InitialInventory[d]) + model.DummyCapacity[d]
-            else:
-                # If there is effectively no capacity, the warehouse can only receive load generating Dummy
-                return flow_sum <= model.DummyCapacity[d]
-
-        model.CapacityConstraint = pyo.Constraint(model.Destinations, rule=capacity_rule, doc=translate("Restrição de Limite de Capacidade Efetiva", lang))
-
-        # Show the model for debug only if requested by the user
         if detailed_log:
             model.pprint()
-
-        results_dict["model_stats"]["total_variables"] = sum(1 for _ in model.component_data_objects(pyo.Var, active=True))
-        results_dict["model_stats"]["total_constraints"] = sum(1 for _ in model.component_data_objects(pyo.Constraint, active=True))
-        results_dict["model_stats"]["binary_variables"] = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain == pyo.Binary)
-        results_dict["model_stats"]["integer_variables"] = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Integers, pyo.NonNegativeIntegers, pyo.PositiveIntegers))
-        results_dict["model_stats"]["continuous_variables"] = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Reals, pyo.NonNegativeReals, pyo.PositiveReals))
-
-        # 3. Solucionar o modelo
+            
         print("\n" + translate("Chamando solver CBC...", lang))
         solver = SolverFactory('cbc')
-        # Time limit to prevent infinite locking
-        solver.options['sec'] = 1200
+        
+        if solver_time_limit is not None:
+            solver.options['sec'] = int(solver_time_limit)
+        else:
+            solver.options['sec'] = 1200
+            
         if solver_gap is not None:
-            solver.options['ratioGap'] = solver_gap
+            try:
+                gap_val = float(solver_gap)
+                if gap_val > 1.0:
+                    gap_val = gap_val / 100.0
+                solver.options['ratioGap'] = gap_val
+            except Exception:
+                solver.options['ratioGap'] = 0.01
 
+        # Run solver
         results = solver.solve(model, tee=True)
-
+        
         print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ===", lang))
         print(translate("Status do Solver: {status}", lang).format(status=results.solver.status))
         print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition))
 
-        lower_bound = results.problem.lower_bound if results.problem.lower_bound is not None else "N/A"
-        upper_bound = results.problem.upper_bound if results.problem.upper_bound is not None else "N/A"
-        gap = "N/A"
-        if isinstance(lower_bound, (int, float)) and isinstance(upper_bound, (int, float)) and upper_bound != 0:
-            if lower_bound > -1e20 and upper_bound < 1e20: # Ensure valid bounds
-                gap = abs(upper_bound - lower_bound) / abs(upper_bound)
-
-        results_dict["kpis"]["lower_bound"] = lower_bound
-        results_dict["kpis"]["upper_bound"] = upper_bound
-        results_dict["kpis"]["gap"] = gap
-
-        termination_condition = results.solver.termination_condition
-        is_max_time_limit = termination_condition == pyo.TerminationCondition.maxTimeLimit
-
-        if results.solver.status == pyo.SolverStatus.ok and (termination_condition == pyo.TerminationCondition.optimal or is_max_time_limit):
-            print(translate("Solução Ótima Encontrada!", lang))
-
-            objective_value = pyo.value(model.Objective)
-            print(translate("Custo Total (Função Objetivo): R$ {val:,.2f}", lang).format(val=objective_value))
-
-            results_dict["status"] = "optimal"
-            results_dict["objective"] = objective_value
-
-            print("\n" + translate("--- DETALHES DO FLUXO (Alocação) ---", lang))
-            total_transported = 0
-            total_km = 0.0
-            total_freight_cost = 0.0
-            total_storage_cost = 0.0
-
-            for (o, d, p) in model.ValidRoutes:
-                val = pyo.value(model.Flow[o, d, p])
-                if val > 0.001:  # ignore floating point zeros
-                    d_name = cda_to_name.get(d, d)
-                    dist = pyo.value(model.Distance[o, d])
-                    f_cost = pyo.value(model.Freight[o])
-                    s_cost = pyo.value(model.Storage[d, p])
-
-                    route_freight = val * dist * f_cost
-                    route_storage = val * s_cost
-                    route_total = route_freight + route_storage
-
-                    print(translate("De: {o} | Para: {d} | Produto: {p} | Qtd: {val:.2f} ton", lang).format(o=o, d=d_name, p=p, val=val))
-
-                    results_dict["routes"].append({
-                        "Origem": o,
-                        "Destino": d_name,
-                        "Produto": p,
-                        "Quantidade (ton)": val,
-                        "Distancia (km)": dist,
-                        "Custo Frete (R$)": route_freight,
-                        "Custo Armazenagem (R$)": route_storage,
-                        "Custo Total (R$)": route_total,
-                        "Custo Frete Unitario (R$/ton-km)": f_cost,
-                        "Custo Armaz. Unitario (R$/ton)": s_cost
-                    })
-
-                    total_transported += val
-                    total_km += dist
-                    total_freight_cost += route_freight
-                    total_storage_cost += route_storage
-
-            print("\n" + translate("Total de produtos alocados: {val:.2f} toneladas", lang).format(val=total_transported))
-
-            results_dict["kpis"]["total_tons"] = total_transported
-            results_dict["kpis"]["total_km"] = total_km
-            results_dict["kpis"]["total_freight_cost"] = total_freight_cost
-            results_dict["kpis"]["total_storage_cost"] = total_storage_cost
-
-            # Check usage of Dummy variables
-            dummy_cap_used = False
-            print("\n" + translate("--- AVISOS: CAPACIDADE ARTIFICIAL (DUMMIES) ---", lang))
-            for d in model.Destinations:
-                d_val = pyo.value(model.DummyCapacity[d])
-                if d_val > 0.001:
-                    dummy_cap_used = True
-                    d_name = cda_to_name.get(d, d)
-                    msg = translate("O Armazém \'{d_name}\' precisou de capacidade de armazenamento artificial de {d_val:.2f} toneladas.", lang).format(d_name=d_name, d_val=d_val)
-                    print(translate("ALERTA: {msg}", lang).format(msg=msg))
-                    results_dict["warnings"]["capacity"].append(msg)
-
-            if not dummy_cap_used:
-                print(translate("Nenhuma capacidade artificial foi necessária. O modelo encontrou solução com as capacidades reais.", lang))
-
-            dummy_unalloc_used = False
-            print("\n" + translate("--- AVISOS: OFERTA SEM ROTAS / NÃO ALOCADA (DUMMIES) ---", lang))
-            for o in model.Origins:
-                for p in model.Products:
-                    u_val = pyo.value(model.DummyUnallocated[o, p])
-                    if u_val > 0.001:
-                        dummy_unalloc_used = True
-                        msg = translate("A origem \'{o}\' possui oferta de \'{p}\' não alocada: {u_val:.2f} toneladas.", lang).format(o=o, p=p, u_val=u_val)
-                        print(translate("ALERTA: {msg}", lang).format(msg=msg))
-                        results_dict["warnings"]["unallocated"].append(msg)
-
-            if not dummy_unalloc_used:
-                print(translate("Toda a oferta conseguiu ser escoada em rotas válidas para algum destino.", lang))
-
-            if dummy_cap_used or dummy_unalloc_used:
-                print("\n" + translate("Nota: Foram utilizadas variáveis dummies com custo elevado para impedir que o modelo falhasse por inviabilidade.", lang))
-                print(translate("Custo de Capacidade Artificial (Big M) = {val:.2e}", lang).format(val=pyo.value(model.BigMCapacity)))
-                print(translate("Custo de Oferta Não Alocada (Big M) = {val:.2e}", lang).format(val=pyo.value(model.BigMUnallocated)))
-
-        else:
-            if is_max_time_limit:
-                print(translate("Limite de tempo atingido sem solução factível (NFS).", lang))
-                results_dict["status"] = "timeout_nfs"
-                results_dict["kpis"]["gap"] = "NFS"
-                results_dict["warnings"]["general"].append(translate("O modelo não encontrou solução factível antes do tempo limite.", lang))
-            else:
-                print(translate("Não foi possível encontrar uma solução ótima. O modelo pode estar mal-condicionado.", lang))
-                results_dict["status"] = "infeasible"
-                results_dict["warnings"]["general"].append(translate("O modelo não encontrou solução ótima.", lang))
-
-    except Exception as e:
-        print("\n" + translate("ERRO DURANTE A OTIMIZAÇÃO: {err}", lang).format(err=str(e)))
-        results_dict["status"] = "error"
-        results_dict["warnings"]["general"].append(translate("Erro: {err}", lang).format(err=str(e)))
-        import traceback
-        # print_exc defaults to sys.stderr. Let's print formatting to sys.stdout
-        # so it gets caught in our buffer!
-        print(traceback.format_exc())
-
     finally:
-        # Try to parse CBC solver output from the log file for iterations and nodes
-        try:
-            import re
-            sys.stdout.flush()
-            if 'log_path' in locals() and os.path.exists(log_path):
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    # CBC usually reports nodes and iterations
-                    match_nodes = re.search(r'Enumerated nodes:\s+(\d+)', content)
-                    match_iters = re.search(r'Total iterations:\s+(\d+)', content)
-                    if match_nodes:
-                        results_dict["model_stats"]["nodes"] = int(match_nodes.group(1))
-                    if match_iters:
-                        results_dict["model_stats"]["iterations"] = int(match_iters.group(1))
-        except Exception as e:
-            print(f"Error parsing log: {e}")
-
-        # Registrar tempo total e imprimir no log
-        end_time = time.time()
-        total_time_seconds = end_time - start_time
-        print("\n" + translate("Tempo de execução: {val:.2f} segundos.", lang).format(val=total_time_seconds))
-
-        # Adds time to the results dictionary
-        results_dict["kpis"]["execution_time"] = total_time_seconds
-
-        # Close the temporary log file and restore stdout
+        new_stdout.flush()
         new_stdout.close()
         sys.stdout = old_stdout
 
-    # Retornar o nome do arquivo de log salvo e os dados estruturados
-    return log_filename, results_dict
-
-def _run_milp_optimization_model(start_time, supply, demand_total_capacity, demand_initial_inventory,
-                                 demand_reception_capacity, is_public, cda_to_name,
-                                 prod_dest_compat, distance, freight_cost, storage_cost, avg_freight,
-                                 all_products, origins_list, detailed_log,
-                                 input_min_load, input_max_load, toggle_use_reception,
-                                 input_allocation_days, input_min_freight, input_max_freight, toggle_pareto=False, solver_gap=None, lang="pt"):
-    """
-    Versão MILP do modelo, inclui restrições extras e variáveis binárias (RouteActive).
-    """
-
-    # Calculate days multiplier
-    try:
-        days = float(input_allocation_days) if input_allocation_days else 1.0
-    except:
-        days = 1.0
-
-    # Parse numeric limits
-    def parse_float(val):
-        if val is None or str(val).strip() == "":
-            return None
-        try:
-            return float(val)
-        except:
-            return None
-
-    carga_min = parse_float(input_min_load)
-    carga_max = parse_float(input_max_load)
-    frete_min = parse_float(input_min_freight)
-    frete_max = parse_float(input_max_freight)
-
-    # Redirecionar output
-    old_stdout = sys.stdout
-    log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
-    os.makedirs(log_dir, exist_ok=True)
-
-    now = time.time()
-    for filename in os.listdir(log_dir):
-        filepath = os.path.join(log_dir, filename)
-        if os.path.isfile(filepath):
-            if os.stat(filepath).st_mtime < now - 3600:
-                try:
-                    os.remove(filepath)
-                except Exception:
-                    pass
-
-    log_fd, log_path = tempfile.mkstemp(suffix='.txt', prefix='optimization_log_milp_', dir=log_dir)
-    log_filename = os.path.basename(log_path)
-    new_stdout = os.fdopen(log_fd, 'w', encoding='utf-8')
-    sys.stdout = new_stdout
-
+    # =========================================================================
+    # 7. POST-OPTIMIZATION RESULTS COLLECTION
+    # =========================================================================
+    
+    results_status = results.solver.termination_condition
+    is_optimal = results_status == pyo.TerminationCondition.optimal
+    
+    # Initialize basic stats
     results_dict = {
-        "status": "error",
+        "status": "optimal" if is_optimal else str(results_status),
         "objective": 0.0,
         "routes": [],
         "kpis": {
@@ -733,485 +760,220 @@ def _run_milp_optimization_model(start_time, supply, demand_total_capacity, dema
             "total_km": 0.0,
             "total_freight_cost": 0.0,
             "total_storage_cost": 0.0,
-            "execution_time": 0.0
+            "total_opening_cost": 0.0,
+            "total_expand_cost": 0.0,
+            "total_bulk_cost": 0.0,
+            "execution_time": time.time() - start_time,
         },
         "model_stats": {
-            "total_variables": 0,
-            "binary_variables": 0,
-            "integer_variables": 0,
-            "continuous_variables": 0,
-            "total_constraints": 0,
-            "iterations": 0,
-            "nodes": 0
+            "total_variables": sum(1 for _ in model.component_data_objects(pyo.Var, active=True)),
+            "total_constraints": sum(1 for _ in model.component_data_objects(pyo.Constraint, active=True)),
+            "binary_variables": sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain == pyo.Binary),
+            "integer_variables": sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Integers, pyo.NonNegativeIntegers, pyo.PositiveIntegers)),
+            "continuous_variables": sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Reals, pyo.NonNegativeReals, pyo.PositiveReals))
         },
-        "warnings": {
-            "capacity": [],
-            "unallocated": [],
-            "general": []
-        }
+        "warnings": [],
+        "warehouse_decisions": [],
+        "inventory": []
     }
 
-    try:
-        print(translate("Iniciando a construção do modelo matemático (MILP com restrições de limite)...", lang))
-        model = pyo.ConcreteModel(name="Alocacao_Armazens_MILP")
-
-        # =========================================================================
-        # 3.1 CONJUNTOS (SETS)
-        # =========================================================================
-        # Defines the indices over which the model will operate.
-        model.Origins = pyo.Set(initialize=origins_list, doc=translate("Cidades de Origem da Oferta", lang))
-        model.Destinations = pyo.Set(initialize=list(demand_total_capacity.keys()), doc=translate("Armazéns de Destino", lang))
-        model.Products = pyo.Set(initialize=all_products, doc=translate("Tipos de Produtos", lang))
-
-        valid_routes = []
-        for o in model.Origins:
-            for p in model.Products:
-                compatible_dests = []
-                # Reúne todos os destinos válidos para esta origem e produto
-                for d in model.Destinations:
-                    if (o, d) in distance and prod_dest_compat.get((p, d), False):
-                        dist_val = distance[(o, d)]
-                        # Armazena apenas a distância para o Pareto
-                        compatible_dests.append((d, dist_val))
-
-                if compatible_dests:
-                    if toggle_pareto:
-                        # Ordena pela menor distância
-                        compatible_dests.sort(key=lambda x: x[1])
-                        # Aplica a regra 80/20, arredondando sempre para cima
-                        limit = max(1, math.ceil(len(compatible_dests) * 0.20))
-                        compatible_dests = compatible_dests[:limit]
-
-                    # Adiciona os destinos filtrados às rotas válidas
-                    for d, _ in compatible_dests:
-                        valid_routes.append((o, d, p))
-
-        print(translate("Total de combinações (Origem x Destino x Produto) válidas: {val}", lang).format(val=len(valid_routes)))
-        model.ValidRoutes = pyo.Set(initialize=valid_routes, dimen=3, doc=translate("Rotas Válidas (Origem, Destino, Produto)", lang))
-
-        # =========================================================================
-        # 3.2 PARÂMETROS (PARAMETERS)
-        # =========================================================================
-        # Valores fixos conhecidos fornecidos como dados de entrada para o modelo.
-
-        # --- Constants and Logistics Limit Parameters ---
-        model.Days = pyo.Param(initialize=days, within=pyo.Any, doc=translate("Dias de alocação", lang))
-        model.FreightMin = pyo.Param(initialize=frete_min, within=pyo.Any, doc=translate("Carga mínima de frete por rota", lang))
-        model.FreightMax = pyo.Param(initialize=frete_max, within=pyo.Any, doc=translate("Carga máxima de frete por rota", lang))
-
-        def reception_min_init(model, d):
-            return carga_min
-        model.ReceptionMin = pyo.Param(model.Destinations, initialize=reception_min_init, within=pyo.Any, doc=translate("Carga mínima diária de recepção", lang))
-
-        def reception_max_init(model, d):
-            if toggle_use_reception:
-                return demand_reception_capacity.get(d, 0.0)
-            elif carga_max is not None:
-                return carga_max
-            return None
-
-        model.ReceptionMax = pyo.Param(model.Destinations, initialize=reception_max_init, within=pyo.Any, doc=translate("Carga máxima diária de recepção ou capacidade do banco", lang))
-
-
-        # --- Parâmetros de Oferta e Demanda ---
-        def supply_init(model, o, p):
-            return supply.get((o, p), 0.0)
-        model.Supply = pyo.Param(model.Origins, model.Products, initialize=supply_init, doc=translate("Oferta disponível por (Origem, Produto)", lang))
-
-        def total_capacity_init(model, d):
-            return demand_total_capacity.get(d, 0.0)
-        model.TotalCapacity = pyo.Param(model.Destinations, initialize=total_capacity_init, doc=translate("Capacidade estática total do armazém (ton)", lang))
-
-        def initial_inventory_init(model, d):
-            return demand_initial_inventory.get(d, 0.0)
-        model.InitialInventory = pyo.Param(model.Destinations, initialize=initial_inventory_init, doc=translate("Estoque inicial presente no armazém (ton)", lang))
-
-        # --- Parâmetros de Custos e Distâncias ---
-        def dist_init(model, o, d):
-            return distance.get((o, d), 999999.0)
-        model.Distance = pyo.Param(model.Origins, model.Destinations, initialize=dist_init, doc=translate("Distância entre Origem e Destino (km)", lang))
-
-        def freight_init(model, o):
-            return freight_cost.get(o, avg_freight)
-        model.Freight = pyo.Param(model.Origins, initialize=freight_init, doc=translate("Custo unitário de frete (R$/ton-km) a partir da Origem", lang))
-
-        def storage_init(model, d, p):
-            return storage_cost.get((d, p), 50.0)
-        model.Storage = pyo.Param(model.Destinations, model.Products, initialize=storage_init, doc=translate("Tarifa de armazenagem no Destino para o Produto (R$/ton)", lang))
-
-        max_freight = max(freight_cost.values()) if freight_cost else 0.0
-        max_dist = max(distance.values()) if distance else 0.0
-        max_storage = max(storage_cost.values()) if storage_cost else 0.0
-
-        val_big_m_cap = (max_freight * max_dist + max_storage) * 1000
-        if val_big_m_cap == 0:
-            val_big_m_cap = 10000
-
-        val_big_m_unalloc = val_big_m_cap * 10
-
-        # --- Penalty Parameters (Big M) ---
-        model.BigMCapacity = pyo.Param(initialize=val_big_m_cap, doc=translate("Custo de penalização por tonelada de capacidade artificial", lang))
-        model.BigMUnallocated = pyo.Param(initialize=val_big_m_unalloc, doc=translate("Custo de penalização por tonelada de oferta não alocada", lang))
-
-        # Big M para as Rotas (Indexado por ValidRoutes)
-        def big_m_flow_init(model, o, d, p):
-            f_max = pyo.value(model.FreightMax, exception=False)
-            if f_max is not None:
-                return f_max
-            else:
-                # The route's real ceiling is ONLY the supply from that origin (since capacity can expand with dummy)
-                local_max = pyo.value(model.Supply[o, p])
-                return local_max if local_max > 0 else 999999.0
-                
-        model.UpperFlow = pyo.Param(model.ValidRoutes, initialize=big_m_flow_init, doc=translate("Big M Dinâmico e Local por Rota", lang))
-
-        # 2. Big M for Warehouses (Indexed by Destinations)
-        def big_m_warehouse_init(model, d):
-            # The absolute maximum a warehouse can receive is the sum of all supply pointed to it
-            valid_ops = [(o, p) for o in model.Origins for p in model.Products if (o, d, p) in model.ValidRoutes]
-            max_possible_arrival = sum(pyo.value(model.Supply[o, p]) for (o, p) in valid_ops)
-            
-            return max_possible_arrival if max_possible_arrival > 0 else 999999.0
-            
-        model.BigMWarehouse = pyo.Param(model.Destinations, initialize=big_m_warehouse_init, doc=translate("Big M Dinâmico por Armazém", lang))
-
-        # =========================================================================
-        # 3.3 DECISION VARIABLES
-        # =========================================================================
-        # Values the solver will attempt to determine to optimize the result.
-
-        # Fluxo de produto (quantidade a ser transportada) em toneladas
-        model.Flow = pyo.Var(model.ValidRoutes, domain=pyo.NonNegativeReals, doc=translate("Quantidade transportada (o, d, p)", lang))
-
-        # Slack variables (Dummies) to ensure mathematical viability of the model
-        model.DummyCapacity = pyo.Var(model.Destinations, domain=pyo.NonNegativeReals, doc=translate("Capacidade extra artificial alocada (ton)", lang))
-        model.DummyUnallocated = pyo.Var(model.Origins, model.Products, domain=pyo.NonNegativeReals, doc=translate("Oferta não alocada a nenhum destino (ton)", lang))
-        model.DummyReception = pyo.Var(model.Destinations, domain=pyo.NonNegativeReals, doc=translate("Capacidade de recepção diária extra artificial alocada (ton)", lang))
-
-        # Binary Variables for Limits
-        model.RouteActive = pyo.Var(model.ValidRoutes, domain=pyo.NonNegativeIntegers, doc=translate("Número de viagens na rota", lang))
-        # model.WarehouseActive declared further down in the MILP Constraints section
-
-        # =========================================================================
-        # 3.4 OBJECTIVE FUNCTION
-        # =========================================================================
-        # Mathematical expression to be minimized (Minimize Costs).
-
-        def objective_rule(model):
-            normal_costs = sum(
-                (model.Flow[o, d, p] * model.Distance[o, d] * model.Freight[o]) +
-                (model.Flow[o, d, p] * model.Storage[d, p])
-                for (o, d, p) in model.ValidRoutes
-            )
-            dummy_capacity_costs = sum(model.DummyCapacity[d] * model.BigMCapacity for d in model.Destinations)
-            dummy_reception_costs = sum(model.DummyReception[d] * (model.BigMCapacity * 0.1) for d in model.Destinations)
-            dummy_unallocated_costs = sum(model.DummyUnallocated[o, p] * model.BigMUnallocated for o in model.Origins for p in model.Products)
-            return normal_costs + dummy_capacity_costs + dummy_reception_costs + dummy_unallocated_costs
-
-        model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize, doc=translate("Minimização dos Custos Totais", lang))
-
-        # =========================================================================
-        # 3.5 CONSTRAINTS
-        # =========================================================================
-        # Rules that decision variables must strictly obey.
-
-        # Constraint 1: Flow Conservation (Supply Limit)
-        def supply_rule(model, o, p):
-            if model.Supply[o, p] <= 0:
-                return pyo.Constraint.Skip
-            valid_dests = [d for d in model.Destinations if (o, d, p) in model.ValidRoutes]
-            if not valid_dests:
-                return model.DummyUnallocated[o, p] == model.Supply[o, p]
-            flow_sum = sum(model.Flow[o, d, p] for d in valid_dests)
-            return flow_sum + model.DummyUnallocated[o, p] == model.Supply[o, p]
-        model.SupplyConstraint = pyo.Constraint(model.Origins, model.Products, rule=supply_rule, doc=translate("Restrição de Limite de Oferta", lang))
-
-        # Constraint 2: Static Effective Capacity Limit
-        def capacity_rule(model, d):
-            valid_ops = [(o, p) for o in model.Origins for p in model.Products if (o, d, p) in model.ValidRoutes]
-            if not valid_ops:
-                return pyo.Constraint.Skip
-            flow_sum = sum(model.Flow[o, d, p] for (o, p) in valid_ops)
-            effective_cap = max(0.0, pyo.value(model.TotalCapacity[d]) - pyo.value(model.InitialInventory[d]))
-            if effective_cap > 0:
-                return flow_sum <= (model.TotalCapacity[d] - model.InitialInventory[d]) + model.DummyCapacity[d]
-            else:
-                return flow_sum <= model.DummyCapacity[d]
-        model.CapacityConstraint = pyo.Constraint(model.Destinations, rule=capacity_rule, doc=translate("Restrição de Limite de Capacidade Efetiva", lang))
-
-# =========================================================================
-        # 3.6 MILP CONSTRAINTS (ADDITIONAL LOGISTICS LIMITS)
-        # =========================================================================
-        print("\n" + translate("--- CONFIGURAÇÕES DE LIMITES LOGÍSTICOS (MILP) ---", lang))
-        print(translate("Dias de alocação considerados: {val}", lang).format(val=pyo.value(model.Days, exception=False)))
-        if pyo.value(model.FreightMin, exception=False) is not None:
-            print(translate("Carga mínima de frete por rota ativada: {val} ton", lang).format(val=pyo.value(model.FreightMin, exception=False)))
-        if pyo.value(model.FreightMax, exception=False) is not None:
-            print(translate("Carga máxima de frete por rota ativada: {val} ton", lang).format(val=pyo.value(model.FreightMax, exception=False)))
-
-        if list(model.Destinations):
-            if pyo.value(model.ReceptionMin[list(model.Destinations)[0]], exception=False) is not None:
-                print(translate("Carga mínima diária de recepção ativada: {val1} ton/dia (Total: {val2} ton)", lang).format(val1=pyo.value(model.ReceptionMin[list(model.Destinations)[0]], exception=False), val2=pyo.value(model.ReceptionMin[list(model.Destinations)[0]], exception=False) * pyo.value(model.Days, exception=False)))
-            if toggle_use_reception:
-                print(translate("Capacidade máxima de recepção do banco de dados ativada.", lang))
-            elif pyo.value(model.ReceptionMax[list(model.Destinations)[0]], exception=False) is not None: # Note: this assumes same for all if not toggle
-                print(translate("Carga máxima diária de recepção ativada: {val} ton/dia", lang).format(val=pyo.value(model.ReceptionMax[list(model.Destinations)[0]], exception=False)))
-
-        def route_active_max_rule(model, o, d, p):
-            return model.Flow[o, d, p] <= model.RouteActive[o, d, p] * model.UpperFlow[o, d, p]
-            
-        model.RouteActiveMaxRule = pyo.Constraint(model.ValidRoutes, rule=route_active_max_rule, doc=translate("Limite máximo de frete ou local", lang))
-
-        # Minimum Freight limit (optional)
-        if pyo.value(model.FreightMin, exception=False) is not None:
-            def route_active_min_rule(model, o, d, p):
-                return model.Flow[o, d, p] >= model.RouteActive[o, d, p] * pyo.value(model.FreightMin, exception=False)
-            model.RouteActiveMinRule = pyo.Constraint(model.ValidRoutes, rule=route_active_min_rule, doc=translate("Limite mínimo de frete na rota caso ela seja usada", lang))
-
-        # Binary variable for warehouse activation:
-        # If a warehouse is used (receives any flow), WarehouseActive = 1
-        model.WarehouseActive = pyo.Var(model.Destinations, domain=pyo.Binary, doc=translate("1 se o armazém receber qualquer rota, 0 caso contrário", lang))
-
-        # Link warehouse flow with its activation variable (WarehouseActive)
-        def link_warehouse_active_rule(model, d):
-            valid_ops = [(o, p) for o in model.Origins for p in model.Products if (o, d, p) in model.ValidRoutes]
-            if not valid_ops:
-                return model.WarehouseActive[d] == 0
-
-            flow_sum = sum(model.Flow[o, d, p] for (o, p) in valid_ops)
-            
-            # Using clean parameter
-            return flow_sum <= model.WarehouseActive[d] * model.BigMWarehouse[d]
-            
-        model.LinkWarehouseActive = pyo.Constraint(model.Destinations, rule=link_warehouse_active_rule, doc=translate("Vincula o armazém a rotas ativas", lang))
-
-        # Minimum cargo reception limit in warehouse (optional)
-        def min_reception_rule(model, d):
-            reception_min_val = pyo.value(model.ReceptionMin[d], exception=False)
-            if reception_min_val is None:
-                return pyo.Constraint.Skip
-
-            valid_ops = [(o, p) for o in model.Origins for p in model.Products if (o, d, p) in model.ValidRoutes]
-            if not valid_ops:
-                return pyo.Constraint.Skip
-            flow_sum = sum(model.Flow[o, d, p] for (o, p) in valid_ops)
-            return flow_sum >= model.WarehouseActive[d] * (reception_min_val * pyo.value(model.Days, exception=False))
-        model.MinReceptionRule = pyo.Constraint(model.Destinations, rule=min_reception_rule, doc=translate("Recepção Mínima do Armazém se for ativado", lang))
-
-        # Maximum cargo reception limit in warehouse (optional or by Database Reception Cap.)
-        # Note: toggle_use_reception and carga_max are mutually exclusive in UI logic,
-        # but here we explicitly state priority: database capacity overrides if activated.
-        def max_reception_rule(model, d):
-            valid_ops = [(o, p) for o in model.Origins for p in model.Products if (o, d, p) in model.ValidRoutes]
-            if not valid_ops:
-                return pyo.Constraint.Skip
-
-            flow_sum = sum(model.Flow[o, d, p] for (o, p) in valid_ops)
-
-            reception_max_val = pyo.value(model.ReceptionMax[d], exception=False)
-            if reception_max_val is not None:
-                limit = reception_max_val * pyo.value(model.Days, exception=False)
-                # Flow can use dummy reception if limit is exceeded
-                return flow_sum <= limit + model.DummyReception[d]
-            return pyo.Constraint.Skip
-
-        model.MaxReceptionRule = pyo.Constraint(model.Destinations, rule=max_reception_rule, doc=translate("Recepção Máxima no Armazém com tolerância de folga DummyReception", lang))
-
+    if is_optimal:
+        # Populate optimal costs
+        results_dict["objective"] = pyo.value(model.Objective)
         
+        total_freight_cost = sum(
+            pyo.value(model.FlowOD[o, d, p, t]) * (model.DistanceOD[o, d] * model.FreightOrigin[o])
+            for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowDC[d, c, p, t]) * (model.DistanceDC[d, c] * model.FreightDest[d])
+            for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowDD[d1, d2, p, t]) * (model.TransshipmentDiscount * model.DistanceDD[d1, d2] * model.FreightDest[d1])
+            for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+        )
+        
+        total_storage_cost = sum(
+            pyo.value(model.Inventory[d, p, t]) * model.StorageTariff[d, p]
+            for d in model.Destinations for p in model.Products for t in model.TimePeriods
+        )
+        
+        total_opening_cost = sum(
+            pyo.value(model.WarehouseOpen[d]) * model.OpeningCost[d]
+            for d in model.Destinations_cand
+        )
+        
+        total_expand_cost = sum(
+            pyo.value(model.IsExpanded[d]) * model.ExpandFixedCost[d] + pyo.value(model.ExpandedCapacity[d]) * model.ExpandVarCost[d]
+            for d in model.Destinations
+        )
+        
+        total_bulk_cost = sum(
+            pyo.value(model.IsBulkified[d]) * model.BulkFixedCost[d] + pyo.value(model.BulkCapacity[d]) * model.BulkVarCost[d]
+            for d in model.BulkEligible
+        )
+        
+        total_tons = sum(
+            pyo.value(model.FlowOD[o, d, p, t])
+            for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+        )
+        
+        total_km = sum(
+            pyo.value(model.FlowOD[o, d, p, t]) * model.DistanceOD[o, d]
+            for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowDC[d, c, p, t]) * model.DistanceDC[d, c]
+            for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowDD[d1, d2, p, t]) * model.DistanceDD[d1, d2]
+            for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+        )
 
+        results_dict["kpis"] = {
+            "total_tons": total_tons,
+            "total_km": total_km,
+            "total_freight_cost": total_freight_cost,
+            "total_storage_cost": total_storage_cost,
+            "total_opening_cost": total_opening_cost,
+            "total_expand_cost": total_expand_cost,
+            "total_bulk_cost": total_bulk_cost,
+            "execution_time": time.time() - start_time
+        }
 
-        results_dict["model_stats"]["total_variables"] = sum(1 for _ in model.component_data_objects(pyo.Var, active=True))
-        results_dict["model_stats"]["total_constraints"] = sum(1 for _ in model.component_data_objects(pyo.Constraint, active=True))
-        results_dict["model_stats"]["binary_variables"] = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain == pyo.Binary)
-        results_dict["model_stats"]["integer_variables"] = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Integers, pyo.NonNegativeIntegers, pyo.PositiveIntegers))
-        results_dict["model_stats"]["continuous_variables"] = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Reals, pyo.NonNegativeReals, pyo.PositiveReals))
-
-
-        if detailed_log:
-            model.pprint()
-
-        print("\n" + translate("Chamando solver CBC (MILP)...", lang))
-        solver = SolverFactory('cbc')
-        solver.options['sec'] = 1200
-        if solver_gap is not None:
-            solver.options['ratioGap'] = solver_gap
-
-        results = solver.solve(model, tee=True)
-
-        print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ===", lang))
-        print(translate("Status do Solver: {status}", lang).format(status=results.solver.status))
-        print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition))
-
-        lower_bound = results.problem.lower_bound if results.problem.lower_bound is not None else "N/A"
-        upper_bound = results.problem.upper_bound if results.problem.upper_bound is not None else "N/A"
-        gap = "N/A"
-        if isinstance(lower_bound, (int, float)) and isinstance(upper_bound, (int, float)) and upper_bound != 0:
-            if lower_bound > -1e20 and upper_bound < 1e20: # Ensure valid bounds
-                gap = abs(upper_bound - lower_bound) / abs(upper_bound)
-
-        results_dict["kpis"]["lower_bound"] = lower_bound
-        results_dict["kpis"]["upper_bound"] = upper_bound
-        results_dict["kpis"]["gap"] = gap
-
-        termination_condition = results.solver.termination_condition
-        is_max_time_limit = termination_condition == pyo.TerminationCondition.maxTimeLimit
-
-        if results.solver.status == pyo.SolverStatus.ok and (termination_condition == pyo.TerminationCondition.optimal or is_max_time_limit):
-            print(translate("Solução Ótima Encontrada!", lang))
-            objective_value = pyo.value(model.Objective)
-            print(translate("Custo Total (Função Objetivo): R$ {val:,.2f}", lang).format(val=objective_value))
-
-            results_dict["status"] = "optimal"
-            results_dict["objective"] = objective_value
-
-            print("\n" + translate("--- DETALHES DO FLUXO (Alocação) ---", lang))
-            total_transported = 0
-            total_km = 0.0
-            total_freight_cost = 0.0
-            total_storage_cost = 0.0
-
-            for (o, d, p) in model.ValidRoutes:
-                val = pyo.value(model.Flow[o, d, p])
-                if val > 0.001:
-                    d_name = cda_to_name.get(d, d)
-                    dist = pyo.value(model.Distance[o, d])
-                    f_cost = pyo.value(model.Freight[o])
-                    s_cost = pyo.value(model.Storage[d, p])
-
-                    route_freight = val * dist * f_cost
-                    route_storage = val * s_cost
-                    route_total = route_freight + route_storage
-
-                    viagens = pyo.value(model.RouteActive[o, d, p])
-                    viagens_val = int(round(viagens)) if viagens is not None else None
-
-                    print(translate("De: {o} | Para: {d} | Produto: {p} | Qtd: {val:.2f} ton | Viagens: {viagens}", lang).format(o=o, d=d_name, p=p, val=val, viagens=viagens_val))
-
-                    results_dict["routes"].append({
+        # Populate routes for visualization (all levels)
+        routes_list = []
+        
+        # OD flows
+        for (o, d, p) in model.ValidRoutesOD:
+            for t in model.TimePeriods:
+                val = pyo.value(model.FlowOD[o, d, p, t])
+                if val > 1e-4:
+                    dist = pyo.value(model.DistanceOD[o, d])
+                    freight = val * dist * pyo.value(model.FreightOrigin[o])
+                    routes_list.append({
                         "Origem": o,
-                        "Destino": d_name,
+                        "Destino": cda_to_name.get(d, d),
                         "Produto": p,
                         "Quantidade (ton)": val,
+                        "Período": t,
+                        "Tipo de Rota": "Origem -> Armazém",
                         "Distancia (km)": dist,
-                        "Custo Frete (R$)": route_freight,
-                        "Custo Armazenagem (R$)": route_storage,
-                        "Custo Total (R$)": route_total,
-                        "Custo Frete Unitario (R$/ton-km)": f_cost,
-                        "Custo Armaz. Unitario (R$/ton)": s_cost,
-                        "Qtd. de Viagens": viagens_val
+                        "Custo Frete (R$)": freight,
+                        "Custo Armazenagem (R$)": 0.0,
+                        "Custo Total (R$)": freight
                     })
+                    
+        # DC flows
+        for (d, c, p) in model.ValidRoutesDC:
+            for t in model.TimePeriods:
+                val = pyo.value(model.FlowDC[d, c, p, t])
+                if val > 1e-4:
+                    dist = pyo.value(model.DistanceDC[d, c])
+                    freight = val * dist * pyo.value(model.FreightDest[d])
+                    routes_list.append({
+                        "Origem": cda_to_name.get(d, d),
+                        "Destino": c,
+                        "Produto": p,
+                        "Quantidade (ton)": val,
+                        "Período": t,
+                        "Tipo de Rota": "Armazém -> Cliente",
+                        "Distancia (km)": dist,
+                        "Custo Frete (R$)": freight,
+                        "Custo Armazenagem (R$)": 0.0,
+                        "Custo Total (R$)": freight
+                    })
+                    
+        # DD flows
+        for (d1, d2, p) in model.ValidRoutesDD:
+            for t in model.TimePeriods:
+                val = pyo.value(model.FlowDD[d1, d2, p, t])
+                if val > 1e-4:
+                    dist = pyo.value(model.DistanceDD[d1, d2])
+                    freight = val * pyo.value(model.TransshipmentDiscount) * dist * pyo.value(model.FreightDest[d1])
+                    routes_list.append({
+                        "Origem": cda_to_name.get(d1, d1),
+                        "Destino": cda_to_name.get(d2, d2),
+                        "Produto": p,
+                        "Quantidade (ton)": val,
+                        "Período": t,
+                        "Tipo de Rota": "Transbordo",
+                        "Distancia (km)": dist,
+                        "Custo Frete (R$)": freight,
+                        "Custo Armazenagem (R$)": 0.0,
+                        "Custo Total (R$)": freight
+                    })
+                    
+        results_dict["routes"] = routes_list
 
-                    total_transported += val
-                    total_km += dist
-                    total_freight_cost += route_freight
-                    total_storage_cost += route_storage
-
-            print("\n" + translate("Total de produtos alocados: {val:.2f} toneladas", lang).format(val=total_transported))
-
-            results_dict["kpis"]["total_tons"] = total_transported
-            results_dict["kpis"]["total_km"] = total_km
-            results_dict["kpis"]["total_freight_cost"] = total_freight_cost
-            results_dict["kpis"]["total_storage_cost"] = total_storage_cost
-
-            # Check usage of Dummy variables
-            dummy_cap_used = False
-            print("\n" + translate("--- AVISOS: CAPACIDADE ARTIFICIAL (DUMMIES) ---", lang))
-            for d in model.Destinations:
-                d_val = pyo.value(model.DummyCapacity[d])
-                if d_val > 0.001:
-                    dummy_cap_used = True
-                    d_name = cda_to_name.get(d, d)
-                    msg = translate("O Armazém \'{d_name}\' precisou de capacidade de armazenamento artificial de {d_val:.2f} toneladas.", lang).format(d_name=d_name, d_val=d_val)
-                    print(translate("ALERTA: {msg}", lang).format(msg=msg))
-                    results_dict["warnings"]["capacity"].append(msg)
-
-            if not dummy_cap_used:
-                print(translate("Nenhuma capacidade estática artificial foi necessária.", lang))
-
-            if "reception" not in results_dict["warnings"]:
-                results_dict["warnings"]["reception"] = []
-
-            dummy_reception_used = False
-            print("\n" + translate("--- AVISOS: RECEPÇÃO DIÁRIA ARTIFICIAL (DUMMIES) ---", lang))
-            for d in model.Destinations:
-                d_val = pyo.value(model.DummyReception[d])
-                if d_val > 0.001:
-                    dummy_reception_used = True
-                    d_name = cda_to_name.get(d, d)
-                    msg = translate("O Armazém \'{d_name}\' precisou de capacidade de recepção diária artificial de {d_val:.2f} toneladas.", lang).format(d_name=d_name, d_val=d_val)
-                    print(translate("ALERTA: {msg}", lang).format(msg=msg))
-                    results_dict["warnings"]["reception"].append(msg)
-
-            if not dummy_reception_used:
-                print(translate("Nenhuma capacidade de recepção artificial foi necessária.", lang))
-
-            if "freight" not in results_dict["warnings"]:
-                results_dict["warnings"]["freight"] = []
-
-            dummy_unalloc_used = False
-            print("\n" + translate("--- AVISOS: OFERTA SEM ROTAS / NÃO ALOCADA (DUMMIES) ---", lang))
-            for o in model.Origins:
-                for p in model.Products:
-                    u_val = pyo.value(model.DummyUnallocated[o, p])
-                    if u_val > 0.001:
-                        dummy_unalloc_used = True
-
-                        # Infer if non-allocation could be due to tight freight
-                        if frete_min is not None or frete_max is not None:
-                            msg = translate("A origem \'{o}\' possui oferta de \'{p}\' não alocada ({u_val:.2f} toneladas). Isso provavelmente ocorreu devido às restrições de carga de frete mínima/máxima impostas.", lang).format(o=o, p=p, u_val=u_val)
-                            print(translate("ALERTA: {msg}", lang).format(msg=msg))
-                            results_dict["warnings"]["freight"].append(msg)
-                        else:
-                            msg = translate("A origem \'{o}\' possui oferta de \'{p}\' não alocada: {u_val:.2f} toneladas.", lang).format(o=o, p=p, u_val=u_val)
-                            print(translate("ALERTA: {msg}", lang).format(msg=msg))
-                            results_dict["warnings"]["unallocated"].append(msg)
-
-            if not dummy_unalloc_used:
-                print(translate("Toda a oferta conseguiu ser escoada em rotas válidas.", lang))
-
-            if dummy_cap_used or dummy_reception_used or dummy_unalloc_used:
-                print("\n" + translate("Nota: Foram utilizadas variáveis dummies com custo elevado para impedir que o modelo falhasse por inviabilidade.", lang))
-
-        else:
-            if is_max_time_limit:
-                print(translate("Limite de tempo atingido sem solução factível (NFS).", lang))
-                results_dict["status"] = "timeout_nfs"
-                results_dict["kpis"]["gap"] = "NFS"
-                results_dict["warnings"]["general"].append(translate("O modelo não encontrou solução factível antes do tempo limite.", lang))
+        # Warehouse upgrade sizing decisions & computed Turnover post-solve
+        wh_decisions_list = []
+        for d in all_warehouses_list:
+            is_cand = d in candidate_warehouses_list
+            is_open = True if not is_cand else (pyo.value(model.WarehouseOpen[d]) > 0.5)
+            cand_static = 0.0 if not is_cand else pyo.value(model.CandStaticCapacity[d])
+            
+            is_exp = pyo.value(model.IsExpanded[d]) > 0.5
+            exp_cap = pyo.value(model.ExpandedCapacity[d])
+            
+            is_bulk = pyo.value(model.IsBulkified[d]) > 0.5 if d in bulk_eligible_list else False
+            bulk_cap = pyo.value(model.BulkCapacity[d]) if d in bulk_eligible_list else 0.0
+            
+            # Post-solve DynCap turnover metrics (academic / post-optimization evaluation)
+            total_outflow = sum(
+                pyo.value(model.FlowDC[d_, c, p, t])
+                for (d_, c, p) in model.ValidRoutesDC if d_ == d
+                for t in model.TimePeriods
+            ) + sum(
+                pyo.value(model.FlowDD[d_, d2, p, t])
+                for (d_, d2, p) in model.ValidRoutesDD if d_ == d
+                for t in model.TimePeriods
+            )
+            
+            final_stock = sum(
+                pyo.value(model.Inventory[d, p, periods[-1]])
+                for p in all_products
+            )
+            
+            dyn_cap = total_outflow + final_stock
+            
+            if not is_cand:
+                effective_static = static_capacity.get(d, 0.0) + exp_cap
             else:
-                print(translate("Não foi possível encontrar uma solução ótima.", lang))
-                results_dict["status"] = "infeasible"
-                results_dict["warnings"]["general"].append(translate("O modelo não encontrou solução ótima.", lang))
+                effective_static = cand_static + exp_cap
+                
+            turnover = dyn_cap / effective_static if effective_static > 0.0 else 0.0
+            
+            wh_decisions_list.append({
+                "CDA": d,
+                "Name": cda_to_name.get(d, d),
+                "IsCandidate": is_cand,
+                "IsOpen": is_open,
+                "DecidedStaticCapacity": cand_static if is_cand else static_capacity.get(d, 0.0),
+                "IsExpanded": is_exp,
+                "ExpandedVolume": exp_cap,
+                "IsBulkified": is_bulk,
+                "BulkCapacityAdded": bulk_cap,
+                "TotalOutflow": total_outflow,
+                "FinalStock": final_stock,
+                "DynamicCapacity": dyn_cap,
+                "EffectiveStaticCapacity": effective_static,
+                "TurnoverRatio": turnover
+            })
+            
+        results_dict["warehouse_decisions"] = wh_decisions_list
 
-    except Exception as e:
-        print("\n" + translate("ERRO DURANTE A OTIMIZAÇÃO: {err}", lang).format(err=str(e)))
-        results_dict["status"] = "error"
-        results_dict["warnings"]["general"].append(translate("Erro: {err}", lang).format(err=str(e)))
-        import traceback
-        print(traceback.format_exc())
-
-    finally:
-        try:
-            import re
-            sys.stdout.flush()
-            if 'log_path' in locals() and os.path.exists(log_path):
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    match_nodes = re.search(r'Enumerated nodes:\s+(\d+)', content)
-                    match_iters = re.search(r'Total iterations:\s+(\d+)', content)
-                    if match_nodes:
-                        results_dict["model_stats"]["nodes"] = int(match_nodes.group(1))
-                    if match_iters:
-                        results_dict["model_stats"]["iterations"] = int(match_iters.group(1))
-        except Exception as e:
-            print(f"Error parsing log: {e}")
-
-        end_time = time.time()
-        total_time_seconds = end_time - start_time
-        print("\n" + translate("Tempo de execução: {val:.2f} segundos.", lang).format(val=total_time_seconds))
-        results_dict["kpis"]["execution_time"] = total_time_seconds
-
-        new_stdout.close()
-        sys.stdout = old_stdout
+        # Inventory per warehouse per period
+        inventory_records = []
+        for d in all_warehouses_list:
+            for p in all_products:
+                for t in periods:
+                    val = pyo.value(model.Inventory[d, p, t])
+                    inventory_records.append({
+                        "CDA": d,
+                        "Name": cda_to_name.get(d, d),
+                        "Produto": p,
+                        "Período": t,
+                        "Quantidade (ton)": val
+                    })
+        results_dict["inventory"] = inventory_records
 
     return log_filename, results_dict

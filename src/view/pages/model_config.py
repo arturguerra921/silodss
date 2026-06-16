@@ -11,7 +11,7 @@ def get_tab_model_config_layout(lang='pt'):
                 html.Div([
                     html.Span(translate("Execução do Modelo Matemático", lang), className="me-2"),
                     html.I(className="bi bi-question-circle-fill text-muted", id="help-model-config", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                    dbc.Tooltip(translate("Otimiza a alocação de produtos para os armazéns disponíveis baseando-se na distância e capacidade.", lang),
+                    dbc.Tooltip(translate("Otimiza a alocação de produtos para os armazéns disponíveis baseando-se na distância, capacidades, expansão e granelização.", lang),
                         target="help-model-config",
                         placement="right"
                     ),
@@ -20,8 +20,9 @@ def get_tab_model_config_layout(lang='pt'):
             ),
             dbc.CardBody(
                 [
-                    html.P(translate("Certifique-se de que preencheu os dados em todas as abas anteriores antes de executar.", lang), className="text-muted small mb-3"),
+                    html.P(translate("Certifique-se de que preencheu os dados em todas as abas anteriores (Oferta, Armazéns, Relação Produto x Armazém, Demanda, Matriz de Distâncias) antes de executar.", lang), className="text-muted small mb-4"),
 
+                    # Principal toggles
                     html.Div([
                         dbc.Switch(
                             id="toggle-pareto-routes",
@@ -33,130 +34,148 @@ def get_tab_model_config_layout(lang='pt'):
                             className="mb-0 mx-2 text-muted cursor-pointer small"
                         ),
                         html.I(className="bi bi-question-circle-fill text-muted", id="help-pareto", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                        dbc.Tooltip(translate("Aplica o Princípio de Pareto (Regra 80/20) filtrando apenas as 20% melhores rotas (mais curtas) de cada origem. Isso acelera significativamente o tempo de resolução do modelo matemático. Atenção: se a oferta e a demanda estiverem muito justas, essa restrição pode impedir o modelo de encontrar uma solução ótima, pois rotas alternativas fora das 20% melhores foram descartadas.", lang),
+                        dbc.Tooltip(translate("Aplica o Princípio de Pareto (Regra 80/20) filtrando apenas as 20% melhores rotas (mais curtas) de cada origem. Isso acelera significativamente o tempo de resolução do modelo matemático.", lang),
                             target="help-pareto",
                             placement="top"
                         )
                     ], className="mb-4 d-flex align-items-center justify-content-center"),
 
-                    html.Div([
-                        dbc.Switch(
-                            id="toggle-min-max-capacity",
-                            value=False,
-                            className="custom-switch mb-0 small"
-                        ),
-                        html.Label(translate("Adicionar limites de recepção e rota", lang),
-                            htmlFor="toggle-min-max-capacity",
-                            className="mb-0 mx-2 text-muted cursor-pointer small"
-                        ),
-                        html.I(className="bi bi-question-circle-fill text-muted", id="help-min-max", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                        dbc.Tooltip(translate("Ative para configurar limites de recepção e limites de rota. Utilizar estes limites pode ajudar a criar soluções mais realistas, mas também pode aumentar consideravelmente o tempo de resolução do modelo.", lang),
-                            target="help-min-max",
-                            placement="top"
-                        )
-                    ], className="mb-4 d-flex align-items-center justify-content-center"),
+                    html.Hr(className="my-4"),
 
-                    # Container for extra options (initially hidden)
-                    html.Div(
-                        id="container-min-max-options",
-                        style={"display": "none"},
-                        children=[
-                            html.Hr(className="mt-2 mb-3"),
+                    # Group 1: General Parameters
+                    html.H6(translate("Parâmetros Gerais", lang), className="fw-bold small text-primary-custom mb-3"),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Dias operacionais por período", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-days", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Quantidade de dias que multiplica as recepções (mínima e máxima) do armazém, simulando mais de um dia de operação por período.", lang), target="help-days")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-allocation-days", type="number", min=1, placeholder=translate("Ex: 22", lang), className="mb-4")
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Desconto de transbordo (α)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-transshipment-discount", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Fator de desconto aplicado aos custos de frete no transporte entre armazéns (transbordo).", lang), target="help-transshipment-discount")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-transshipment-discount", type="number", min=0, max=1, step=0.01, placeholder=translate("Ex: 0.85", lang), className="mb-4")
+                        ], width=6)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Gap do solver (%)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-solver-gap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Tolerância de gap de otimalidade para o solver de programação inteira mista.", lang), target="help-solver-gap")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-solver-gap", type="number", min=0, max=100, step=0.1, placeholder=translate("Ex: 1.0", lang), className="mb-4")
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Tempo limite do solver (s)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-solver-time-limit", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Tempo máximo de execução permitido para o solver (em segundos).", lang), target="help-solver-time-limit")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-solver-time-limit", type="number", min=1, placeholder=translate("Ex: 1200", lang), className="mb-4")
+                        ], width=6)
+                    ]),
 
-                            html.P([
-                                html.I(className="bi bi-info-circle me-1"),
-                                translate("Campos deixados em branco (sem valor numérico) não serão considerados no limite. Você não precisa preencher todos.", lang)
-                            ], className="text-muted small mb-3 fst-italic", style={"fontSize": "0.8rem"}),
+                    html.Hr(className="my-4"),
 
-                            html.H6(translate("Limites de Recepção do Armazém", lang), className="fw-bold small text-primary-custom mb-3"),
+                    # Group 2: Physical Expansion Parameters
+                    html.H6(translate("Parâmetros de Expansão Física", lang), className="fw-bold small text-primary-custom mb-3"),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Fator β^rec (recepção)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-ratio-expand-rec", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Fator percentual que converte a capacidade estática expandida em capacidade de recepção diária.", lang), target="help-ratio-expand-rec")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-ratio-expand-rec", type="number", min=0, max=1, step=0.01, placeholder=translate("Ex: 0.10", lang), className="mb-4")
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Fator β^ship (expedição)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-ratio-expand-ship", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Fator percentual que converte a capacidade estática expandida em capacidade de expedição diária.", lang), target="help-ratio-expand-ship")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-ratio-expand-ship", type="number", min=0, max=1, step=0.01, placeholder=translate("Ex: 0.10", lang), className="mb-4")
+                        ], width=6)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Expansão máxima (t)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-max-expand-capacity", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Limite máximo de capacidade estática expandida permitida por armazém.", lang), target="help-max-expand-capacity")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-max-expand-capacity", type="number", min=0, placeholder=translate("Ex: 5000", lang), className="mb-4")
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Custo fixo de expansão ($)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-expand-fixed-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Custo de capital fixo para iniciar o projeto de expansão física do armazém.", lang), target="help-expand-fixed-cost")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-expand-fixed-cost", type="number", min=0, placeholder=translate("Ex: 50000", lang), className="mb-4")
+                        ], width=6)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Custo variável de expansão ($/t)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-expand-var-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Custo de investimento por tonelada de capacidade estática expandida.", lang), target="help-expand-var-cost")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-expand-var-cost", type="number", min=0, placeholder=translate("Ex: 100", lang), className="mb-4")
+                        ], width=6)
+                    ]),
 
-                            # Linha 1: Recepção Mínima
-                            dbc.Row([
-                                dbc.Col([
-                                    html.Div([
-                                        dbc.Label(translate("Recepção mínima diária (ton)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-min-load", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                        dbc.Tooltip(translate("A soma de todas as rotas chegando em um armazém deve ser pelo menos este valor diariamente. Essa regra só se aplica se o armazém for utilizado.", lang), target="help-min-load")
-                                    ], className="d-flex align-items-center mb-1"),
-                                    dbc.Input(id="input-min-load", type="number", min=0, placeholder=translate("Ex: 10", lang), className="mb-4")
-                                ], width=6)
-                            ]),
+                    html.Hr(className="my-4"),
 
-                            # Linha 2: Recepção Máxima e Switch
-                            dbc.Row([
-                                dbc.Col([
-                                    html.Div([
-                                        dbc.Label(translate("Recepção máxima diária (ton)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-max-load", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                        dbc.Tooltip(translate("A soma de todas as rotas chegando em um armazém não pode ultrapassar este valor diariamente.", lang), target="help-max-load")
-                                    ], className="d-flex align-items-center mb-1"),
-                                    dbc.Input(id="input-max-load", type="number", min=0, placeholder=translate("Ex: 100", lang), className="mb-4")
-                                ], width=6),
-                                dbc.Col([
-                                    # Para o alinhamento perfeito
-                                    html.Div([
-                                        dbc.Label(translate("Spacer", lang), className="fw-bold small me-2 mb-0", style={"visibility": "hidden"}),
-                                        html.I(className="bi bi-question-circle-fill", style={"visibility": "hidden", "fontSize": "var(--font-size-small)"})
-                                    ], className="d-flex align-items-center mb-1"),
-                                    html.Div([
-                                        dbc.Switch(
-                                            id="toggle-use-reception",
-                                            value=False,
-                                            className="custom-switch mb-0 small"
-                                        ),
-                                        html.Label(translate("Utilizar Cap. de Recepção", lang),
-                                            htmlFor="toggle-use-reception",
-                                            className="mb-0 mx-2 text-muted cursor-pointer small",
-                                            style={"whiteSpace": "nowrap"}
-                                        ),
-                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-use-reception", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                        dbc.Tooltip(translate("Se ativado, utiliza a capacidade de recepção (t) dos armazéns cadastrados no banco de dados como recepção máxima diária.", lang),
-                                            target="help-use-reception",
-                                            placement="top"
-                                        )
-                                    ], className="d-flex align-items-center mb-4", style={"height": "38px"})
-                                ], width=6),
-                            ]),
+                    # Group 3: Bulkification Parameters
+                    html.H6(translate("Parâmetros de Granelização", lang), className="fw-bold small text-primary-custom mb-3"),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Granelização máxima (t/dia)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-max-bulk-capacity", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Limite máximo de capacidade de recebimento/expedição adicionada por meio de granelização.", lang), target="help-max-bulk-capacity")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-max-bulk-capacity", type="number", min=0, placeholder=translate("Ex: 500", lang), className="mb-4")
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Custo fixo de granelização ($)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-fixed-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Custo de capital fixo para iniciar o projeto de granelização no armazém.", lang), target="help-bulk-fixed-cost")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-bulk-fixed-cost", type="number", min=0, placeholder=translate("Ex: 30000", lang), className="mb-4")
+                        ], width=6)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Custo var. de granelização ($/(t/dia))", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-var-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Custo de investimento por unidade de capacidade de movimentação diária adicionada.", lang), target="help-bulk-var-cost")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="input-bulk-var-cost", type="number", min=0, placeholder=translate("Ex: 200", lang), className="mb-4")
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Tipos elegíveis para granelização", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-eligible-types", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Selecione quais tipos de armazém podem sofrer o processo de granelização.", lang), target="help-bulk-eligible-types")
+                            ], className="d-flex align-items-center mb-1"),
+                            dcc.Dropdown(id="input-bulk-eligible-types", multi=True, placeholder=translate("Selecione os tipos...", lang), className="mb-4")
+                        ], width=6)
+                    ]),
 
-                            # Linha 3: Dias para alocação
-                            dbc.Row([
-                                dbc.Col([
-                                    html.Div([
-                                        dbc.Label(translate("Dias para alocação", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-days", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                        dbc.Tooltip(translate("Quantidade de dias que multiplica as recepções (mínima e máxima) do armazém, simulando mais de um dia de operação.", lang), target="help-days")
-                                    ], className="d-flex align-items-center mb-1"),
-                                    dbc.Input(id="input-allocation-days", type="number", min=1, placeholder=translate("Ex: 5", lang), className="mb-4")
-                                ], width=6)
-                            ]),
+                    html.Hr(className="my-4"),
 
-                            html.Hr(className="mt-2 mb-4"),
-
-                            html.H6(translate("Limites de Rota Individual (Frete)", lang), className="fw-bold small text-primary-custom mb-3"),
-
-                            # Linha 3: Carga mínima e máxima de frete
-                            dbc.Row([
-                                dbc.Col([
-                                    html.Div([
-                                        dbc.Label(translate("Carga mínima de frete (ton)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-min-freight", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                        dbc.Tooltip(translate("Valor mínimo que uma rota individual deve transportar. Nenhuma rota terá carga menor que esta. Essa regra se aplica apenas caso a rota seja utilizada. Rotas não escolhidas continuam com carga zero.", lang), target="help-min-freight")
-                                    ], className="d-flex align-items-center mb-1"),
-                                    dbc.Input(id="input-min-freight", type="number", min=0, placeholder=translate("Ex: 15", lang), className="mb-4")
-                                ], width=6),
-                                dbc.Col([
-                                    html.Div([
-                                        dbc.Label(translate("Carga máxima de frete (ton)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-max-freight", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                        dbc.Tooltip(translate("Valor máximo que uma rota individual pode transportar. Nenhuma rota terá carga maior que esta.", lang), target="help-max-freight")
-                                    ], className="d-flex align-items-center mb-1"),
-                                    dbc.Input(id="input-max-freight", type="number", min=0, placeholder=translate("Ex: 50", lang), className="mb-4")
-                                ], width=6)
-                            ]),
-
-                            html.Hr(className="mt-0 mb-4")
-                        ]
-                    ),
+                    # Detailed log toggle and execution buttons
                     html.Div([
                         dbc.Switch(
                             id="toggle-detailed-log",
@@ -168,7 +187,7 @@ def get_tab_model_config_layout(lang='pt'):
                             className="mb-0 mx-2 text-muted cursor-pointer small"
                         ),
                         html.I(className="bi bi-question-circle-fill text-muted", id="help-detailed-log", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                        dbc.Tooltip(translate("Ativar esta opção incluirá a construção detalhada do modelo matemático (em Python) no log. No entanto, isso pode aumentar significativamente o tempo de resolução. Use esta opção apenas para depuração ou se você quiser entender como o modelo é construído.", lang),
+                        dbc.Tooltip(translate("Ativar esta opção incluirá a construção detalhada do modelo matemático (em Python) no log. No entanto, isso pode aumentar significativamente o tempo de resolução.", lang),
                             target="help-detailed-log",
                             placement="top"
                         )
@@ -212,7 +231,7 @@ def get_tab_model_config_layout(lang='pt'):
             [
                 dbc.Col([
                     config_card
-                ], width=12, md=8, lg=6, className="mb-24 mx-auto"),
+                ], width=12, md=10, lg=8, className="mb-24 mx-auto"),
             ],
             className="justify-content-center"
         ),
