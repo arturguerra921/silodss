@@ -4218,33 +4218,176 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
 
 # --- Results Callbacks ---
 
+def make_warehouse_row(w, lang):
+    def fmt_num(v):
+        if v is None:
+            v = 0.0
+        return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    is_cand = w.get("IsCandidate", False)
+    type_str = translate("Candidato", lang) if is_cand else translate("Existente", lang)
+    
+    is_open = w.get("IsOpen", False)
+    status_str = translate("Aberto", lang) if is_open else translate("Fechado", lang)
+    
+    is_exp = w.get("IsExpanded", False)
+    exp_str = translate("Sim", lang) if is_exp else translate("Não", lang)
+    
+    is_bulk = w.get("IsBulkified", False)
+    bulk_str = translate("Sim", lang) if is_bulk else translate("Não", lang)
+    
+    dec_static = w.get("DecidedStaticCapacity", 0.0)
+    static_cap_str = fmt_num(dec_static)
+    
+    eff_static = w.get("EffectiveStaticCapacity", 0.0)
+    eff_static_str = fmt_num(eff_static)
+    
+    exp_vol = w.get("ExpandedVolume", 0.0)
+    exp_vol_str = fmt_num(exp_vol) if is_exp else "0,00"
+    
+    bulk_cap = w.get("BulkCapacityAdded", 0.0)
+    bulk_cap_str = fmt_num(bulk_cap) if is_bulk else "0,00"
+    
+    outflow = w.get("TotalOutflow", 0.0)
+    outflow_str = fmt_num(outflow)
+    
+    final_stock = w.get("FinalStock", 0.0)
+    final_stock_str = fmt_num(final_stock)
+    
+    dyn_cap = w.get("DynamicCapacity", 0.0)
+    dyn_cap_str = fmt_num(dyn_cap)
+    
+    turnover = w.get("TurnoverRatio", 0.0)
+    if turnover is None:
+        turnover = 0.0
+    turnover_str = f"{turnover:,.4f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    
+    return {
+        "Name": w.get("Name", ""),
+        "Type": type_str,
+        "Status": status_str,
+        "StaticCap": static_cap_str,
+        "IsExpanded": exp_str,
+        "ExpandedVol": exp_vol_str,
+        "IsBulkified": bulk_str,
+        "BulkCap": bulk_cap_str,
+        "EffStaticCap": eff_static_str,
+        "TotalOutflow": outflow_str,
+        "FinalStock": final_stock_str,
+        "DynCap": dyn_cap_str,
+        "TurnoverRatio": turnover_str,
+    }
+
 @app.callback(
     [Output("res-kpi-objective", "children"),
      Output("res-kpi-tons", "children"),
      Output("res-kpi-km", "children"),
      Output("res-kpi-freight", "children"),
      Output("res-kpi-storage", "children"),
+     Output("res-kpi-opening", "children"),
+     Output("res-kpi-expand", "children"),
+     Output("res-kpi-bulk", "children"),
+     Output("res-wh-opened-count", "children"),
+     Output("res-wh-expanded-count", "children"),
+     Output("res-wh-bulkified-count", "children"),
+     Output("res-wh-investment", "children"),
+     Output("table-results-warehouses", "data"),
+     Output("table-results-warehouses", "columns"),
      Output("table-results-routes", "data"),
      Output("table-results-routes", "columns"),
      Output("results-warnings-container", "children")],
-    Input("store-model-results", "data"),
-    State("store-lang", "data"),
+    [Input("store-model-results", "data"),
+     Input("switch-show-all-warehouses", "value")],
+    [State("store-lang", "data")],
     prevent_initial_call=True
 )
-def update_results_kpis_and_table(results_data, lang='pt'):
+def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
+    ctx = dash.callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+    # BR format helpers
+    def fmt_curr(val):
+        if val is None:
+            val = 0.0
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def fmt_num(val):
+        if val is None:
+            val = 0.0
+        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    show_all_warehouses_bool = bool(show_all_warehouses)
+
+    if trigger_id == "switch-show-all-warehouses":
+        if not results_data or results_data.get("status") != "optimal":
+            wh_table_data = []
+        else:
+            wh_decisions = results_data.get("warehouse_decisions", [])
+            if not show_all_warehouses_bool:
+                wh_decisions = [
+                    w for w in wh_decisions
+                    if w.get("TotalOutflow", 0) > 1e-4 or w.get("FinalStock", 0) > 1e-4 or (w.get("IsCandidate") and w.get("IsOpen"))
+                ]
+            wh_table_data = [make_warehouse_row(w, lang) for w in wh_decisions]
+            
+        return (dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update,
+                dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update,
+                dash.no_update, dash.no_update, wh_table_data, dash.no_update, dash.no_update,
+                dash.no_update, dash.no_update)
+
     if not results_data or results_data.get("status") != "optimal":
-        return "R$ 0,00", "0.00", "0.00", "R$ 0,00", "R$ 0,00", [], dash.no_update, dash.no_update
+        return ("R$ 0,00", "0,00", "0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00",
+                "0", "0", "0", "R$ 0,00", [], dash.no_update, [], dash.no_update, [])
 
     kpis = results_data.get("kpis", {})
     routes = results_data.get("routes", [])
     warnings = results_data.get("warnings", {})
     objective = results_data.get("objective", 0.0)
 
-    obj_str = f"R$ {objective:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    tons = f"{kpis.get('total_tons', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    kms = f"{kpis.get('total_km', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    freight = f"R$ {kpis.get('total_freight_cost', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    storage = f"R$ {kpis.get('total_storage_cost', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    obj_str = fmt_curr(objective)
+    tons = fmt_num(kpis.get('total_tons', 0))
+    kms = fmt_num(kpis.get('total_km', 0))
+    freight = fmt_curr(kpis.get('total_freight_cost', 0))
+    storage = fmt_curr(kpis.get('total_storage_cost', 0))
+    opening = fmt_curr(kpis.get('total_opening_cost', 0))
+    expand = fmt_curr(kpis.get('total_expand_cost', 0))
+    bulk = fmt_curr(kpis.get('total_bulk_cost', 0))
+
+    # Warehouse decisions metrics
+    wh_decisions = results_data.get("warehouse_decisions", [])
+    opened_count = str(sum(1 for w in wh_decisions if w.get("IsCandidate") and w.get("IsOpen")))
+    expanded_count = str(sum(1 for w in wh_decisions if w.get("IsExpanded")))
+    bulkified_count = str(sum(1 for w in wh_decisions if w.get("IsBulkified")))
+    
+    total_inv = (kpis.get('total_opening_cost', 0.0) or 0.0) + (kpis.get('total_expand_cost', 0.0) or 0.0) + (kpis.get('total_bulk_cost', 0.0) or 0.0)
+    investment_str = fmt_curr(total_inv)
+
+    # Warehouse table data
+    if not show_all_warehouses_bool:
+        filtered_decisions = [
+            w for w in wh_decisions
+            if w.get("TotalOutflow", 0) > 1e-4 or w.get("FinalStock", 0) > 1e-4 or (w.get("IsCandidate") and w.get("IsOpen"))
+        ]
+    else:
+        filtered_decisions = wh_decisions
+        
+    wh_table_data = [make_warehouse_row(w, lang) for w in filtered_decisions]
+
+    wh_columns = [
+        {'name': translate('Nome', lang), 'id': 'Name'},
+        {'name': translate('Tipo', lang), 'id': 'Type'},
+        {'name': translate('Status', lang), 'id': 'Status'},
+        {'name': translate('Cap. Estática (ton)', lang), 'id': 'StaticCap'},
+        {'name': translate('Expandido?', lang), 'id': 'IsExpanded'},
+        {'name': translate('Expansão (ton)', lang), 'id': 'ExpandedVol'},
+        {'name': translate('Granelizado?', lang), 'id': 'IsBulkified'},
+        {'name': translate('Granelização (ton/dia)', lang), 'id': 'BulkCap'},
+        {'name': translate('Cap. Efetiva (ton)', lang), 'id': 'EffStaticCap'},
+        {'name': translate('Saída Total (ton)', lang), 'id': 'TotalOutflow'},
+        {'name': translate('Estoque Final (ton)', lang), 'id': 'FinalStock'},
+        {'name': translate('Cap. Dinâmica Anual (ton/ano)', lang), 'id': 'DynCap'},
+        {'name': translate('Giro Anual', lang), 'id': 'TurnoverRatio'}
+    ]
 
     has_viagens = False
     table_data = []
@@ -4388,7 +4531,12 @@ def update_results_kpis_and_table(results_data, lang='pt'):
                 html.Ul(warnings_list, className="mb-0")
             ], className="alert-info-custom shadow-sm mb-3"))
 
-    return obj_str, tons, kms, freight, storage, table_data, columns, warnings_html
+    return (
+        obj_str, tons, kms, freight, storage,
+        opening, expand, bulk, opened_count, expanded_count,
+        bulkified_count, investment_str, wh_table_data, wh_columns,
+        table_data, columns, warnings_html
+    )
 
 @app.callback(
     Output("main-tabs", "active_tab", allow_duplicate=True),

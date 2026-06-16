@@ -933,14 +933,19 @@ def run_deterministic_model(
                 for p in all_products
             )
             
-            dyn_cap = total_outflow + final_stock
+            dyn_cap_raw = total_outflow + final_stock
+            
+            # Annualize DynCap and Turnover
+            num_periods = len(periods)
+            annualization_factor = 12.0 / num_periods if num_periods > 0 else 1.0
+            dyn_cap_annual = dyn_cap_raw * annualization_factor
             
             if not is_cand:
                 effective_static = static_capacity.get(d, 0.0) + exp_cap
             else:
                 effective_static = cand_static + exp_cap
                 
-            turnover = dyn_cap / effective_static if effective_static > 0.0 else 0.0
+            turnover_annual = dyn_cap_annual / effective_static if effective_static > 0.0 else 0.0
             
             wh_decisions_list.append({
                 "CDA": d,
@@ -954,9 +959,10 @@ def run_deterministic_model(
                 "BulkCapacityAdded": bulk_cap,
                 "TotalOutflow": total_outflow,
                 "FinalStock": final_stock,
-                "DynamicCapacity": dyn_cap,
+                "DynamicCapacity": dyn_cap_annual,
+                "DynamicCapacityRaw": dyn_cap_raw,
                 "EffectiveStaticCapacity": effective_static,
-                "TurnoverRatio": turnover
+                "TurnoverRatio": turnover_annual
             })
             
         results_dict["warehouse_decisions"] = wh_decisions_list
