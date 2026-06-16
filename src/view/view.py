@@ -5872,6 +5872,84 @@ def execute_prediction(n_clicks, model_name, test_size, horizon,
                 combo_key = f"{s_type}_{prod}_{city}"
                 df_combo = df_historical[(df_historical["Produto"] == prod) & (df_historical["Cidade"] == city)]
 
+                # Check for infinite demand
+                is_infinite_demand = (s_type == 'demand') and (df_combo["Peso (ton)"].isna().all())
+
+                if is_infinite_demand:
+                    test_len = test_size if test_size > 0 else 0
+                    test_preds = [None] * test_len
+                    future_preds = [None] * horizon
+                    summary = translate("Demanda Infinita (Porto) - Assumida infinita para sempre.", lang)
+                    
+                    mae, rmse, mape, wmape = 0.0, 0.0, 0.0, 0.0
+                    residuals = [0.0] * test_len
+                    
+                    res_list = []
+                    sorted_dates = sorted(df_combo["Data"].dt.strftime('%Y-%m').tolist())
+                    if test_len > 0:
+                        train_dates = sorted_dates[:-test_len]
+                        test_dates = sorted_dates[-test_len:]
+                    else:
+                        train_dates = sorted_dates
+                        test_dates = []
+                        
+                    for d in test_dates:
+                        res_list.append({
+                            "date": d,
+                            "actual": None,
+                            "predicted": None,
+                            "residual": 0.0
+                        })
+                    updated_residuals[combo_key] = res_list
+
+                    history_dates = train_dates
+                    history_values = [None] * len(history_dates)
+                    test_values = [None] * len(test_dates)
+
+                    last_date_str = sorted_dates[-1]
+                    last_date = pd.to_datetime(last_date_str)
+                    future_dates = [str((last_date + pd.DateOffset(months=i)).strftime('%Y-%m')) for i in range(1, horizon + 1)]
+
+                    results_dict[combo_key] = {
+                        "status": "success",
+                        "is_infinite_demand": True,
+                        "series_type": s_type,
+                        "product": prod,
+                        "city": city,
+                        "model": model_name,
+                        "test_size": test_size,
+                        "horizon": horizon,
+                        "history_dates": history_dates,
+                        "history_values": history_values,
+                        "test_dates": test_dates,
+                        "test_values": test_values,
+                        "test_preds": test_preds,
+                        "future_dates": future_dates,
+                        "future_preds": future_preds,
+                        "mae": mae,
+                        "rmse": rmse,
+                        "mape": mape,
+                        "wmape": wmape,
+                        "params": summary,
+                        "residuals": residuals,
+                        "residuals_dates": test_dates
+                    }
+
+                    lat = df_combo.iloc[0]["Latitude"] if "Latitude" in df_combo.columns and not pd.isna(df_combo.iloc[0]["Latitude"]) else 0.0
+                    lon = df_combo.iloc[0]["Longitude"] if "Longitude" in df_combo.columns and not pd.isna(df_combo.iloc[0]["Longitude"]) else 0.0
+                    for d in future_dates:
+                        forecasted_rows.append({
+                            "Produto": prod,
+                            "Cidade": city,
+                            "Latitude": lat,
+                            "Longitude": lon,
+                            "Data": d,
+                            "Peso (ton)": None
+                        })
+
+                    success_count += 1
+                    continue
+
                 # Prepare series
                 series = prepare_time_series(df_combo, prod, city)
                 if series.empty or len(series) < 6 or len(series) <= test_size:
@@ -6066,6 +6144,80 @@ def render_prediction_results(prediction_results, series_type, product, city, la
       )
       return "-", "-", "-", "-", {"color": UNB_THEME['UNB_GRAY_DARK']}, empty_fig, empty_fig, empty_fig, "", True
 
+    is_infinite = combo_res.get("is_infinite_demand", False)
+    if is_infinite:
+      fig = go.Figure()
+      plot_height = 100.0
+      
+      history_dates = combo_res.get("history_dates", [])
+      future_dates = combo_res.get("future_dates", [])
+      
+      fig.add_trace(go.Scatter(
+        x=history_dates, y=[plot_height] * len(history_dates),
+        name=translate("Histórico (Treino)", lang),
+        mode='lines+markers',
+        line=dict(color=UNB_THEME['UNB_BLUE'], width=3),
+        marker=dict(size=10, color=UNB_THEME['UNB_YELLOW_DARK'], symbol='star'),
+        hovertemplate="∞<extra></extra>"
+      ))
+      
+      fig.add_trace(go.Scatter(
+        x=future_dates, y=[plot_height] * len(future_dates),
+        name=translate("Previsão Futura", lang),
+        mode='lines+markers',
+        line=dict(color=UNB_THEME['UNB_GREEN'], width=3),
+        marker=dict(size=10, color=UNB_THEME['UNB_YELLOW_DARK'], symbol='star'),
+        hovertemplate="∞<extra></extra>"
+      ))
+      
+      fig.add_hline(
+        y=plot_height,
+        line_dash="dash",
+        line_color=UNB_THEME['UNB_YELLOW_DARK'],
+        annotation_text=translate("Demanda Infinita (∞)", lang),
+        annotation_position="bottom right"
+      )
+      
+      fig.update_layout(
+        title=translate("Série Histórica e Previsão Futura", lang),
+        xaxis_title=translate("Data", lang),
+        yaxis_title=translate("Peso (ton)", lang),
+        hovermode="x unified",
+        template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=40, r=40, t=80, b=40)
+      )
+      
+      fig_res_time = go.Figure()
+      fig_res_time.update_layout(
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        annotations=[{
+          "text": translate("Resíduos não aplicáveis para demanda infinita", lang),
+          "xref": "paper",
+          "yref": "paper",
+          "showarrow": False,
+          "font": {"size": 14}
+        }]
+      )
+      
+      fig_res_hist = go.Figure()
+      fig_res_hist.update_layout(
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        annotations=[{
+          "text": translate("Resíduos não aplicáveis para demanda infinita", lang),
+          "xref": "paper",
+          "yref": "paper",
+          "showarrow": False,
+          "font": {"size": 14}
+        }]
+      )
+      
+      params = combo_res.get("params", "")
+      quality_badge = html.Span(translate("Demanda Infinita", lang), style={"color": UNB_THEME['UNB_YELLOW_DARK']})
+      return "-", "-", "-", quality_badge, {"color": UNB_THEME['UNB_YELLOW_DARK']}, fig, fig_res_time, fig_res_hist, params, False
+
     wmape = combo_res.get("wmape", combo_res.get("mape", 0.0))
     rmse = combo_res.get("rmse", 0.0)
     mae = combo_res.get("mae", 0.0)
@@ -6247,10 +6399,17 @@ def download_prediction_report(n_clicks, prediction_results, lang='pt'):
           "Previsão": pred
         })
 
-      mae = combo_res.get("mae", 0.0)
-      rmse = combo_res.get("rmse", 0.0)
-      mape = combo_res.get("mape", 0.0)
-      wmape = combo_res.get("wmape", mape)
+      if combo_res.get("is_infinite_demand"):
+        mae = "N/A"
+        rmse = "N/A"
+        mape = "N/A"
+        wmape = "N/A"
+      else:
+        mae = combo_res.get("mae", 0.0)
+        rmse = combo_res.get("rmse", 0.0)
+        mape = combo_res.get("mape", 0.0)
+        wmape = combo_res.get("wmape", mape)
+        
       metrics_rows.append({
         "Série": s_label,
         "Produto": prod,

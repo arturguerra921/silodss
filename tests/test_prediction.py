@@ -116,5 +116,51 @@ class TestPrediction(unittest.TestCase):
     self.assertEqual(val_p, "Soja")    # defaults to first product for 'supply'
     self.assertEqual(val_c, "Brasília") # defaults to first city for Soja in 'supply'
 
+  def test_execute_prediction_infinite_demand(self):
+    from src.view.view import execute_prediction, render_prediction_results
+    import json
+    
+    # Create mock inputs for infinite demand (all NaN/None weights)
+    dates = pd.date_range(start="2020-01-01", periods=12, freq="MS").strftime("%Y-%m")
+    df_inf = pd.DataFrame({
+      "Produto": ["Soja"] * 12,
+      "Cidade": ["Brasília"] * 12,
+      "Latitude": [-15.7801] * 12,
+      "Longitude": [-47.9292] * 12,
+      "Data": dates,
+      "Peso (ton)": [None] * 12
+    })
+    stored_demand = df_inf.to_json(date_format='iso', orient='split')
+    
+    # Run execute_prediction
+    res_json, residuals, _, _, _, msg, style = execute_prediction(
+      n_clicks=1,
+      model_name='sarima',
+      test_size=3,
+      horizon=3,
+      stored_supply=None,
+      stored_demand=stored_demand,
+      current_residuals=None,
+      historical_max_dates=None,
+      lang='pt'
+    )
+    
+    self.assertIsNotNone(res_json)
+    results = json.loads(res_json)
+    key = "demand_Soja_Brasília"
+    self.assertIn(key, results)
+    self.assertTrue(results[key]["is_infinite_demand"])
+    self.assertEqual(results[key]["future_preds"], [None, None, None])
+    self.assertEqual(results[key]["future_dates"], ["2021-01", "2021-02", "2021-03"])
+    
+    # Test rendering results
+    mape, rmse, mae, quality_badge, badge_style, fig, fig_res_time, fig_res_hist, params, disable_btn = render_prediction_results(
+      res_json, "demand", "Soja", "Brasília", lang="pt"
+    )
+    self.assertEqual(mape, "-")
+    self.assertEqual(rmse, "-")
+    self.assertEqual(mae, "-")
+    self.assertIn("Demanda Infinita", quality_badge.children)
+
 if __name__ == '__main__':
   unittest.main()
