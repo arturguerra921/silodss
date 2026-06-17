@@ -501,6 +501,170 @@ def get_tab_results_layout(lang='pt'):
         is_open=False,
     )
 
+    # Seção Estocástica: Comparação de Cenários
+    stochastic_results_card = html.Div(
+        id="stochastic-results-container",
+        style={"display": "none"},  # Hidden by default, shown dynamically if stochastic results exist
+        children=[
+            html.Hr(className="my-5"),
+            dbc.Card(
+                [
+                    dbc.CardHeader(
+                        html.Div([
+                            html.Span(translate("Comparação de Cenários", lang), className="me-2 fw-bold"),
+                            html.I(className="bi bi-question-circle-fill text-muted", id="help-scenario-comp", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                            dbc.Tooltip(translate("Visualiza e compara os KPIs de custo e fluxos logísticos sob diferentes cenários de incerteza (Pessimista, Esperado, Otimista).", lang),
+                                target="help-scenario-comp",
+                                placement="right"
+                            ),
+                        ], className="d-flex align-items-center w-100"),
+                        className="card-header-custom"
+                    ),
+                    dbc.CardBody(
+                        [
+                            # Avisos de viabilidade dos cenários
+                            html.Div(id="stochastic-warnings-container", className="mb-4"),
+
+                            # KPIs e EVPI/VSS
+                            dbc.Row([
+                                dbc.Col([
+                                    html.H6(translate("Métricas Comparativas por Cenário", lang), className="fw-bold small text-primary-custom mb-3"),
+                                    dbc.Spinner(
+                                        dash_table.DataTable(
+                                            id="table-scenario-kpis",
+                                            columns=[
+                                                {"name": translate("Cenário", lang), "id": "Cenário"},
+                                                {"name": translate("Custo Total (R$)", lang), "id": "Custo Total"},
+                                                {"name": translate("Total Movimentado (t)", lang), "id": "Total Movimentado"},
+                                                {"name": translate("Custo Frete (R$)", lang), "id": "Custo Frete"},
+                                                {"name": translate("Custo Armazenagem (R$)", lang), "id": "Custo Armazenagem"}
+                                            ],
+                                            data=[],
+                                            style_cell={
+                                                'textAlign': 'center',
+                                                'fontFamily': "'Roboto', sans-serif",
+                                                'padding': '8px',
+                                                'fontSize': 'var(--font-size-small)',
+                                                'color': UNB_THEME['SECONDARY']
+                                            },
+                                            style_header={
+                                                'backgroundColor': '#F8F9FA',
+                                                'color': UNB_THEME['PRIMARY'],
+                                                'fontWeight': 'bold',
+                                                'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
+                                            },
+                                            style_data_conditional=[
+                                                {
+                                                    'if': {'row_index': 'odd'},
+                                                    'backgroundColor': '#f8f9fa'
+                                                }
+                                            ]
+                                        ),
+                                        spinner_class_name="text-primary-custom"
+                                    )
+                                ], width=12, lg=8, className="mb-4"),
+
+                                dbc.Col([
+                                    dbc.Card([
+                                        dbc.CardHeader(translate("Análise de Valor Estocástico", lang), className="fw-bold small py-2 bg-light text-primary-custom"),
+                                        dbc.CardBody([
+                                            dbc.Button(translate("Calcular EVPI/VSS", lang), id="btn-compute-evpi-vss", className="btn-primary-custom w-100 mb-3 btn-sm"),
+                                            dbc.Spinner(
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        html.Div([
+                                                            html.H6(translate("EVPI", lang), className="text-muted small text-uppercase mb-1 fw-bold", style={"fontSize": "10px"}),
+                                                            html.H5(id="res-evpi-value", children="R$ -", className="text-info-custom fw-bold mb-0", style={"fontSize": "16px"})
+                                                        ], className="text-center p-2 bg-light rounded border mb-2")
+                                                    ], width=6),
+                                                    dbc.Col([
+                                                        html.Div([
+                                                            html.H6(translate("VSS", lang), className="text-muted small text-uppercase mb-1 fw-bold", style={"fontSize": "10px"}),
+                                                            html.H5(id="res-vss-value", children="R$ -", className="text-success-custom fw-bold mb-0", style={"fontSize": "16px"})
+                                                        ], className="text-center p-2 bg-light rounded border mb-2")
+                                                    ], width=6)
+                                                ]),
+                                                spinner_class_name="text-primary-custom"
+                                            )
+                                        ])
+                                    ], className="border-secondary h-100 shadow-sm")
+                                ], width=12, lg=4, className="mb-4")
+                            ]),
+
+                            # Gráfico de custos e Dropdown de Estoque
+                            dbc.Row([
+                                dbc.Col([
+                                    html.H6(translate("Custos Operacionais por Cenário", lang), className="fw-bold small text-primary-custom mb-3"),
+                                    dbc.Spinner(
+                                        dcc.Graph(id="graph-scenario-costs", style={"height": "350px"}),
+                                        spinner_class_name="text-primary-custom"
+                                    )
+                                ], width=12, lg=6, className="mb-4"),
+
+                                dbc.Col([
+                                    html.Div([
+                                        html.H6(translate("Estoque em Armazéns por Período", lang), className="fw-bold small text-primary-custom mb-0"),
+                                        dcc.Dropdown(
+                                            id="select-scenario-inventory",
+                                            options=[
+                                                {"label": translate("Pessimista", lang), "value": "pessimista"},
+                                                {"label": translate("Esperado", lang), "value": "esperado"},
+                                                {"label": translate("Otimista", lang), "value": "otimista"}
+                                            ],
+                                            value="esperado",
+                                            clearable=False,
+                                            style={"width": "180px", "fontSize": "var(--font-size-small)"}
+                                        )
+                                    ], className="d-flex align-items-center justify-content-between mb-3"),
+                                    dbc.Spinner(
+                                        dcc.Graph(id="graph-scenario-inventory", style={"height": "350px"}),
+                                        spinner_class_name="text-primary-custom"
+                                    )
+                                ], width=12, lg=6, className="mb-4")
+                            ]),
+
+                            # Tabelas de Rotas por Cenário
+                            html.H6(translate("Fluxos Logísticos Realizados por Cenário", lang), className="fw-bold small text-primary-custom mt-3 mb-3"),
+                            dbc.Tabs(
+                                [
+                                    dbc.Tab(label=translate("Pessimista", lang), tab_id="tab-scenario-routes-pessimista", children=[
+                                        html.Div(id="table-scenario-routes-pessimista-container", className="mt-3")
+                                    ]),
+                                    dbc.Tab(label=translate("Esperado", lang), tab_id="tab-scenario-routes-esperado", children=[
+                                        html.Div(id="table-scenario-routes-esperado-container", className="mt-3")
+                                    ]),
+                                    dbc.Tab(label=translate("Otimista", lang), tab_id="tab-scenario-routes-otimista", children=[
+                                        html.Div(id="table-scenario-routes-otimista-container", className="mt-3")
+                                    ])
+                                ],
+                                id="tabs-scenario-routes",
+                                active_tab="tab-scenario-routes-esperado"
+                            ),
+
+                            # Seletor de cenário para o Mapa Principal
+                            html.Div([
+                                html.Span(translate("Visualizar rotas no mapa correspondentes ao Cenário:", lang), className="fw-bold small me-3"),
+                                dbc.RadioItems(
+                                    id="radio-scenario-map-select",
+                                    options=[
+                                        {"label": translate("Pessimista", lang), "value": "pessimista"},
+                                        {"label": translate("Esperado", lang), "value": "esperado"},
+                                        {"label": translate("Otimista", lang), "value": "otimista"}
+                                    ],
+                                    value="esperado",
+                                    inline=True,
+                                    className="custom-radio-items"
+                                )
+                            ], className="mt-4 d-flex align-items-center bg-light p-3 rounded border justify-content-center")
+                        ],
+                        className="card-body-custom"
+                    )
+                ],
+                className="card-custom mb-3"
+            )
+        ]
+    )
+
     # Layout Principal
     return html.Div([
         dbc.Row(dbc.Col(kpi_card, width=12)),
@@ -511,5 +675,6 @@ def get_tab_results_layout(lang='pt'):
             dbc.Col(table_card, width=12, className="mb-24")
         ]),
         dbc.Row(dbc.Col(map_card, width=12, className="mb-24")),
+        stochastic_results_card,
         confirm_all_routes_modal
     ])

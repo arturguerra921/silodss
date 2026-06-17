@@ -23,7 +23,7 @@ from src.logic.prediction import (
     forecast_lstm
 )
 from src.logic.osrm import OSRMClient
-from src.logic.optimization import run_deterministic_model
+from src.logic.optimization import run_deterministic_model, run_stochastic_model, compute_evpi_vss
 from src.logic.i18n import translate
 from src.logic.utils import validate_and_parse_supply_data
 import dash
@@ -4101,6 +4101,14 @@ def toggle_bulk_collapse(is_enabled):
         State('input-bulk-fixed-cost', 'value'),
         State('input-bulk-var-cost', 'value'),
         State('input-bulk-eligible-types', 'value'),
+        State('radio-model-type', 'value'),
+        State('input-prob-pessimista', 'value'),
+        State('input-prob-esperado', 'value'),
+        State('input-prob-otimista', 'value'),
+        State('radio-error-source', 'value'),
+        State('input-supply-error-pct', 'value'),
+        State('input-demand-error-pct', 'value'),
+        State('store-prediction-results', 'data'),
         State('store-lang', 'data')
     ],
     background=True,
@@ -4115,7 +4123,9 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                   toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
                   expansion_enabled, bulk_enabled,
                   ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
-                  max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types, lang='pt'):
+                  max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
+                  model_type, prob_pessimista, prob_esperado, prob_otimista, error_source,
+                  supply_error_pct, demand_error_pct, prediction_results_json, lang='pt'):
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -4195,34 +4205,92 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
             print(f"Warning: Could not load Storage CSV: {e}")
             df_storage = pd.DataFrame()
 
-        # Run model
-        log_filename, results_dict = run_deterministic_model(
-            df_supply=df_supply,
-            df_warehouses=df_warehouses,
-            df_compat=df_compat,
-            df_dist_supply_wh=df_dist_supply_wh,
-            df_dist_wh_demand=df_dist_wh_demand,
-            df_dist_wh_wh=df_dist_wh_wh,
-            df_demand=df_demand,
-            df_freight=df_freight,
-            df_storage=df_storage,
-            detailed_log=detailed_log,
-            toggle_pareto=toggle_pareto,
-            input_allocation_days=input_allocation_days,
-            transshipment_discount=transshipment_discount,
-            solver_gap=solver_gap,
-            solver_time_limit=solver_time_limit,
-            ratio_expand_rec=ratio_expand_rec,
-            ratio_expand_ship=ratio_expand_ship,
-            max_expand_capacity=max_expand_capacity if expansion_enabled else None,
-            expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
-            expand_var_cost=expand_var_cost if expansion_enabled else None,
-            max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
-            bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
-            bulk_var_cost=bulk_var_cost if bulk_enabled else None,
-            bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-            lang=lang
-        )
+        # Run appropriate model
+        if model_type == "stochastic":
+            # Validate predictions
+            try:
+                if not prediction_results_json:
+                    raise ValueError()
+                preds = json.loads(prediction_results_json)
+                if not preds:
+                    raise ValueError()
+            except Exception:
+                return translate("Erro: O modelo estocástico requer que as previsões na aba 'Previsão' tenham sido executadas primeiro.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+
+            # Validate scenario probabilities
+            p_pess = 0.33 if prob_pessimista is None else float(prob_pessimista)
+            p_esp = 0.34 if prob_esperado is None else float(prob_esperado)
+            p_otim = 0.33 if prob_otimista is None else float(prob_otimista)
+            tot_prob = p_pess + p_esp + p_otim
+            if abs(tot_prob - 1.0) > 1e-4:
+                return translate("Erro: A soma das probabilidades dos cenários deve ser igual a 1.0 (atual: {val:.2f})", lang).format(val=tot_prob), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+
+            scenario_probabilities = {
+                "pessimista": p_pess,
+                "esperado": p_esp,
+                "otimista": p_otim
+            }
+
+            log_filename, results_dict = run_stochastic_model(
+                df_supply=df_supply,
+                df_warehouses=df_warehouses,
+                df_compat=df_compat,
+                df_dist_supply_wh=df_dist_supply_wh,
+                df_dist_wh_demand=df_dist_wh_demand,
+                df_dist_wh_wh=df_dist_wh_wh,
+                df_demand=df_demand,
+                df_freight=df_freight,
+                df_storage=df_storage,
+                scenario_probabilities=scenario_probabilities,
+                error_source=error_source or "prediction",
+                supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
+                demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
+                prediction_results=preds,
+                detailed_log=detailed_log,
+                toggle_pareto=toggle_pareto,
+                input_allocation_days=input_allocation_days,
+                transshipment_discount=transshipment_discount,
+                solver_gap=solver_gap,
+                solver_time_limit=solver_time_limit,
+                ratio_expand_rec=ratio_expand_rec,
+                ratio_expand_ship=ratio_expand_ship,
+                max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+                expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+                expand_var_cost=expand_var_cost if expansion_enabled else None,
+                max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+                bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+                bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+                bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+                lang=lang
+            )
+        else:
+            log_filename, results_dict = run_deterministic_model(
+                df_supply=df_supply,
+                df_warehouses=df_warehouses,
+                df_compat=df_compat,
+                df_dist_supply_wh=df_dist_supply_wh,
+                df_dist_wh_demand=df_dist_wh_demand,
+                df_dist_wh_wh=df_dist_wh_wh,
+                df_demand=df_demand,
+                df_freight=df_freight,
+                df_storage=df_storage,
+                detailed_log=detailed_log,
+                toggle_pareto=toggle_pareto,
+                input_allocation_days=input_allocation_days,
+                transshipment_discount=transshipment_discount,
+                solver_gap=solver_gap,
+                solver_time_limit=solver_time_limit,
+                ratio_expand_rec=ratio_expand_rec,
+                ratio_expand_ship=ratio_expand_ship,
+                max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+                expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+                expand_var_cost=expand_var_cost if expansion_enabled else None,
+                max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+                bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+                bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+                bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+                lang=lang
+            )
 
         # Get execution time
         exec_time = results_dict.get('kpis', {}).get('execution_time', 0.0)
@@ -4727,7 +4795,8 @@ def manage_all_routes_modal(n_show, n_cancel, n_confirm, results_data, is_open):
      Output("route-details-container", "children")],
     [Input("table-results-routes", "active_cell"),
      Input("btn-show-all-routes", "n_clicks"),
-     Input("btn-confirm-all-routes", "n_clicks")],
+     Input("btn-confirm-all-routes", "n_clicks"),
+     Input("radio-scenario-map-select", "value")],
     [State("table-results-routes", "derived_viewport_data"),
      State("store-model-results", "data"),
      State("stored-data", "data"),
@@ -4736,16 +4805,22 @@ def manage_all_routes_modal(n_show, n_cancel, n_confirm, results_data, is_open):
      State("store-lang", "data")],
     prevent_initial_call=True
 )
-def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data, results_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
+def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_map_select, table_data, results_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     ctx = dash.callback_context
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
     if trigger_id == "table-results-routes" and not active_cell:
         return dash.no_update, dash.no_update
 
+    # Resolve active routes list based on selected scenario if stochastic
+    selected_scenario = scenario_map_select or "esperado"
+    if results_data and results_data.get("model_type") == "stochastic":
+        routes = results_data.get("scenario_routes", {}).get(selected_scenario, [])
+    else:
+        routes = results_data.get("routes", []) if results_data else []
+
     # Handle the "Show All" logic depending on route length
     if trigger_id == "btn-show-all-routes":
-        routes = results_data.get("routes", []) if results_data else []
         if len(routes) > 150:
             # We must wait for the modal confirmation to actually render
             return dash.no_update, dash.no_update
@@ -4883,9 +4958,9 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
         dest_name = row_info['Destino']
         prod_name = row_info['Produto']
 
-        # Find exact route in results
+        # Find exact route in current active routes
         route_detail = None
-        for r in results_data.get("routes", []):
+        for r in routes:
             if r["Origem"] == orig_name and r["Destino"] == dest_name and r["Produto"] == prod_name:
                 route_detail = r
                 break
@@ -4999,9 +5074,8 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
 
         return fig, details_html
 
-    # Show all routes
-    if trigger_id == "btn-confirm-all-routes" or trigger_id == "btn-show-all-routes" or (trigger_id is None and results_data.get("routes")):
-        routes = results_data.get("routes", [])
+    # Show all routes or trigger scenario change redrawing
+    if trigger_id == "btn-confirm-all-routes" or trigger_id == "btn-show-all-routes" or trigger_id == "radio-scenario-map-select" or (trigger_id is None and routes):
         if not routes:
             return default_fig, html.P(translate("Nenhuma rota encontrada.", lang), className="text-muted small")
 
@@ -5062,7 +5136,8 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
      Output("warehouse-details-container", "children")],
     [Input("table-results-warehouses", "active_cell"),
      Input("wh-route-type-filter", "value"),
-     Input("store-model-results", "data")],
+     Input("store-model-results", "data"),
+     Input("radio-scenario-map-select", "value")],
     [State("table-results-warehouses", "derived_viewport_data"),
      State("stored-data", "data"),
      State("store-warehouses", "data"),
@@ -5070,7 +5145,7 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
      State("store-lang", "data")],
     prevent_initial_call=False
 )
-def update_warehouse_results_map(active_cell, filter_value, results_data, table_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
+def update_warehouse_results_map(active_cell, filter_value, results_data, scenario_map_select, table_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     # Default map centered on Brazil
     default_fig = go.Figure(go.Scattermapbox())
     default_fig.update_layout(
@@ -5085,6 +5160,15 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, table_
 
     if not stored_data or not stored_warehouses:
         return default_fig, html.P(translate("Faltam dados base para renderizar o mapa.", lang), className="text-muted small")
+
+    # Resolve active routes list and warehouse decisions based on selected scenario if stochastic
+    selected_scenario = scenario_map_select or "esperado"
+    if results_data and results_data.get("model_type") == "stochastic":
+        wh_decisions = results_data.get("scenario_warehouse_metrics", {}).get(selected_scenario, [])
+        routes = results_data.get("scenario_routes", {}).get(selected_scenario, [])
+    else:
+        wh_decisions = results_data.get("warehouse_decisions", []) if results_data else []
+        routes = results_data.get("routes", []) if results_data else []
 
     # Load dataframes
     df_input = pd.read_json(io.StringIO(stored_data), orient='split')
@@ -5195,9 +5279,6 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, table_
 
     osrm_url = os.environ.get("OSRM_URL", "http://localhost:5000")
     client = OSRMClient(base_url=osrm_url)
-
-    wh_decisions = results_data.get("warehouse_decisions", [])
-    routes = results_data.get("routes", [])
 
     # Initial state: no warehouse selected
     if not active_cell or not table_data:
@@ -7209,6 +7290,405 @@ def download_prediction_report(n_clicks, prediction_results, lang='pt'):
     return no_update
 
 
+
+
+# --- Stochastic Model Config Callbacks ---
+
+@app.callback(
+    Output("collapse-stochastic-fields", "is_open"),
+    Input("radio-model-type", "value")
+)
+def toggle_stochastic_collapse(model_type):
+    return model_type == "stochastic"
+
+
+@app.callback(
+    Output("collapse-manual-error", "is_open"),
+    Input("radio-error-source", "value")
+)
+def toggle_manual_error_collapse(error_source):
+    return error_source == "manual"
+
+
+@app.callback(
+    Output("prob-validation-text", "children"),
+    [Input("input-prob-pessimista", "value"),
+     Input("input-prob-esperado", "value"),
+     Input("input-prob-otimista", "value")],
+    [State("store-lang", "data")]
+)
+def validate_scenario_probabilities(p_pess, p_esp, p_otim, lang="pt"):
+    p_pess = 0.33 if p_pess is None else float(p_pess)
+    p_esp = 0.34 if p_esp is None else float(p_esp)
+    p_otim = 0.33 if p_otim is None else float(p_otim)
+    
+    total = p_pess + p_esp + p_otim
+    if abs(total - 1.0) < 1e-4:
+        return html.Span(translate("Probabilidades válidas (soma = 1.0)", lang), className="text-success")
+    else:
+        return html.Span(translate("A soma das probabilidades deve ser exatamente 1.0 (atual: {val:.2f})", lang).format(val=total), className="text-danger")
+
+
+@app.callback(
+    Output("prediction-status-container", "children"),
+    Input("store-prediction-results", "data"),
+    State("store-lang", "data")
+)
+def update_prediction_status_badge(prediction_results, lang="pt"):
+    import json
+    has_preds = False
+    if prediction_results:
+        try:
+            preds = json.loads(prediction_results)
+            if preds:
+                has_preds = True
+        except Exception:
+            pass
+
+    if has_preds:
+        return dbc.Badge(translate("Previsões carregadas.", lang), color="success", className="p-2")
+    else:
+        return dbc.Badge(translate("Aviso: Previsões ausentes na aba 'Previsão'. O modelo estocástico requer previsões.", lang), color="danger", className="p-2")
+
+
+# --- Stochastic Results Callbacks ---
+
+@app.callback(
+    Output("stochastic-results-container", "style"),
+    Input("store-model-results", "data")
+)
+def toggle_stochastic_results_container(results_data):
+    if results_data and results_data.get("model_type") == "stochastic" and results_data.get("status") == "optimal":
+        return {"display": "block"}
+    return {"display": "none"}
+
+
+@app.callback(
+    [Output("table-scenario-kpis", "data"),
+     Output("graph-scenario-costs", "figure"),
+     Output("graph-scenario-inventory", "figure"),
+     Output("table-scenario-routes-pessimista-container", "children"),
+     Output("table-scenario-routes-esperado-container", "children"),
+     Output("table-scenario-routes-otimista-container", "children"),
+     Output("stochastic-warnings-container", "children")],
+    [Input("store-model-results", "data"),
+     Input("select-scenario-inventory", "value")],
+    [State("store-lang", "data")]
+)
+def populate_stochastic_results(results_data, selected_inv_scenario, lang="pt"):
+    if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
+        return [], go.Figure(), go.Figure(), "", "", "", ""
+
+    # BR format helpers
+    def fmt_curr(val):
+        if val is None:
+            val = 0.0
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def fmt_num(val):
+        if val is None:
+            val = 0.0
+        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    # 1. Scenario KPI Table Data
+    scenario_kpis = results_data.get("scenario_kpis", {})
+    kpi_table_data = []
+    for s_name in ["pessimista", "esperado", "otimista"]:
+        sk = scenario_kpis.get(s_name, {})
+        kpi_table_data.append({
+            "Cenário": translate(s_name.capitalize(), lang),
+            "Custo Total": fmt_curr(sk.get("total_cost", 0.0)),
+            "Total Movimentado": fmt_num(sk.get("total_tons", 0.0)),
+            "Custo Frete": fmt_curr(sk.get("total_freight_cost", 0.0)),
+            "Custo Armazenagem": fmt_curr(sk.get("total_storage_cost", 0.0))
+        })
+
+    # 2. Scenario Cost Comparison Chart
+    cost_cats = [
+        translate("Frete", lang),
+        translate("Armazenagem", lang),
+        translate("Abertura", lang),
+        translate("Expansão", lang),
+        translate("Granelização", lang)
+    ]
+    
+    fig_costs = go.Figure()
+    scenarios = ["pessimista", "esperado", "otimista"]
+    colors = {
+        "pessimista": UNB_THEME.get('UNB_YELLOW_DARK', '#997A00'),
+        "esperado": UNB_THEME.get('UNB_BLUE', '#003366'),
+        "otimista": UNB_THEME.get('UNB_GREEN', '#006633')
+    }
+    
+    for s in scenarios:
+        sk = scenario_kpis.get(s, {})
+        opening = sk.get("total_opening_cost", 0.0)
+        expand = sk.get("total_expand_cost", 0.0)
+        bulk = sk.get("total_bulk_cost", 0.0)
+        freight = sk.get("total_freight_cost", 0.0)
+        storage = sk.get("total_storage_cost", 0.0)
+        
+        y_vals = [freight, storage, opening, expand, bulk]
+        fig_costs.add_trace(go.Bar(
+            name=translate(s.capitalize(), lang),
+            x=cost_cats,
+            y=y_vals,
+            marker_color=colors[s]
+        ))
+        
+    fig_costs.update_layout(
+        barmode='group',
+        margin=dict(l=40, r=40, t=20, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        font=dict(family="Roboto, sans-serif", size=11),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    fig_costs.update_yaxes(gridcolor='#E5E7EB', zeroline=False)
+
+    # 3. Inventory Stock Stack Chart
+    inv_data = results_data.get("scenario_inventory", {}).get(selected_inv_scenario or "esperado", [])
+    fig_inv = go.Figure()
+    if inv_data:
+        df_inv = pd.DataFrame(inv_data)
+        if not df_inv.empty:
+            df_inv_grouped = df_inv.groupby(["Período", "Name"])["Quantidade (ton)"].sum().reset_index()
+            for wh in df_inv_grouped["Name"].unique():
+                df_wh = df_inv_grouped[df_inv_grouped["Name"] == wh]
+                fig_inv.add_trace(go.Bar(
+                    name=wh,
+                    x=df_wh["Período"],
+                    y=df_wh["Quantidade (ton)"]
+                ))
+            
+    fig_inv.update_layout(
+        barmode='stack',
+        margin=dict(l=40, r=40, t=20, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        font=dict(family="Roboto, sans-serif", size=11),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    fig_inv.update_yaxes(gridcolor='#E5E7EB', zeroline=False)
+
+    # 4. Route Tables per Scenario
+    route_containers = {}
+    for s in ["pessimista", "esperado", "otimista"]:
+        routes_s = results_data.get("scenario_routes", {}).get(s, [])
+        table_rows = []
+        for r in routes_s:
+            table_rows.append({
+                "Origem": r["Origem"],
+                "Destino": r["Destino"],
+                "Produto": r["Produto"],
+                "Quantidade (ton)": round(r["Quantidade (ton)"], 2),
+                "Período": r.get("Período", ""),
+                "Tipo de Rota": r.get("Tipo de Rota", "")
+            })
+            
+        columns = [
+            {'name': translate('Origem', lang), 'id': 'Origem'},
+            {'name': translate('Destino', lang), 'id': 'Destino'},
+            {'name': translate('Produto', lang), 'id': 'Produto'},
+            {'name': translate('Qtd (ton)', lang), 'id': 'Quantidade (ton)'},
+            {'name': translate('Período', lang), 'id': 'Período'},
+            {'name': translate('Tipo de Rota', lang), 'id': 'Tipo de Rota'}
+        ]
+        
+        route_containers[s] = dash_table.DataTable(
+            columns=columns,
+            data=table_rows,
+            page_size=10,
+            style_cell={
+                'textAlign': 'center',
+                'fontFamily': "'Roboto', sans-serif",
+                'padding': '8px',
+                'fontSize': 'var(--font-size-small)',
+                'color': UNB_THEME['SECONDARY']
+            },
+            style_header={
+                'backgroundColor': '#F8F9FA',
+                'color': UNB_THEME['PRIMARY'],
+                'fontWeight': 'bold',
+                'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
+            },
+            style_data_conditional=[
+                {
+                    'if': {'row_index': 'odd'},
+                    'backgroundColor': '#f8f9fa'
+                }
+            ]
+        )
+
+    # 5. Stochastic Feasibility Warnings
+    warnings = results_data.get("warnings", [])
+    warnings_div = []
+    if warnings:
+        warnings_list = [html.Li(w) for w in warnings]
+        warnings_div = [dbc.Alert([
+            html.H5([html.I(className="bi bi-exclamation-triangle-fill me-2"), translate("Aviso de Capacidade / Demanda por Cenário", lang)], className="alert-heading"),
+            html.P(translate("O modelo estocástico identificou desbalanços de oferta e demanda sob alguns cenários:", lang)),
+            html.Hr(),
+            html.Ul(warnings_list, className="mb-0")
+        ], className="alert-warning-custom shadow-sm mb-3")]
+
+    return (kpi_table_data, fig_costs, fig_inv, 
+            route_containers["pessimista"], route_containers["esperado"], route_containers["otimista"], 
+            warnings_div)
+
+
+# --- EVPI/VSS Background Computation Callback ---
+
+@app.callback(
+    output=(
+        Output("res-evpi-value", "children"),
+        Output("res-vss-value", "children"),
+        Output("btn-compute-evpi-vss", "disabled")
+    ),
+    inputs=[
+        Input("btn-compute-evpi-vss", "n_clicks"),
+        Input("store-model-results", "data"),
+        State('stored-data', 'data'),
+        State('store-warehouses', 'data'),
+        State('store-prod-warehouses', 'data'),
+        State('store-distance-matrix', 'data'),
+        State('stored-demand-data', 'data'),
+        State('toggle-detailed-log', 'value'),
+        State('toggle-pareto-routes', 'value'),
+        State('input-allocation-days', 'value'),
+        State('input-transshipment-discount', 'value'),
+        State('input-solver-gap', 'value'),
+        State('input-solver-time-limit', 'value'),
+        State('toggle-expansion-enabled', 'value'),
+        State('toggle-bulk-enabled', 'value'),
+        State('input-ratio-expand-rec', 'value'),
+        State('input-ratio-expand-ship', 'value'),
+        State('input-max-expand-capacity', 'value'),
+        State('input-expand-fixed-cost', 'value'),
+        State('input-expand-var-cost', 'value'),
+        State('input-max-bulk-capacity', 'value'),
+        State('input-bulk-fixed-cost', 'value'),
+        State('input-bulk-var-cost', 'value'),
+        State('input-bulk-eligible-types', 'value'),
+        State('input-prob-pessimista', 'value'),
+        State('input-prob-esperado', 'value'),
+        State('input-prob-otimista', 'value'),
+        State('radio-error-source', 'value'),
+        State('input-supply-error-pct', 'value'),
+        State('input-demand-error-pct', 'value'),
+        State('store-prediction-results', 'data'),
+        State('store-lang', 'data')
+    ],
+    background=True,
+    running=[
+        (Output("btn-compute-evpi-vss", "disabled"), True, False),
+    ],
+    prevent_initial_call=True
+)
+def run_evpi_vss(n_clicks, results_data, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
+                 toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
+                 expansion_enabled, bulk_enabled,
+                 ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
+                 max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
+                 prob_pessimista, prob_esperado, prob_otimista, error_source,
+                 supply_error_pct, demand_error_pct, prediction_results_json, lang='pt'):
+    ctx = dash.callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+    if trigger_id == "store-model-results" or not n_clicks:
+        return "R$ -", "R$ -", False
+
+    if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
+        return "R$ -", "R$ -", False
+
+    stochastic_objective = results_data.get("objective", 0.0)
+
+    try:
+        # Load distance matrices
+        import json
+        stored_dict = json.loads(stored_matrix)
+        df_dist_supply_wh = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
+        df_dist_wh_demand = pd.read_json(io.StringIO(stored_dict['warehouses_to_demand']), orient='split')
+        df_dist_wh_wh = pd.read_json(io.StringIO(stored_dict['warehouses_to_warehouses']), orient='split')
+
+        # Load input DataFrames
+        df_supply = pd.read_json(io.StringIO(stored_data), orient='split')
+        df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+        df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
+        df_demand = pd.read_json(io.StringIO(stored_demand), orient='split')
+
+        # Load local CSVs for Freight and Storage
+        import os
+        data_dir = os.path.join(os.path.dirname(__file__), 'assets', 'data')
+        try:
+            df_freight = pd.read_csv(os.path.join(data_dir, 'Valor_Tonelada_km.csv'), sep=';', encoding='iso-8859-1')
+        except Exception:
+            df_freight = pd.DataFrame()
+
+        try:
+            df_storage = pd.read_csv(os.path.join(data_dir, 'Tarifa_de_Armazenagem.csv'), sep=';', encoding='iso-8859-1')
+        except Exception:
+            df_storage = pd.DataFrame()
+
+        preds = json.loads(prediction_results_json) if prediction_results_json else {}
+
+        p_pess = 0.33 if prob_pessimista is None else float(prob_pessimista)
+        p_esp = 0.34 if prob_esperado is None else float(prob_esperado)
+        p_otim = 0.33 if prob_otimista is None else float(prob_otimista)
+
+        scenario_probabilities = {
+            "pessimista": p_pess,
+            "esperado": p_esp,
+            "otimista": p_otim
+        }
+
+        evpi_vss_results = compute_evpi_vss(
+            df_supply=df_supply,
+            df_warehouses=df_warehouses,
+            df_compat=df_compat,
+            df_dist_supply_wh=df_dist_supply_wh,
+            df_dist_wh_demand=df_dist_wh_demand,
+            df_dist_wh_wh=df_dist_wh_wh,
+            df_demand=df_demand,
+            df_freight=df_freight,
+            df_storage=df_storage,
+            scenario_probabilities=scenario_probabilities,
+            error_source=error_source or "prediction",
+            supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
+            demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
+            prediction_results=preds,
+            stochastic_objective=stochastic_objective,
+            detailed_log=detailed_log,
+            toggle_pareto=toggle_pareto,
+            input_allocation_days=input_allocation_days,
+            transshipment_discount=transshipment_discount,
+            solver_gap=solver_gap,
+            solver_time_limit=solver_time_limit,
+            ratio_expand_rec=ratio_expand_rec,
+            ratio_expand_ship=ratio_expand_ship,
+            max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+            expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+            expand_var_cost=expand_var_cost if expansion_enabled else None,
+            max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+            bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+            bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+            bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+            lang=lang
+        )
+
+        def fmt_curr(val):
+            if val is None:
+                return "R$ 0,00"
+            return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        evpi_val = evpi_vss_results.get("evpi", 0.0)
+        vss_val = evpi_vss_results.get("vss", 0.0)
+
+        return fmt_curr(evpi_val), fmt_curr(vss_val), False
+
+    except Exception as e:
+        print(f"Error computing EVPI/VSS: {e}")
+        return "R$ -", "R$ -", False
 
 
 def view():
