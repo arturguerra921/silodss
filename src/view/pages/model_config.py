@@ -31,17 +31,16 @@ def get_tab_model_config_layout(lang='pt'):
                         ),
                         html.Label(translate("Utilizar Princípio de Pareto (20% melhores rotas)", lang),
                             htmlFor="toggle-pareto-routes",
-                            className="mb-0 mx-2 text-muted cursor-pointer small"
+                            className="mb-0 mx-2 fw-bold small text-primary-custom cursor-pointer"
                         ),
                         html.I(className="bi bi-question-circle-fill text-muted", id="help-pareto", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
                         dbc.Tooltip(translate("Aplica o Princípio de Pareto (Regra 80/20) filtrando apenas as 20% melhores rotas (mais curtas) de cada origem. Isso acelera significativamente o tempo de resolução do modelo matemático.", lang),
                             target="help-pareto",
                             placement="top"
                         )
-                    ], className="mb-4 d-flex align-items-center justify-content-center"),
+                    ], className="mb-4 d-flex align-items-center"),
 
                     html.Hr(className="my-4"),
-
                     # Group 1: General Parameters
                     html.H6(translate("Parâmetros Gerais", lang), className="fw-bold small text-primary-custom mb-3"),
                     dbc.Row([
@@ -80,98 +79,142 @@ def get_tab_model_config_layout(lang='pt'):
                             dbc.Input(id="input-solver-time-limit", type="number", min=1, placeholder=translate("Ex: 1200", lang), className="mb-4")
                         ], width=6)
                     ]),
-
-                    html.Hr(className="my-4"),
-
-                    # Group 2: Physical Expansion Parameters
-                    html.H6(translate("Parâmetros de Expansão Física", lang), className="fw-bold small text-primary-custom mb-3"),
                     dbc.Row([
                         dbc.Col([
                             html.Div([
-                                dbc.Label(translate("Fator β^rec (recepção)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                dbc.Label(translate("Razão de Capacidade de Recepção", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
                                 html.I(className="bi bi-question-circle-fill text-muted", id="help-ratio-expand-rec", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Fator percentual que converte a capacidade estática expandida em capacidade de recepção diária.", lang), target="help-ratio-expand-rec")
+                                dbc.Tooltip(translate("Fator percentual que converte a capacidade estática inicial (para candidatos) ou a capacidade expandida em capacidade de recepção diária.", lang), target="help-ratio-expand-rec")
                             ], className="d-flex align-items-center mb-1"),
                             dbc.Input(id="input-ratio-expand-rec", type="number", min=0, max=1, step=0.01, placeholder=translate("Ex: 0.10", lang), className="mb-4")
                         ], width=6),
                         dbc.Col([
                             html.Div([
-                                dbc.Label(translate("Fator β^ship (expedição)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                dbc.Label(translate("Razão de Capacidade de Expedição", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
                                 html.I(className="bi bi-question-circle-fill text-muted", id="help-ratio-expand-ship", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Fator percentual que converte a capacidade estática expandida em capacidade de expedição diária.", lang), target="help-ratio-expand-ship")
+                                dbc.Tooltip(translate("Fator percentual que converte a capacidade estática inicial (para candidatos) ou a capacidade expandida em capacidade de expedição diária.", lang), target="help-ratio-expand-ship")
                             ], className="d-flex align-items-center mb-1"),
                             dbc.Input(id="input-ratio-expand-ship", type="number", min=0, max=1, step=0.01, placeholder=translate("Ex: 0.10", lang), className="mb-4")
-                        ], width=6)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Expansão máxima (t)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-max-expand-capacity", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Limite máximo de capacidade estática expandida permitida por armazém.", lang), target="help-max-expand-capacity")
-                            ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="input-max-expand-capacity", type="number", min=0, placeholder=translate("Ex: 5000", lang), className="mb-4")
-                        ], width=6),
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Custo fixo de expansão ($)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-expand-fixed-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Custo de capital fixo para iniciar o projeto de expansão física do armazém.", lang), target="help-expand-fixed-cost")
-                            ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="input-expand-fixed-cost", type="number", min=0, placeholder=translate("Ex: 50000", lang), className="mb-4")
-                        ], width=6)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Custo variável de expansão ($/t)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-expand-var-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Custo de investimento por tonelada de capacidade estática expandida.", lang), target="help-expand-var-cost")
-                            ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="input-expand-var-cost", type="number", min=0, placeholder=translate("Ex: 100", lang), className="mb-4")
                         ], width=6)
                     ]),
 
                     html.Hr(className="my-4"),
 
+                    # Group 2: Physical Expansion Parameters
+                    html.Div([
+                        dbc.Switch(
+                            id="toggle-expansion-enabled",
+                            value=False,
+                            className="custom-switch mb-0 small"
+                        ),
+                        html.Label(translate("Habilitar Expansão Física", lang),
+                            htmlFor="toggle-expansion-enabled",
+                            className="mb-0 mx-2 fw-bold small text-primary-custom cursor-pointer"
+                        ),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="help-expansion-enabled", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Permite ao modelo matemático optar pela expansão da capacidade estática de armazenamento nos armazéns, com acréscimo proporcional das capacidades de recepção e expedição.", lang),
+                            target="help-expansion-enabled",
+                            placement="top"
+                        )
+                    ], className="mb-3 d-flex align-items-center"),
+                    
+                    dbc.Collapse(
+                        id="collapse-expansion-fields",
+                        is_open=False,
+                        children=[
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.Label(translate("Expansão máxima (t)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-max-expand-capacity", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Limite máximo de capacidade estática expandida permitida por armazém.", lang), target="help-max-expand-capacity")
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="input-max-expand-capacity", type="number", min=0, placeholder=translate("Ex: 5000", lang), className="mb-4")
+                                ], width=6),
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.Label(translate("Custo fixo de expansão ($)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-expand-fixed-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Custo de capital fixo para iniciar o projeto de expansão física do armazém.", lang), target="help-expand-fixed-cost")
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="input-expand-fixed-cost", type="number", min=0, placeholder=translate("Ex: 50000", lang), className="mb-4")
+                                ], width=6)
+                            ]),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.Label(translate("Custo variável de expansão ($/t)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-expand-var-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Custo de investimento por tonelada de capacidade estática expandida.", lang), target="help-expand-var-cost")
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="input-expand-var-cost", type="number", min=0, placeholder=translate("Ex: 100", lang), className="mb-4")
+                                ], width=6)
+                            ])
+                        ]
+                    ),
+
+                    html.Hr(className="my-4"),
+
                     # Group 3: Bulkification Parameters
-                    html.H6(translate("Parâmetros de Granelização", lang), className="fw-bold small text-primary-custom mb-3"),
-                    dbc.Row([
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Granelização máxima (t/dia)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-max-bulk-capacity", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Limite máximo de capacidade de recebimento/expedição adicionada por meio de granelização.", lang), target="help-max-bulk-capacity")
-                            ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="input-max-bulk-capacity", type="number", min=0, placeholder=translate("Ex: 500", lang), className="mb-4")
-                        ], width=6),
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Custo fixo de granelização ($)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-fixed-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Custo de capital fixo para iniciar o projeto de granelização no armazém.", lang), target="help-bulk-fixed-cost")
-                            ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="input-bulk-fixed-cost", type="number", min=0, placeholder=translate("Ex: 30000", lang), className="mb-4")
-                        ], width=6)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Custo var. de granelização ($/(t/dia))", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-var-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Custo de investimento por unidade de capacidade de movimentação diária adicionada.", lang), target="help-bulk-var-cost")
-                            ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="input-bulk-var-cost", type="number", min=0, placeholder=translate("Ex: 200", lang), className="mb-4")
-                        ], width=6),
-                        dbc.Col([
-                            html.Div([
-                                dbc.Label(translate("Tipos elegíveis para granelização", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-eligible-types", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Selecione quais tipos de armazém podem sofrer o processo de granelização.", lang), target="help-bulk-eligible-types")
-                            ], className="d-flex align-items-center mb-1"),
-                            dcc.Dropdown(id="input-bulk-eligible-types", multi=True, placeholder=translate("Selecione os tipos...", lang), className="mb-4")
-                        ], width=6)
-                    ]),
+                    html.Div([
+                        dbc.Switch(
+                            id="toggle-bulk-enabled",
+                            value=False,
+                            className="custom-switch mb-0 small"
+                        ),
+                        html.Label(translate("Habilitar Granelização", lang),
+                            htmlFor="toggle-bulk-enabled",
+                            className="mb-0 mx-2 fw-bold small text-primary-custom cursor-pointer"
+                        ),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-enabled", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Permite ao modelo matemático modernizar armazéns para granelização, aumentando as capacidades diárias de recepção e expedição.", lang),
+                            target="help-bulk-enabled",
+                            placement="top"
+                        )
+                    ], className="mb-3 d-flex align-items-center"),
+
+                    dbc.Collapse(
+                        id="collapse-bulk-fields",
+                        is_open=False,
+                        children=[
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.Label(translate("Granelização máxima (t/dia)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-max-bulk-capacity", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Limite máximo de capacidade de recebimento/expedição adicionada por meio de granelização.", lang), target="help-max-bulk-capacity")
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="input-max-bulk-capacity", type="number", min=0, placeholder=translate("Ex: 500", lang), className="mb-4")
+                                ], width=6),
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.Label(translate("Custo fixo de granelização ($)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-fixed-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Custo de capital fixo para iniciar o projeto de granelização no armazém.", lang), target="help-bulk-fixed-cost")
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="input-bulk-fixed-cost", type="number", min=0, placeholder=translate("Ex: 30000", lang), className="mb-4")
+                                ], width=6)
+                            ]),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.Label(translate("Custo var. de granelização ($/(t · dia))", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-var-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Custo de investimento por unidade de capacidade de movimentação diária adicionada.", lang), target="help-bulk-var-cost")
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dbc.Input(id="input-bulk-var-cost", type="number", min=0, placeholder=translate("Ex: 200", lang), className="mb-4")
+                                ], width=6),
+                                dbc.Col([
+                                    html.Div([
+                                        dbc.Label(translate("Tipos elegíveis para granelização", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                        html.I(className="bi bi-question-circle-fill text-muted", id="help-bulk-eligible-types", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                        dbc.Tooltip(translate("Selecione quais tipos de armazém podem sofrer o processo de granelização.", lang), target="help-bulk-eligible-types")
+                                    ], className="d-flex align-items-center mb-1"),
+                                    dcc.Dropdown(id="input-bulk-eligible-types", multi=True, placeholder=translate("Selecione os tipos...", lang), className="mb-4")
+                                ], width=6)
+                            ])
+                        ]
+                    ),
 
                     html.Hr(className="my-4"),
 
@@ -191,7 +234,7 @@ def get_tab_model_config_layout(lang='pt'):
                             target="help-detailed-log",
                             placement="top"
                         )
-                    ], className="mb-4 d-flex align-items-center justify-content-center"),
+                    ], className="mb-4 d-flex align-items-center"),
                     dbc.Button(translate("Rodar Modelo", lang), id="btn-run-model", className="btn-primary-custom w-100 mb-3"),
                     dbc.Button(translate("Baixar Log de Execução (.txt)", lang), id="btn-download-log", n_clicks=0, className="btn-outline-secondary-custom w-100 mb-3", disabled=True),
                     html.Div(id="model-output-text", className="mt-3 text-center")

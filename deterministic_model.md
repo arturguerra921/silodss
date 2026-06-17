@@ -11,6 +11,11 @@
 > 3. **[ISSUE 3 — REMOVED] Turnover Ratio:** The $\text{Turnover}_d$ variable, its auxiliary definition, and the associated `DynCap` constraint have been **removed from the model**. Both metrics will be computed outside the solver as post-optimization Python calculations, avoiding any risk of bilinear expressions entering the constraint matrix.
 >
 > 4. **[ISSUE 6 — FIXED] `WarehouseOpen` for Existing Warehouses:** For existing warehouses ($d \in D_{\text{exist}}$), $h_d$ is no longer declared as a binary decision variable. It is instead treated as a **fixed parameter** equal to $1$, reducing the MILP binary variable count and improving solver performance.
+>
+> 5. **[NEW] Optional Activation of Upgrade Modules (Physical Expansion & Bulkification):** Both expansion and bulkification are now optional, toggleable features in the configuration interface. If either is disabled by the user, its continuous and binary decision variables are fixed to zero:
+>    * When Expansion is disabled: $y^{\text{exp}}_d = 0$ and $g_d = 0 \quad \forall d \in D$.
+>    * When Bulkification is disabled: $y^{\text{bulk}}_d = 0$ and $q^{\text{bulk}}_d = 0 \quad \forall d \in D$.
+>    This effectively zeros out the corresponding upgrade capital costs in the objective function, and reduces the capacity constraints to their base/candidate capacity equivalents without modifying the core constraint equations. The parameters $\beta^{\text{rec}}$ and $\beta^{\text{ship}}$ are now general parameters to always enable candidate warehouse capacity initialization regardless of whether expansion is active.
 
 ---
 
@@ -33,6 +38,12 @@ To support long-term infrastructural planning, the model incorporates options fo
 2. **Bulkification:** This process converts a portion of a warehouse's existing storage volume from packaged/bagged storage to high-efficiency internal cylindrical bulk silos. Bulkification **does not increase** the total static capacity of the facility, but it substantially boosts both daily reception and shipping capacities by a continuous upgraded rate $q^{\text{bulk}}_d$. Similar to expansion, bulkification features a fixed cost to initiate and a variable cost per unit of capacity rate upgraded. This modification is restricted to a compatible subset of eligible warehouse types.
 
 A strict coordination rule ensures that during the entire planning horizon, any single warehouse can be submitted to at most **one** of these modification options.
+
+**[NEW] Optional Module Activation:** Planners can toggle the availability of both Physical Expansion and Bulkification independently. The mathematical behavior is governed as follows:
+* **Both Enabled:** The model operates as described above, enforcing mutual exclusion (Constraint 5a) at each warehouse.
+* **Expansion Only:** Bulkification decision variables are fixed to zero ($y^{\text{bulk}}_d = 0$, $q^{\text{bulk}}_d = 0$). Only physical expansion decisions are optimized.
+* **Bulkification Only:** Physical expansion decision variables are fixed to zero ($y^{\text{exp}}_d = 0$, $g_d = 0$). Only bulkification decisions are optimized.
+* **Neither Enabled:** Both sets of decision variables are fixed to zero ($y^{\text{exp}}_d = 0$, $g_d = 0$, $y^{\text{bulk}}_d = 0$, $q^{\text{bulk}}_d = 0$). The network operates under base and candidate opening capacities only, and no upgrade investment costs are incurred.
 
 ### Core Assumptions
 

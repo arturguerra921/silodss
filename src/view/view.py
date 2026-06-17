@@ -4054,6 +4054,20 @@ def update_bulk_eligible_options(stored_prod_warehouses):
     except Exception:
         return []
 
+@app.callback(
+    Output("collapse-expansion-fields", "is_open"),
+    Input("toggle-expansion-enabled", "value")
+)
+def toggle_expansion_collapse(is_enabled):
+    return bool(is_enabled)
+
+@app.callback(
+    Output("collapse-bulk-fields", "is_open"),
+    Input("toggle-bulk-enabled", "value")
+)
+def toggle_bulk_collapse(is_enabled):
+    return bool(is_enabled)
+
 # 16. Run Optimization Model (Background Callback)
 @app.callback(
     output=(
@@ -4076,6 +4090,8 @@ def update_bulk_eligible_options(stored_prod_warehouses):
         State('input-transshipment-discount', 'value'),
         State('input-solver-gap', 'value'),
         State('input-solver-time-limit', 'value'),
+        State('toggle-expansion-enabled', 'value'),
+        State('toggle-bulk-enabled', 'value'),
         State('input-ratio-expand-rec', 'value'),
         State('input-ratio-expand-ship', 'value'),
         State('input-max-expand-capacity', 'value'),
@@ -4097,6 +4113,7 @@ def update_bulk_eligible_options(stored_prod_warehouses):
 )
 def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
                   toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
+                  expansion_enabled, bulk_enabled,
                   ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
                   max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types, lang='pt'):
     if not n_clicks:
@@ -4111,17 +4128,26 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
         translate("Desconto de transbordo (α)", lang): transshipment_discount,
         translate("Gap do solver (%)", lang): solver_gap,
         translate("Tempo limite do solver (s)", lang): solver_time_limit,
-        translate("Fator β^rec (recepção)", lang): ratio_expand_rec,
-        translate("Fator β^ship (expedição)", lang): ratio_expand_ship,
-        translate("Expansão máxima (t)", lang): max_expand_capacity,
-        translate("Custo fixo de expansão ($)", lang): expand_fixed_cost,
-        translate("Custo variável de expansão ($/t)", lang): expand_var_cost,
-        translate("Granelização máxima (t/dia)", lang): max_bulk_capacity,
-        translate("Custo fixo de granelização ($)", lang): bulk_fixed_cost,
-        translate("Custo var. de granelização ($/(t/dia))", lang): bulk_var_cost,
+        translate("Razão de Capacidade de Recepção", lang): ratio_expand_rec,
+        translate("Razão de Capacidade de Expedição", lang): ratio_expand_ship,
     }
 
-    missing = [name for name, val in required_params.items() if val is None or str(val).strip() == ""]
+    if expansion_enabled:
+        required_params.update({
+            translate("Expansão máxima (t)", lang): max_expand_capacity,
+            translate("Custo fixo de expansão ($)", lang): expand_fixed_cost,
+            translate("Custo variável de expansão ($/t)", lang): expand_var_cost,
+        })
+
+    if bulk_enabled:
+        required_params.update({
+            translate("Granelização máxima (t/dia)", lang): max_bulk_capacity,
+            translate("Custo fixo de granelização ($)", lang): bulk_fixed_cost,
+            translate("Custo var. de granelização ($/(t · dia))", lang): bulk_var_cost,
+            translate("Tipos elegíveis para granelização", lang): bulk_eligible_types,
+        })
+
+    missing = [name for name, val in required_params.items() if val is None or str(val).strip() == "" or (isinstance(val, list) and not val)]
     if missing:
         msg = translate("Erro: Os seguintes parâmetros de configuração são obrigatórios e não foram preenchidos: ", lang) + ", ".join(missing)
         return msg, "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
@@ -4188,13 +4214,13 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
             solver_time_limit=solver_time_limit,
             ratio_expand_rec=ratio_expand_rec,
             ratio_expand_ship=ratio_expand_ship,
-            max_expand_capacity=max_expand_capacity,
-            expand_fixed_cost=expand_fixed_cost,
-            expand_var_cost=expand_var_cost,
-            max_bulk_capacity=max_bulk_capacity,
-            bulk_fixed_cost=bulk_fixed_cost,
-            bulk_var_cost=bulk_var_cost,
-            bulk_eligible_types=bulk_eligible_types,
+            max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+            expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+            expand_var_cost=expand_var_cost if expansion_enabled else None,
+            max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+            bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+            bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+            bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
             lang=lang
         )
 

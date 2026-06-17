@@ -441,31 +441,31 @@ def run_deterministic_model(
     
     # Upgrade parameters
     def max_expand_init(m, d):
-        return float(max_expand_capacity)
+        return float(max_expand_capacity) if max_expand_capacity is not None else 0.0
     model.MaxExpandCapacity = pyo.Param(model.Destinations, initialize=max_expand_init)
     
     def expand_fixed_cost_init(m, d):
-        return float(expand_fixed_cost)
+        return float(expand_fixed_cost) if expand_fixed_cost is not None else 0.0
     model.ExpandFixedCost = pyo.Param(model.Destinations, initialize=expand_fixed_cost_init)
     
     def expand_var_cost_init(m, d):
-        return float(expand_var_cost)
+        return float(expand_var_cost) if expand_var_cost is not None else 0.0
     model.ExpandVarCost = pyo.Param(model.Destinations, initialize=expand_var_cost_init)
     
     def max_bulk_init(m, d):
-        return float(max_bulk_capacity)
+        return float(max_bulk_capacity) if max_bulk_capacity is not None else 0.0
     model.MaxBulkCapacity = pyo.Param(model.Destinations, initialize=max_bulk_init)
     
     def bulk_fixed_cost_init(m, d):
-        return float(bulk_fixed_cost)
+        return float(bulk_fixed_cost) if bulk_fixed_cost is not None else 0.0
     model.BulkFixedCost = pyo.Param(model.Destinations, initialize=bulk_fixed_cost_init)
     
     def bulk_var_cost_init(m, d):
-        return float(bulk_var_cost)
+        return float(bulk_var_cost) if bulk_var_cost is not None else 0.0
     model.BulkVarCost = pyo.Param(model.Destinations, initialize=bulk_var_cost_init)
     
-    model.RatioExpandRec = pyo.Param(initialize=float(ratio_expand_rec))
-    model.RatioExpandShip = pyo.Param(initialize=float(ratio_expand_ship))
+    model.RatioExpandRec = pyo.Param(initialize=float(ratio_expand_rec) if ratio_expand_rec is not None else 0.0)
+    model.RatioExpandShip = pyo.Param(initialize=float(ratio_expand_ship) if ratio_expand_ship is not None else 0.0)
 
     # Decision Variables
     model.FlowOD = pyo.Var(model.ValidRoutesOD, model.TimePeriods, within=pyo.NonNegativeReals)
@@ -479,6 +479,17 @@ def run_deterministic_model(
     model.WarehouseOpen = pyo.Var(model.Destinations_cand, within=pyo.Binary)
     model.IsExpanded = pyo.Var(model.Destinations, within=pyo.Binary)
     model.IsBulkified = pyo.Var(model.Destinations, within=pyo.Binary)
+
+    # Fix variables to 0 if expansion or bulkification is disabled
+    if max_expand_capacity is None:
+        for d in model.Destinations:
+            model.IsExpanded[d].fix(0)
+            model.ExpandedCapacity[d].fix(0)
+            
+    if max_bulk_capacity is None:
+        for d in model.Destinations:
+            model.IsBulkified[d].fix(0)
+            model.BulkCapacity[d].fix(0)
 
     # Helper function to represent open decision variables / fixed parameter
     def get_open_expr(m, d):
@@ -549,7 +560,7 @@ def run_deterministic_model(
 
     # 5.1 Supply Allocation Bound (Hard Equality constraint: all supply must be dispatched)
     def supply_allocation_rule(m, o, p, t):
-        valid_dests = [d for d_ in m.Destinations if (o, d_, p) in m.ValidRoutesOD]
+        valid_dests = [d for d in m.Destinations if (o, d, p) in m.ValidRoutesOD]
         if not valid_dests:
             return pyo.Constraint.Skip
         return sum(m.FlowOD[o, d, p, t] for d in valid_dests) == m.Supply[o, p, t]
@@ -672,13 +683,13 @@ def run_deterministic_model(
 
     # 5.10 Customer Demand Satisfaction (Domestic Strict Equality vs Export Max upper bound)
     def domestic_demand_rule(m, c, p, t):
-        valid_dests = [d for d_ in m.Destinations if (d_, c, p) in m.ValidRoutesDC]
+        valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
         if not valid_dests:
             return pyo.Constraint.Skip
         return sum(m.FlowDC[d, c, p, t] for d in valid_dests) == m.DemandMin[c, p, t]
 
     def export_demand_rule(m, c, p, t):
-        valid_dests = [d for d_ in m.Destinations if (d_, c, p) in m.ValidRoutesDC]
+        valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
         if not valid_dests:
             return pyo.Constraint.Skip
         return sum(m.FlowDC[d, c, p, t] for d in valid_dests) <= m.DemandMax[c, p, t]
