@@ -447,4 +447,52 @@ small, .small {
     vertical-align: -0.06em !important;
 }
 
+/* Custom legends inside route filter buttons */
+.wh-filter-group .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    transition: all 0.2s ease-in-out;
+}
+
+.wh-filter-group .btn::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: border 0.2s ease-in-out;
+}
+
+/* Colors for each legend circle based on input values */
+.wh-filter-group input[value="all"] + .btn::before {
+    background-color: #7E7E65;
+}
+
+.wh-filter-group input[value="inflow"] + .btn::before {
+    background-color: #006633;
+}
+
+.wh-filter-group input[value="transbordo"] + .btn::before {
+    background-color: #997A00;
+}
+
+.wh-filter-group input[value="outflow"] + .btn::before {
+    background-color: #D9534F;
+}
+
+/* Checked/Active state styling */
+.wh-filter-group .btn-check:checked + .btn {
+    background-color: #003366 !important;
+    color: #FFFFFF !important;
+    border-color: #003366 !important;
+}
+
+.wh-filter-group .btn-check:checked + .btn::before {
+    border: 1.5px solid #FFFFFF;
+}
+
 

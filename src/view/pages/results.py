@@ -394,6 +394,86 @@ def get_tab_results_layout(lang='pt'):
         className="card-custom mb-3 mt-4"
     )
 
+    # 1.9 Mapa e Detalhes dos Armazéns
+    warehouse_map_card = dbc.Card(
+        [
+            dbc.CardHeader(
+                html.Div([
+                    html.Span(translate("Visualização de Armazéns e Fluxos", lang), className="me-2 fw-bold"),
+                    html.I(className="bi bi-question-circle-fill text-muted", id="help-results-wh-map", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                    dbc.Tooltip(translate("Selecione um armazém na tabela de decisões acima para ver sua localização, conexões de entrada/saída e custos associados.", lang),
+                        target="help-results-wh-map",
+                        placement="right"
+                    ),
+                ], className="d-flex align-items-center w-100"),
+                className="card-header-custom"
+            ),
+            dbc.CardBody(
+                [
+                    dbc.Row([
+                        # Coluna de Detalhes Específicos (Metrics card) on the left
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    id="warehouse-details-container",
+                                    className="flex-grow-1 d-flex flex-column",
+                                    children=[
+                                        html.P(translate("Selecione um armazém na tabela acima para ver os detalhes, indicadores e custos aqui.", lang), className="text-muted small mt-2")
+                                    ]
+                                )
+                            ],
+                            width=12, lg=4, className="mb-3 d-flex flex-column"
+                        ),
+                        # Coluna do Mapa
+                        dbc.Col(
+                            [
+                                html.Div([
+                                    dbc.RadioItems(
+                                        id="wh-route-type-filter",
+                                        className="btn-group btn-group-sm wh-filter-group",
+                                        input_class_name="btn-check",
+                                        label_class_name="btn btn-outline-primary-custom d-flex align-items-center gap-2",
+                                        label_checked_class_name="active btn-primary-custom text-white",
+                                        options=[
+                                            {"label": translate("Ver Todos", lang), "value": "all"},
+                                            {"label": translate("Origem -> Armazém", lang), "value": "inflow"},
+                                            {"label": translate("Transbordo", lang), "value": "transbordo"},
+                                            {"label": translate("Armazém -> Cliente", lang), "value": "outflow"},
+                                        ],
+                                        value="all",
+                                    )
+                                ], className="d-flex justify-content-start mb-3"),
+                                dbc.Spinner(
+                                    dcc.Graph(
+                                        id='graph-results-wh-map',
+                                        config={
+                                            "displayModeBar": True,
+                                            "scrollZoom": True,
+                                            "showAxisDragHandles": True,
+                                            "modeBarButtonsToAdd": ['drawline', 'drawopenpath', 'drawclosedpath', 'drawcircle', 'drawrect', 'eraseshape'],
+                                            "toImageButtonOptions": {
+                                                "format": "png",
+                                                "filename": "mapa_de_armazens",
+                                                "height": None,
+                                                "width": None,
+                                                "scale": 1
+                                            }
+                                        },
+                                        style={"height": "600px", "borderRadius": "8px", "overflow": "hidden"}
+                                    ),
+                                    spinner_class_name="text-primary-custom"
+                                )
+                            ],
+                            width=12, lg=8, className="mb-3"
+                        )
+                    ])
+                ],
+                className="card-body-custom"
+            )
+        ],
+        className="card-custom mb-3 mt-4"
+    )
+
     # Modal Confirmação Malha (Muitas rotas)
     confirm_all_routes_modal = dbc.Modal(
         [
@@ -422,6 +502,7 @@ def get_tab_results_layout(lang='pt'):
         dbc.Row(dbc.Col(kpi_card, width=12)),
         warnings_container,
         dbc.Row(dbc.Col(warehouse_card, width=12, className="mb-24")),
+        dbc.Row(dbc.Col(warehouse_map_card, width=12, className="mb-24")),
         dbc.Row([
             dbc.Col(table_card, width=12, className="mb-24")
         ]),

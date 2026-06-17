@@ -5015,6 +5015,473 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
 
     return default_fig, html.P(translate("Selecione uma rota na tabela para ver os detalhes.", lang), className="text-muted small")
 
+
+@app.callback(
+    [Output("graph-results-wh-map", "figure"),
+     Output("warehouse-details-container", "children")],
+    [Input("table-results-warehouses", "active_cell"),
+     Input("wh-route-type-filter", "value"),
+     Input("store-model-results", "data")],
+    [State("table-results-warehouses", "derived_viewport_data"),
+     State("stored-data", "data"),
+     State("store-warehouses", "data"),
+     State("stored-demand-data", "data"),
+     State("store-lang", "data")],
+    prevent_initial_call=False
+)
+def update_warehouse_results_map(active_cell, filter_value, results_data, table_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
+    # Default map centered on Brazil
+    default_fig = go.Figure(go.Scattermapbox())
+    default_fig.update_layout(
+        mapbox_style="open-street-map",
+        mapbox_zoom=3.5,
+        mapbox_center={"lat": -14.2350, "lon": -51.9253},
+        margin={"r": 0, "t": 0, "l": 0, "b": 0}
+    )
+
+    if not results_data or results_data.get("status") != "optimal":
+        return default_fig, html.P(translate("Resultados indisponíveis.", lang), className="text-muted small")
+
+    if not stored_data or not stored_warehouses:
+        return default_fig, html.P(translate("Faltam dados base para renderizar o mapa.", lang), className="text-muted small")
+
+    # Load dataframes
+    df_input = pd.read_json(io.StringIO(stored_data), orient='split')
+    df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+
+    # Pre-calculate coordinate mappings
+    # 1. Origin Mappings
+    origins_df_map = df_input[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+    city_counts_map = origins_df_map['Cidade'].value_counts()
+    duplicates_map = city_counts_map[city_counts_map > 1].index
+
+    origins_df_map['Cidade_Display'] = origins_df_map.apply(
+        lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+        if row['Cidade'] in duplicates_map else row['Cidade'],
+        axis=1
+    )
+    origin_mapping = origins_df_map.set_index('Cidade_Display')[['Latitude', 'Longitude']].to_dict('index')
+
+    # 2. Warehouse Mappings
+    lat_col = next((c for c in df_warehouses.columns if 'lat' in str(c).lower()), None)
+    lon_col = next((c for c in df_warehouses.columns if 'lon' in str(c).lower()), None)
+
+    if not lat_col or not lon_col:
+        mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
+        uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
+        if mun_col and uf_col:
+            df_warehouses_map = df_warehouses.copy()
+            df_warehouses_map['lookup_key'] = df_warehouses_map[mun_col].astype(str) + ' - ' + df_warehouses_map[uf_col].astype(str)
+            def get_c(key):
+                if key in CITY_LOOKUP: return CITY_LOOKUP[key]
+                return {'latitude': None, 'longitude': None}
+            coords = df_warehouses_map['lookup_key'].apply(get_c)
+            df_warehouses_map['Latitude'] = coords.apply(lambda x: x['latitude'])
+            df_warehouses_map['Longitude'] = coords.apply(lambda x: x['longitude'])
+            dests_df = df_warehouses_map.dropna(subset=['Latitude', 'Longitude'])
+        else:
+            dests_df = pd.DataFrame()
+    else:
+        dests_df = df_warehouses.dropna(subset=[lat_col, lon_col]).copy()
+        dests_df = dests_df.rename(columns={lat_col: 'Latitude', lon_col: 'Longitude'})
+
+    dest_mapping = {}
+    if not dests_df.empty:
+        cda_col = next((c for c in dests_df.columns if 'cda' in str(c).lower()), None)
+        name_col = next((c for c in dests_df.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
+        mun_col_dest = next((c for c in dests_df.columns if 'munic' in str(c).lower()), None)
+
+        labels = pd.Series("", index=dests_df.index)
+        first = True
+        for col in [cda_col, name_col, mun_col_dest]:
+            if col:
+                val = dests_df[col].astype(str).str.strip()
+                mask = dests_df[col].notna()
+                if first:
+                    labels = labels.mask(mask, val)
+                    first = False
+                else:
+                    labels = labels.mask(mask, labels.where(~mask | (labels == ""), labels + " - " + val).where(labels != "", val))
+
+        empty_mask = labels == ""
+        if empty_mask.any():
+            labels.loc[empty_mask] = [f"Dest {i}" for i in dests_df.index[empty_mask]]
+
+        dests_df['__label'] = labels
+        dests_df = dests_df.drop_duplicates(subset=['__label'])
+        dest_mapping = dests_df.set_index('__label')[['Latitude', 'Longitude']].to_dict('index')
+
+    # 3. Customer Mappings
+    customer_mapping = {}
+    if stored_demand_data:
+        try:
+            df_demand = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+            demand_df_map = df_demand[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+            demand_city_counts_map = demand_df_map['Cidade'].value_counts()
+            demand_duplicates_map = demand_city_counts_map[demand_city_counts_map > 1].index
+
+            demand_df_map['Cidade_Display'] = demand_df_map.apply(
+                lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+                if row['Cidade'] in demand_duplicates_map else row['Cidade'],
+                axis=1
+            )
+            customer_mapping = demand_df_map.set_index('Cidade_Display')[['Latitude', 'Longitude']].to_dict('index')
+        except Exception as e:
+            print(f"Error building customer mapping: {e}")
+
+    def get_coords_optimized(orig_name, dest_name):
+        origin_coords = None
+        if orig_name in origin_mapping:
+            o = origin_mapping[orig_name]
+            origin_coords = (o['Latitude'], o['Longitude'])
+        elif orig_name in dest_mapping:
+            o = dest_mapping[orig_name]
+            origin_coords = (o['Latitude'], o['Longitude'])
+
+        dest_coords = None
+        if dest_name in dest_mapping:
+            d = dest_mapping[dest_name]
+            dest_coords = (d['Latitude'], d['Longitude'])
+        elif dest_name in customer_mapping:
+            d = customer_mapping[dest_name]
+            dest_coords = (d['Latitude'], d['Longitude'])
+        else:
+            fallback_row = df_input[df_input['Cidade'] == dest_name]
+            if not fallback_row.empty:
+                dest_coords = (fallback_row.iloc[0]['Latitude'], fallback_row.iloc[0]['Longitude'])
+
+        return origin_coords, dest_coords
+
+    osrm_url = os.environ.get("OSRM_URL", "http://localhost:5000")
+    client = OSRMClient(base_url=osrm_url)
+
+    wh_decisions = results_data.get("warehouse_decisions", [])
+    routes = results_data.get("routes", [])
+
+    # Initial state: no warehouse selected
+    if not active_cell or not table_data:
+        fig = go.Figure()
+        wh_lats, wh_lons, wh_names, wh_colors, wh_texts = [], [], [], [], []
+        
+        for w in wh_decisions:
+            w_name = w.get("Name", "")
+            if w_name in dest_mapping:
+                coords = dest_mapping[w_name]
+                wh_lats.append(coords['Latitude'])
+                wh_lons.append(coords['Longitude'])
+                wh_names.append(w_name)
+                
+                is_cand = w.get("IsCandidate", False)
+                is_open = w.get("IsOpen", False)
+                
+                if is_cand:
+                    if is_open:
+                        color = UNB_THEME['UNB_BLUE']
+                        status_lbl = translate("Candidato - Aberto", lang)
+                    else:
+                        color = '#888888'
+                        status_lbl = translate("Candidato - Fechado", lang)
+                else:
+                    color = UNB_THEME['UNB_GREEN']
+                    status_lbl = translate("Existente - Aberto", lang)
+                
+                wh_colors.append(color)
+                wh_texts.append(f"{w_name}<br>{status_lbl}")
+        
+        if wh_lats:
+            fig.add_trace(go.Scattermapbox(
+                mode="markers",
+                lon=wh_lons,
+                lat=wh_lats,
+                marker={'size': 12, 'color': wh_colors},
+                text=wh_texts,
+                hoverinfo='text'
+            ))
+            fig.update_layout(
+                mapbox_style="open-street-map",
+                mapbox_zoom=4,
+                mapbox_center={"lat": np.mean(wh_lats), "lon": np.mean(wh_lons)},
+                margin={"r": 0, "t": 0, "l": 0, "b": 0},
+                showlegend=False
+            )
+        else:
+            fig = default_fig
+
+        placeholder = html.Div([
+            html.P(translate("Selecione um armazém na tabela acima para ver os detalhes, indicadores e custos aqui.", lang), className="text-muted small mt-2")
+        ])
+        return fig, placeholder
+
+    row_idx = active_cell['row']
+    if row_idx >= len(table_data):
+        return default_fig, html.P(translate("Erro: Linha selecionada inválida.", lang), className="text-muted small")
+        
+    selected_wh_info = table_data[row_idx]
+    selected_wh_name = selected_wh_info['Name']
+
+    selected_wh_dec = None
+    for w in wh_decisions:
+        if w["Name"] == selected_wh_name:
+            selected_wh_dec = w
+            break
+
+    if not selected_wh_dec:
+        return default_fig, html.P(translate("Detalhes do armazém não encontrados.", lang), className="text-muted small")
+
+    if selected_wh_name not in dest_mapping:
+        return default_fig, html.P(translate("Coordenadas do armazém não encontradas.", lang), className="text-muted small")
+
+    wh_coords = dest_mapping[selected_wh_name]
+    wh_lat, wh_lon = wh_coords['Latitude'], wh_coords['Longitude']
+
+    # Gather routes and apply type filter
+    wh_routes = []
+    for r in routes:
+        if r["Origem"] == selected_wh_name or r["Destino"] == selected_wh_name:
+            if filter_value == "all":
+                wh_routes.append(r)
+            elif filter_value == "inflow" and r["Tipo de Rota"] == "Origem -> Armazém":
+                wh_routes.append(r)
+            elif filter_value == "outflow" and r["Tipo de Rota"] == "Armazém -> Cliente":
+                wh_routes.append(r)
+            elif filter_value == "transbordo" and r["Tipo de Rota"] == "Transbordo":
+                wh_routes.append(r)
+
+    grouped_flows = {}
+    for r in wh_routes:
+        k = (r["Origem"], r["Destino"], r["Tipo de Rota"])
+        grouped_flows[k] = grouped_flows.get(k, 0.0) + r["Quantidade (ton)"]
+
+    fig = go.Figure()
+    all_lats, all_lons = [wh_lat], [wh_lon]
+
+    nodes_to_draw = {
+        selected_wh_name: {
+            "coords": (wh_lat, wh_lon),
+            "type": "selected_wh",
+            "name": selected_wh_name
+        }
+    }
+
+    for (orig, dest, route_type), qty in grouped_flows.items():
+        if qty < 1e-4:
+            continue
+        orig_coords, dest_coords = get_coords_optimized(orig, dest)
+        if orig_coords and dest_coords:
+            all_lats.extend([orig_coords[0], dest_coords[0]])
+            all_lons.extend([orig_coords[1], dest_coords[1]])
+
+            if orig == selected_wh_name:
+                if route_type == "Transbordo":
+                    nodes_to_draw[dest] = {"coords": dest_coords, "type": "transshipment_wh", "name": dest}
+                else:
+                    nodes_to_draw[dest] = {"coords": dest_coords, "type": "customer", "name": dest}
+            elif dest == selected_wh_name:
+                if route_type == "Transbordo":
+                    nodes_to_draw[orig] = {"coords": orig_coords, "type": "transshipment_wh", "name": orig}
+                else:
+                    nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
+
+            if route_type == "Origem -> Armazém":
+                line_color = UNB_THEME['UNB_GREEN']
+                line_name = translate("Origem -> Armazém", lang)
+            elif route_type == "Armazém -> Cliente":
+                line_color = '#D9534F'
+                line_name = translate("Armazém -> Cliente", lang)
+            else:
+                line_color = UNB_THEME['UNB_YELLOW_DARK']
+                line_name = translate("Transbordo", lang)
+
+            route_data = client.get_route(orig_coords, dest_coords)
+            if route_data:
+                geom = route_data['geometry']
+                lats = [p[1] for p in geom['coordinates']]
+                lons = [p[0] for p in geom['coordinates']]
+                fig.add_trace(go.Scattermapbox(
+                    mode="lines", lon=lons, lat=lats,
+                    line={'width': 3, 'color': line_color},
+                    opacity=0.8,
+                    name=line_name,
+                    text=f"{qty:,.2f} {translate('ton', lang)}",
+                    hoverinfo='text+name'
+                ))
+
+    for name, nd in nodes_to_draw.items():
+        n_type = nd["type"]
+        n_coords = nd["coords"]
+        
+        if n_type == "selected_wh":
+            color = UNB_THEME['UNB_BLUE']
+            size = 15
+            lbl = translate("Armazém Selecionado", lang)
+        elif n_type == "origin":
+            color = UNB_THEME['UNB_GREEN']
+            size = 10
+            lbl = translate("Origem / Produtor", lang)
+        elif n_type == "customer":
+            color = '#D9534F'
+            size = 10
+            lbl = translate("Cliente / Demanda", lang)
+        else:
+            color = UNB_THEME['UNB_YELLOW_DARK']
+            size = 12
+            lbl = translate("Armazém de Transbordo", lang)
+
+        fig.add_trace(go.Scattermapbox(
+            mode="markers",
+            lon=[n_coords[1]],
+            lat=[n_coords[0]],
+            marker={'size': size, 'color': color},
+            text=f"{name}<br>({lbl})",
+            hoverinfo='text',
+            showlegend=False
+        ))
+
+    lat_diff = max(all_lats) - min(all_lats)
+    lon_diff = max(all_lons) - min(all_lons)
+    max_diff = max(lat_diff, lon_diff)
+    zoom = 5
+    if max_diff < 0.1: zoom = 11
+    elif max_diff < 0.5: zoom = 9
+    elif max_diff < 2: zoom = 7
+    elif max_diff < 5: zoom = 6
+    elif max_diff < 10: zoom = 5
+    else: zoom = 4
+
+    fig.update_layout(
+        mapbox_style="open-street-map",
+        mapbox_zoom=zoom,
+        mapbox_center={"lat": np.mean(all_lats), "lon": np.mean(all_lons)},
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        showlegend=False
+    )
+
+    # Calculate aggregate inflows/outflows for the selected warehouse
+    # Note: we calculate this based on all routes involving this warehouse, regardless of the map filter
+    total_inflow = sum(r["Quantidade (ton)"] for r in routes if r["Destino"] == selected_wh_name)
+    total_outflow = sum(r["Quantidade (ton)"] for r in routes if r["Origem"] == selected_wh_name)
+
+    opening_cost = selected_wh_dec.get("OpeningCost", 0.0)
+    expand_cost = selected_wh_dec.get("ExpandCost", 0.0)
+    bulk_cost = selected_wh_dec.get("BulkCost", 0.0)
+    storage_cost = selected_wh_dec.get("StorageCost", 0.0)
+    total_cost = selected_wh_dec.get("TotalCost", 0.0)
+
+    def fmt_num_only(val, decimal_places=2):
+        if val is None:
+            val = 0.0
+        fmt = f"{{:,.{decimal_places}f}}"
+        s = fmt.format(val)
+        if lang != 'en':
+            s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+        return s
+
+    def fmt_n(val, unit='ton'):
+        return f"{fmt_num_only(val)} {translate(unit, lang)}"
+
+    def fmt_c(val):
+        return f"R$ {fmt_num_only(val)}"
+
+    is_cand = selected_wh_dec.get("IsCandidate", False)
+    is_open = selected_wh_dec.get("IsOpen", False)
+    is_exp = selected_wh_dec.get("IsExpanded", False)
+    is_bulk = selected_wh_dec.get("IsBulkified", False)
+
+    type_lbl = translate("Candidato", lang) if is_cand else translate("Existente", lang)
+    status_lbl = translate("Aberto", lang) if is_open else translate("Fechado", lang)
+    
+    status_badge_color = "success" if is_open else "danger"
+    type_badge_color = "primary" if not is_cand else "warning"
+
+    dyn_cap = selected_wh_dec.get("DynamicCapacity", 0.0)
+    turnover = selected_wh_dec.get("TurnoverRatio", 0.0)
+
+    details_html = dbc.Card([
+        dbc.CardHeader(
+            html.Div([
+                html.I(className="bi bi-house-door-fill me-2"),
+                html.Span(translate("Detalhes do Armazém Selecionado", lang), className="fw-bold")
+            ], className="d-flex align-items-center text-white"),
+            className="bg-primary-custom"
+        ),
+        dbc.ListGroup([
+            dbc.ListGroupItem([
+                html.Div([
+                    html.I(className="bi bi-info-circle-fill text-primary-custom me-2"),
+                    html.Strong(selected_wh_name),
+                    html.Span(type_lbl, className=f"badge bg-{type_badge_color} ms-2"),
+                    html.Span(status_lbl, className=f"badge bg-{status_badge_color} ms-1")
+                ], className="d-flex align-items-center flex-wrap gap-1")
+            ], className="py-2"),
+            dbc.ListGroupItem([
+                html.H6([html.I(className="bi bi-database-fill text-info-custom me-2"), translate("Capacidades", lang)], className="mb-2 fw-bold small text-uppercase d-flex align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-border-style me-2 text-muted"), translate("Capacidade Estática Efetiva:", lang)], className="text-muted small"),
+                    html.Span(fmt_n(selected_wh_dec.get("EffectiveStaticCapacity", 0.0)), className="float-end fw-bold")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-arrows-angle-expand me-2 text-muted"), translate("Expansão:", lang)], className="text-muted small"),
+                    html.Span(fmt_n(selected_wh_dec.get("ExpandedVolume", 0.0)) if is_exp else fmt_n(0.0), className="float-end")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-box-seam me-2 text-muted"), translate("Granelização:", lang)], className="text-muted small"),
+                    html.Span(fmt_n(selected_wh_dec.get('BulkCapacityAdded', 0.0), 'ton/dia') if is_bulk else fmt_n(0.0, 'ton/dia'), className="float-end")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+            ], className="py-2"),
+            dbc.ListGroupItem([
+                html.H6([html.I(className="bi bi-arrow-down-up text-primary-custom me-2"), translate("Movimentação de Cargas", lang)], className="mb-2 fw-bold small text-uppercase d-flex align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-box-arrow-in-right me-2 text-success-custom"), translate("Entrada Total (Inflow):", lang)], className="text-muted small"),
+                    html.Span(fmt_n(total_inflow), className="float-end fw-bold text-success-custom")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-box-arrow-up-right me-2 text-primary-custom"), translate("Saída Total (Outflow):", lang)], className="text-muted small"),
+                    html.Span(fmt_n(total_outflow), className="float-end fw-bold text-primary-custom")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-archive me-2 text-secondary-custom"), translate("Estoque Final:", lang)], className="text-muted small"),
+                    html.Span(fmt_n(selected_wh_dec.get("FinalStock", 0.0)), className="float-end text-secondary-custom")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+            ], className="py-2"),
+            dbc.ListGroupItem([
+                html.H6([html.I(className="bi bi-arrow-repeat text-info-custom me-2"), translate("Giro e Capacidade Dinâmica", lang)], className="mb-2 fw-bold small text-uppercase d-flex align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-activity me-2 text-muted"), translate("Capacidade Dinâmica Anual:", lang)], className="text-muted small"),
+                    html.Span(fmt_n(dyn_cap, 'ton/ano'), className="float-end")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+                html.Div([
+                    html.Span([html.I(className="bi bi-arrow-clockwise me-2 text-info-custom"), translate("Giro Anual:", lang)], className="text-muted small"),
+                    html.Span(fmt_num_only(turnover, 4), className="float-end fw-bold text-info-custom")
+                ], className="mb-1 d-flex justify-content-between align-items-center"),
+            ], className="py-2"),
+        ], flush=True, className="flex-grow-1"),
+        dbc.CardFooter([
+            html.H6([html.I(className="bi bi-cash-stack text-danger-custom me-2"), translate("Detalhamento de Custos", lang)], className="text-dark mb-2 fw-bold small text-uppercase d-flex align-items-center"),
+            html.Div([
+                html.Span([html.I(className="bi bi-door-open me-2 text-muted"), translate("Custo de Abertura:", lang)], className="text-muted small"),
+                html.Span(fmt_c(opening_cost), className="float-end text-info-custom")
+            ], className="mb-1 d-flex justify-content-between align-items-center"),
+            html.Div([
+                html.Span([html.I(className="bi bi-arrows-angle-expand me-2 text-muted"), translate("Custo de Expansão:", lang)], className="text-muted small"),
+                html.Span(fmt_c(expand_cost), className="float-end text-secondary-custom")
+            ], className="mb-1 d-flex justify-content-between align-items-center"),
+            html.Div([
+                html.Span([html.I(className="bi bi-box-seam me-2 text-muted"), translate("Custo de Granelização:", lang)], className="text-muted small"),
+                html.Span(fmt_c(bulk_cost), className="float-end text-primary-custom")
+            ], className="mb-1 d-flex justify-content-between align-items-center"),
+            html.Div([
+                html.Span([html.I(className="bi bi-archive me-2 text-muted"), translate("Custo de Armazenagem:", lang)], className="text-muted small"),
+                html.Span(fmt_c(storage_cost), className="float-end text-warning-custom")
+            ], className="mb-2"),
+            html.Div([
+                html.Span(translate("Custo Total do Armazém:", lang), className="fw-bold"),
+                html.H6(fmt_c(total_cost), className="float-end fw-bold mb-0 text-danger-custom")
+            ], className="mt-2 border-top pt-2")
+        ], className="bg-light")
+    ], className="shadow-sm border-0 h-100 d-flex flex-column")
+
+    return fig, details_html
+
 @app.callback(
     Output("btn-download-log", "disabled"),
     Output("btn-download-log", "className"),

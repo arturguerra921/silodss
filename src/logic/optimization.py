@@ -947,6 +947,17 @@ def run_deterministic_model(
                 
             turnover_annual = dyn_cap_annual / effective_static if effective_static > 0.0 else 0.0
             
+            # Warehouse-specific costs
+            opening_cost_val = pyo.value(model.WarehouseOpen[d]) * pyo.value(model.OpeningCost[d]) if is_cand else 0.0
+            expand_cost_val = pyo.value(model.IsExpanded[d]) * pyo.value(model.ExpandFixedCost[d]) + pyo.value(model.ExpandedCapacity[d]) * pyo.value(model.ExpandVarCost[d])
+            bulk_cost_val = pyo.value(model.IsBulkified[d]) * pyo.value(model.BulkFixedCost[d]) + pyo.value(model.BulkCapacity[d]) * pyo.value(model.BulkVarCost[d]) if d in bulk_eligible_list else 0.0
+            storage_cost_val = sum(
+                pyo.value(model.Inventory[d, p, t]) * pyo.value(model.StorageTariff[d, p])
+                for p in all_products
+                for t in periods
+            )
+            total_wh_cost = opening_cost_val + expand_cost_val + bulk_cost_val + storage_cost_val
+
             wh_decisions_list.append({
                 "CDA": d,
                 "Name": cda_to_name.get(d, d),
@@ -962,7 +973,12 @@ def run_deterministic_model(
                 "DynamicCapacity": dyn_cap_annual,
                 "DynamicCapacityRaw": dyn_cap_raw,
                 "EffectiveStaticCapacity": effective_static,
-                "TurnoverRatio": turnover_annual
+                "TurnoverRatio": turnover_annual,
+                "OpeningCost": opening_cost_val,
+                "ExpandCost": expand_cost_val,
+                "BulkCost": bulk_cost_val,
+                "StorageCost": storage_cost_val,
+                "TotalCost": total_wh_cost
             })
             
         results_dict["warehouse_decisions"] = wh_decisions_list
