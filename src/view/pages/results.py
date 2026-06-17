@@ -380,11 +380,15 @@ def get_tab_results_layout(lang='pt'):
                         # Coluna de Detalhes Específicos
                         dbc.Col(
                             [
-                                html.Div(id="route-details-container", children=[
-                                    html.P(translate("Selecione uma rota na tabela ao lado para ver os detalhes e indicadores aqui.", lang), className="text-muted small mt-2")
-                                ])
+                                html.Div(
+                                    id="route-details-container",
+                                    className="flex-grow-1 d-flex flex-column",
+                                    children=[
+                                        html.P(translate("Selecione uma rota na tabela ao lado para ver os detalhes e indicadores aqui.", lang), className="text-muted small mt-2")
+                                    ]
+                                )
                             ],
-                            width=12, lg=4
+                            width=12, lg=4, className="mb-3 d-flex flex-column"
                         )
                     ])
                 ],

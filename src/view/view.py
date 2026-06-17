@@ -4714,6 +4714,9 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
     ctx = dash.callback_context
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
+    if trigger_id == "table-results-routes" and not active_cell:
+        return dash.no_update, dash.no_update
+
     # Handle the "Show All" logic depending on route length
     if trigger_id == "btn-show-all-routes":
         routes = results_data.get("routes", []) if results_data else []
@@ -4916,6 +4919,14 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
         fmt_qtd = f"{route_detail['Quantidade (ton)']:,.2f} ton".replace(",", "X").replace(".", ",").replace("X", ".")
         fmt_dist = f"{route_detail['Distancia (km)']:,.2f} km".replace(",", "X").replace(".", ",").replace("X", ".")
 
+        r_type = route_detail.get("Tipo de Rota", "")
+        if r_type == "Origem -> Armazém":
+            type_color_class = "text-success-custom"
+        elif r_type == "Armazém -> Cliente":
+            type_color_class = "text-danger-custom"
+        else:
+            type_color_class = "text-warning-custom"
+
         details_html = dbc.Card([
             dbc.CardHeader(html.H6([html.I(className="bi bi-info-circle-fill me-2"), translate("Detalhes da Rota Selecionada", lang)], className="mb-0 text-white"), className="bg-primary-custom"),
             dbc.ListGroup([
@@ -4926,6 +4937,10 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
                 dbc.ListGroupItem([
                     html.Div([html.I(className="bi bi-geo-alt-fill text-danger-custom me-2"), html.Strong(translate("Destino: ", lang))]),
                     html.Span(dest_name, className="text-muted d-block ms-4")
+                ], className="py-2"),
+                dbc.ListGroupItem([
+                    html.Div([html.I(className=f"bi bi-signpost-split-fill {type_color_class} me-2"), html.Strong(translate("Tipo de Rota", lang) + ": ")]),
+                    html.Span(translate(r_type, lang), className=f"fw-bold {type_color_class} d-block ms-4")
                 ], className="py-2"),
                 dbc.ListGroupItem([
                     html.Div([html.I(className="bi bi-box-seam-fill text-primary-custom me-2"), html.Strong(translate("Produto: ", lang))]),
@@ -4939,7 +4954,7 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
                     html.Div([html.I(className="bi bi-boxes text-info-custom me-2"), html.Strong(translate("Movimentado: ", lang))]),
                     html.Span(fmt_qtd, className="fw-bold text-info-custom d-block ms-4")
                 ], className="py-2"),
-            ], flush=True),
+            ], flush=True, className="flex-grow-1"),
             dbc.CardFooter([
                 html.Div([
                     html.Span(translate("Custo de Frete: ", lang), className="text-muted small"),
@@ -4954,7 +4969,7 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, table_data,
                     html.H5(fmt_total, className="float-end fw-bold mb-0 text-success-custom")
                 ], className="mt-2 border-top pt-2")
             ], className="bg-light")
-        ], className="shadow-sm border-0 h-100")
+        ], className="shadow-sm border-0 h-100 d-flex flex-column")
 
         return fig, details_html
 
