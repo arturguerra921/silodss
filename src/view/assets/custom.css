@@ -484,7 +484,6 @@ small, .small {
     background-color: #D9534F;
 }
 
-/* Checked/Active state styling */
 .wh-filter-group .btn-check:checked + .btn {
     background-color: #003366 !important;
     color: #FFFFFF !important;
@@ -493,6 +492,34 @@ small, .small {
 
 .wh-filter-group .btn-check:checked + .btn::before {
     border: 1.5px solid #FFFFFF;
+}
+
+/* Scenario selector color-coded buttons */
+.scenario-selector input[value="pessimista"]:checked + label,
+.scenario-selector input[value="pessimista"]:checked + .btn,
+.scenario-selector input[value="pessimista"] + label:hover,
+.scenario-selector input[value="pessimista"] + .btn:hover {
+  background-color: #C8102E !important;
+  border-color: #C8102E !important;
+  color: #FFFFFF !important;
+}
+
+.scenario-selector input[value="esperado"]:checked + label,
+.scenario-selector input[value="esperado"]:checked + .btn,
+.scenario-selector input[value="esperado"] + label:hover,
+.scenario-selector input[value="esperado"] + .btn:hover {
+  background-color: #003366 !important;
+  border-color: #003366 !important;
+  color: #FFFFFF !important;
+}
+
+.scenario-selector input[value="otimista"]:checked + label,
+.scenario-selector input[value="otimista"]:checked + .btn,
+.scenario-selector input[value="otimista"] + label:hover,
+.scenario-selector input[value="otimista"] + .btn:hover {
+  background-color: #006633 !important;
+  border-color: #006633 !important;
+  color: #FFFFFF !important;
 }
 
 

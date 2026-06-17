@@ -10,7 +10,7 @@ from src.view.theme import UNB_THEME
 from src.view.pages.distance_matrix import get_tab_distance_matrix_layout
 from src.view.pages.model_config import get_tab_model_config_layout
 from src.view.pages.costs import get_tab_costs_layout
-from src.view.pages.results import get_tab_results_layout
+from src.view.pages.results import get_tab_results_layout, get_tab_stochastic_results_layout
 from src.view.pages.warehouses import get_tab_warehouses_layout
 from src.view.pages.prediction import get_tab_prediction_layout
 from src.logic.prediction import (
@@ -273,6 +273,7 @@ def serve_layout(lang="pt"):
             dbc.Tab(label=translate("Matriz de Distâncias", lang), tab_id="tab-distance-matrix", label_class_name="px-4"),
             dbc.Tab(label=translate("Configuração do Modelo", lang), tab_id="tab-config", label_class_name="px-4"),
             dbc.Tab(label=translate("Resultados", lang), tab_id="tab-results", label_class_name="px-4"),
+            dbc.Tab(label=translate("Comparação de Cenários", lang), tab_id="tab-stochastic-results", label_class_name="px-4"),
         ],
         id="main-tabs",
         active_tab="tab-input",
@@ -1258,6 +1259,7 @@ def serve_layout(lang="pt"):
     tab_distance_matrix_layout = get_tab_distance_matrix_layout(lang)
     tab_config_layout = get_tab_model_config_layout(lang)
     tab_results_layout = get_tab_results_layout(lang)
+    tab_stochastic_results_layout = get_tab_stochastic_results_layout(lang)
 
     content_container = html.Div(
         [
@@ -1270,6 +1272,7 @@ def serve_layout(lang="pt"):
             html.Div(id="tab-distance-matrix-container", children=tab_distance_matrix_layout, style={"display": "none"}),
             html.Div(id="tab-config-container", children=tab_config_layout, style={"display": "none"}),
             html.Div(id="tab-results-container", children=tab_results_layout, style={"display": "none"}),
+            html.Div(id="tab-stochastic-results-container", children=tab_stochastic_results_layout, style={"display": "none"}),
         ],
         id="tabs-content"
     )
@@ -1498,11 +1501,12 @@ def toggle_help_modal(n_open, n_close, active_tab, is_open, help_seen):
      Output("tab-costs-container", "style"),
      Output("tab-distance-matrix-container", "style"),
      Output("tab-config-container", "style"),
-     Output("tab-results-container", "style")],
+     Output("tab-results-container", "style"),
+     Output("tab-stochastic-results-container", "style")],
     Input("main-tabs", "active_tab")
 )
 def render_content(active_tab):
-    base_styles = [{"display": "none"}] * 9
+    base_styles = [{"display": "none"}] * 10
 
     if active_tab == 'tab-input':
         base_styles[0] = {"display": "block"}
@@ -1522,6 +1526,8 @@ def render_content(active_tab):
         base_styles[7] = {"display": "block"}
     elif active_tab == 'tab-results':
         base_styles[8] = {"display": "block"}
+    elif active_tab == 'tab-stochastic-results':
+        base_styles[9] = {"display": "block"}
 
     return tuple(base_styles)
 
@@ -4389,13 +4395,15 @@ def make_warehouse_row(w, lang):
      Output("table-results-warehouses", "columns"),
      Output("table-results-routes", "data"),
      Output("table-results-routes", "columns"),
-     Output("results-warnings-container", "children")],
+     Output("results-warnings-container", "children"),
+     Output("results-scenario-selector-container", "style")],
     [Input("store-model-results", "data"),
-     Input("switch-show-all-warehouses", "value")],
+     Input("switch-show-all-warehouses", "value"),
+     Input("radio-results-scenario-select", "value")],
     [State("store-lang", "data")],
-    prevent_initial_call=True
+    prevent_initial_call=False
 )
-def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
+def update_results_kpis_and_table(results_data, show_all_warehouses, selected_scenario, lang='pt'):
     ctx = dash.callback_context
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
@@ -4412,11 +4420,24 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
 
     show_all_warehouses_bool = bool(show_all_warehouses)
 
+    # Determine visibility style of the selector
+    selector_style = {"display": "none"}
+    is_stochastic = False
+    if results_data and results_data.get("status") == "optimal":
+        if results_data.get("model_type") == "stochastic":
+            selector_style = {"display": "block"}
+            is_stochastic = True
+
     if trigger_id == "switch-show-all-warehouses":
         if not results_data or results_data.get("status") != "optimal":
             wh_table_data = []
         else:
-            wh_decisions = results_data.get("warehouse_decisions", [])
+            if is_stochastic:
+                scen = selected_scenario or "esperado"
+                wh_decisions = results_data.get("scenario_warehouse_metrics", {}).get(scen, [])
+            else:
+                wh_decisions = results_data.get("warehouse_decisions", [])
+                
             if not show_all_warehouses_bool:
                 wh_decisions = [
                     w for w in wh_decisions
@@ -4427,16 +4448,26 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
         return (dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update,
                 dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update,
                 dash.no_update, dash.no_update, wh_table_data, dash.no_update, dash.no_update,
-                dash.no_update, dash.no_update)
+                dash.no_update, dash.no_update, selector_style)
 
     if not results_data or results_data.get("status") != "optimal":
         return ("R$ 0,00", "0,00", "0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00",
-                "0", "0", "0", "R$ 0,00", [], dash.no_update, [], dash.no_update, [])
+                "0", "0", "0", "R$ 0,00", [], dash.no_update, [], dash.no_update, [], selector_style)
 
-    kpis = results_data.get("kpis", {})
-    routes = results_data.get("routes", [])
+    # Fetch data depending on stochastic vs deterministic
+    if is_stochastic:
+        scen = selected_scenario or "esperado"
+        kpis = results_data.get("scenario_kpis", {}).get(scen, {})
+        routes = results_data.get("scenario_routes", {}).get(scen, [])
+        wh_decisions = results_data.get("scenario_warehouse_metrics", {}).get(scen, [])
+        objective = kpis.get("total_cost", 0.0)
+    else:
+        kpis = results_data.get("kpis", {})
+        routes = results_data.get("routes", [])
+        wh_decisions = results_data.get("warehouse_decisions", [])
+        objective = results_data.get("objective", 0.0)
+
     warnings = results_data.get("warnings", {})
-    objective = results_data.get("objective", 0.0)
 
     obj_str = fmt_curr(objective)
     tons = fmt_num(kpis.get('total_tons', 0))
@@ -4448,7 +4479,6 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
     bulk = fmt_curr(kpis.get('total_bulk_cost', 0))
 
     # Warehouse decisions metrics
-    wh_decisions = results_data.get("warehouse_decisions", [])
     opened_count = str(sum(1 for w in wh_decisions if w.get("IsCandidate") and w.get("IsOpen")))
     expanded_count = str(sum(1 for w in wh_decisions if w.get("IsExpanded")))
     bulkified_count = str(sum(1 for w in wh_decisions if w.get("IsBulkified")))
@@ -4524,16 +4554,19 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
     # Render warnings
     warnings_html = []
 
-    # Legacy fallback for old data
     if isinstance(warnings, list):
         if warnings:
+            title = translate("Aviso de Viabilidade do Modelo", lang) if is_stochastic else translate("Atenção: Uso de Capacidade Artificial Detectado!", lang)
+            desc = translate("O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:", lang) if is_stochastic else translate("O modelo matemático identificou restrições na sua infraestrutura real. Para evitar que o modelo ficasse 'sem solução' e para indicar onde estão os gargalos logísticos, as seguintes capacidades artificiais foram utilizadas (Elas carregam um custo exorbitante no modelo):", lang)
+            alert_class = "alert-warning-custom shadow-sm mb-3" if is_stochastic else "alert-danger-custom shadow-sm mb-3"
+            
             warnings_list = [html.Li(w) for w in warnings]
             warnings_html.append(dbc.Alert([
-                html.H5([html.I(className="bi bi-exclamation-triangle-fill me-2"), translate("Atenção: Uso de Capacidade Artificial Detectado!", lang)], className="alert-heading"),
-                html.P(translate("O modelo matemático identificou restrições na sua infraestrutura real. Para evitar que o modelo ficasse 'sem solução' e para indicar onde estão os gargalos logísticos, as seguintes capacidades artificiais foram utilizadas (Elas carregam um custo exorbitante no modelo):", lang)),
+                html.H5([html.I(className="bi bi-exclamation-triangle-fill me-2"), title], className="alert-heading"),
+                html.P(desc),
                 html.Hr(),
                 html.Ul(warnings_list, className="mb-0")
-            ], className="alert-danger-custom shadow-sm mb-3"))
+            ], className=alert_class))
     else:
         # 1. Capacity warnings
         capacity_warnings = warnings.get("capacity", [])
@@ -4572,8 +4605,7 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
                 html.Ul([
                     html.Li(translate("Aumente a carga máxima de recepção diária ou o número de dias úteis na configuração do modelo.", lang)),
                     html.Li(translate("Se estiver usando a capacidade do banco de dados, certifique-se de que os armazéns escolhidos possuem valores suficientes de recepção na base.", lang)),
-                    html.Li(translate("Distribua melhor a oferta entre outros armazéns habilitados.", lang)),
-                    html.Li(translate("Verifique se as restrições de 'Carga mínima de frete' não estão obrigando o envio de volumes muito grandes de uma só vez.", lang))
+                    html.Li(translate("Considere utilizar o modelo com prazos mais flexíveis ou revisar as rotas de menor custo.", lang))
                 ], className="mb-0")
             ], className="alert-warning-custom shadow-sm mb-3"))
 
@@ -4582,11 +4614,6 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
         if freight_warnings:
             warnings_list = [html.Li(w) for w in freight_warnings]
             warnings_html.append(dbc.Alert([
-                html.H5([html.I(className="bi bi-truck-flatbed me-2"), translate("Conflito nas Regras de Frete Mínimo/Máximo", lang)], className="alert-heading"),
-                html.P(translate("Existem ofertas não alocadas porque as restrições de frete (carga mínima ou máxima por viagem) inviabilizaram o escoamento total dessa carga para qualquer destino válido.", lang), className="mb-2"),
-                html.P(translate("Interações de regras: Isso ocorre quando os dados entram em conflito. Por exemplo, se a sobra de oferta for de 10t, mas a exigência de Frete Mínimo for de 30t, as 10t não podem ser enviadas. O mesmo acontece se um armazém só puder receber 15t diárias, mas o caminhão mínimo carrega 30t: o modelo não tem como fazer a entrega sem quebrar alguma restrição.", lang), className="mb-2"),
-                html.P([html.I(className="bi bi-info-circle-fill me-1"), html.B(translate("Suposições do Modelo e Atenção aos Resultados:", lang))], className="fw-bold mb-1"),
-                html.P(translate("Estes avisos refletem escolhas matemáticas que o modelo precisou fazer para contornar gargalos logísticos. Para evitar que o sistema ficasse 'sem solução' e mostrar onde a operação trava, o modelo utilizou uma capacidade artificial com um custo (multa) exorbitantemente alto. Portanto, os valores de custo total exibidos nesta página devem ser desconsiderados até que a questão seja resolvida.", lang), className="mb-2"),
                 html.Hr(),
                 html.Ul(warnings_list, className="mb-3"),
                 html.P(html.B(translate("Possíveis Soluções:", lang))),
@@ -4629,7 +4656,7 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, lang='pt'):
         obj_str, tons, kms, freight, storage,
         opening, expand, bulk, opened_count, expanded_count,
         bulkified_count, investment_str, wh_table_data, wh_columns,
-        table_data, columns, warnings_html
+        table_data, columns, warnings_html, selector_style
     )
 
 @app.callback(
@@ -4653,11 +4680,137 @@ def download_results(n_clicks, results_data, lang='pt'):
     if not n_clicks or not results_data or results_data.get("status") != "optimal":
         return dash.no_update
 
+    model_stats = results_data.get("model_stats", {})
+
+    if results_data.get("model_type") == "stochastic":
+        scenarios = ["pessimista", "esperado", "otimista"]
+        scenario_names_map = {
+            "pessimista": translate("Pessimista", lang),
+            "esperado": translate("Esperado", lang),
+            "otimista": translate("Otimista", lang)
+        }
+        
+        # 1. Resumo por Cenário
+        comparison_rows = []
+        metrics_def = [
+            ("total_cost", translate("Custo Total Ótimo (R$)", lang)),
+            ("total_tons", translate("Volume Total Movimentado (ton)", lang)),
+            ("total_km", translate("Distância Total Percorrida (km)", lang)),
+            ("total_freight_cost", translate("Custo Total de Frete (R$)", lang)),
+            ("total_storage_cost", translate("Custo Total de Armazenagem (R$)", lang)),
+            ("total_opening_cost", translate("Custo Total de Abertura (R$)", lang)),
+            ("total_expand_cost", translate("Custo Total de Expansão (R$)", lang)),
+            ("total_bulk_cost", translate("Custo Total de Granelização (R$)", lang))
+        ]
+        
+        for key, label in metrics_def:
+            row = {"Métrica" if lang == "pt" else "Metric": label}
+            for s in scenarios:
+                s_kpi = results_data.get("scenario_kpis", {}).get(s, {})
+                row[scenario_names_map[s]] = s_kpi.get(key, 0.0)
+            comparison_rows.append(row)
+        df_comparison = pd.DataFrame(comparison_rows)
+
+        df_routes_by_scen = {}
+        for s in scenarios:
+            s_routes = results_data.get("scenario_routes", {}).get(s, [])
+            route_rows = []
+            for r in s_routes:
+                row = {
+                    translate("Origem", lang): r.get("Origem", ""),
+                    translate("Destino", lang): r.get("Destino", ""),
+                    translate("Produto", lang): r.get("Produto", ""),
+                    translate("Quantidade (ton)", lang): r.get("Quantidade (ton)", 0.0),
+                    translate("Período", lang): r.get("Período", ""),
+                    translate("Tipo de Rota", lang): translate(r.get("Tipo de Rota", ""), lang),
+                    translate("Distancia (km)", lang): r.get("Distancia (km)", 0.0),
+                    translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0),
+                    translate("Custo Armazenagem (R$)", lang): r.get("Custo Armazenagem (R$)", 0.0),
+                    translate("Custo Total (R$)", lang): r.get("Custo Total (R$)", 0.0)
+                }
+                if "Qtd. de Viagens" in r and r["Qtd. de Viagens"] is not None:
+                    row[translate("Qtd. de Viagens", lang)] = r["Qtd. de Viagens"]
+                route_rows.append(row)
+            df_routes_by_scen[s] = pd.DataFrame(route_rows)
+            
+        df_wh_by_scen = {}
+        for s in scenarios:
+            s_wh = results_data.get("scenario_warehouse_metrics", {}).get(s, [])
+            wh_rows = []
+            for w in s_wh:
+                is_cand = w.get("IsCandidate", False)
+                type_str = translate("Candidato", lang) if is_cand else translate("Existente", lang)
+                
+                is_open = w.get("IsOpen", False)
+                status_str = translate("Aberto", lang) if is_open else translate("Fechado", lang)
+                
+                is_exp = w.get("IsExpanded", False)
+                exp_str = translate("Sim", lang) if is_exp else translate("Não", lang)
+                
+                is_bulk = w.get("IsBulkified", False)
+                bulk_str = translate("Sim", lang) if is_bulk else translate("Não", lang)
+                
+                wh_rows.append({
+                    "CDA": w.get("CDA", ""),
+                    translate("Nome", lang): w.get("Name", ""),
+                    translate("Tipo", lang): type_str,
+                    translate("Status", lang): status_str,
+                    translate("Cap. Estática (ton)", lang): w.get("DecidedStaticCapacity", 0.0),
+                    translate("Expandido?", lang): exp_str,
+                    translate("Expansão (ton)", lang): w.get("ExpandedVolume", 0.0),
+                    translate("Granelizado?", lang): bulk_str,
+                    translate("Granelização (ton/dia)", lang): w.get("BulkCapacityAdded", 0.0),
+                    translate("Cap. Efetiva (ton)", lang): w.get("EffectiveStaticCapacity", 0.0),
+                    translate("Saída Total (ton)", lang): w.get("TotalOutflow", 0.0),
+                    translate("Estoque Final (ton)", lang): w.get("FinalStock", 0.0),
+                    translate("Cap. Dinâmica Anual (ton/ano)", lang): w.get("DynamicCapacity", 0.0),
+                    translate("Giro Anual", lang): w.get("TurnoverRatio", 0.0)
+                })
+            df_wh_by_scen[s] = pd.DataFrame(wh_rows)
+
+        df_inv_by_scen = {}
+        for s in scenarios:
+            s_inv = results_data.get("scenario_inventory", {}).get(s, [])
+            inv_rows = []
+            for i in s_inv:
+                inv_rows.append({
+                    "CDA": i.get("CDA", ""),
+                    translate("Nome", lang): i.get("Name", ""),
+                    translate("Produto", lang): i.get("Produto", ""),
+                    translate("Período", lang): i.get("Período", ""),
+                    translate("Estoque (ton)", lang): i.get("Quantidade (ton)", 0.0)
+                })
+            df_inv_by_scen[s] = pd.DataFrame(inv_rows)
+
+        stats_rows = [
+            {"Métrica" if lang == "pt" else "Metric": translate("Status da Solução", lang), "Valor" if lang == "pt" else "Value": translate(results_data.get("status", ""), lang)},
+            {"Métrica" if lang == "pt" else "Metric": translate("Tempo de Execução (segundos)", lang), "Valor" if lang == "pt" else "Value": results_data.get("scenario_kpis", {}).get("esperado", {}).get("execution_time", 0.0)},
+            {"Métrica" if lang == "pt" else "Metric": translate("Total de Variáveis", lang), "Valor" if lang == "pt" else "Value": model_stats.get("total_variables", 0)},
+            {"Métrica" if lang == "pt" else "Metric": translate("Total de Restrições", lang), "Valor" if lang == "pt" else "Value": model_stats.get("total_constraints", 0)},
+            {"Métrica" if lang == "pt" else "Metric": translate("Variáveis Binárias", lang), "Valor" if lang == "pt" else "Value": model_stats.get("binary_variables", 0)},
+            {"Métrica" if lang == "pt" else "Metric": translate("Variáveis Inteiras", lang), "Valor" if lang == "pt" else "Value": model_stats.get("integer_variables", 0)},
+            {"Métrica" if lang == "pt" else "Metric": translate("Variáveis Contínuas", lang), "Valor" if lang == "pt" else "Value": model_stats.get("continuous_variables", 0)},
+        ]
+        df_stats = pd.DataFrame(stats_rows)
+
+        def to_xlsx_stochastic(bytes_io):
+            with pd.ExcelWriter(bytes_io, engine='openpyxl') as writer:
+                df_comparison.to_excel(writer, sheet_name=translate("Resumo por Cenário", lang), index=False)
+                for s in scenarios:
+                    s_label = scenario_names_map[s]
+                    df_wh_by_scen[s].to_excel(writer, sheet_name=f"{translate('Armazéns', lang)} ({s_label})", index=False)
+                    df_routes_by_scen[s].to_excel(writer, sheet_name=f"{translate('Rotas', lang)} ({s_label})", index=False)
+                    df_inv_by_scen[s].to_excel(writer, sheet_name=f"{translate('Estoque', lang)} ({s_label})", index=False)
+                df_stats.to_excel(writer, sheet_name=translate("Estatísticas do Modelo", lang), index=False)
+
+        filename = translate("Optimization_Results.xlsx", lang)
+        return dcc.send_bytes(to_xlsx_stochastic, filename)
+
+    # Deterministic flow
     kpis = results_data.get("kpis", {})
     routes = results_data.get("routes", [])
     wh_decisions = results_data.get("warehouse_decisions", [])
     inventory = results_data.get("inventory", [])
-    model_stats = results_data.get("model_stats", {})
     objective = results_data.get("objective", 0.0)
 
     # 1. Sheet 1: KPIs
@@ -4795,9 +4948,9 @@ def manage_all_routes_modal(n_show, n_cancel, n_confirm, results_data, is_open):
      Output("route-details-container", "children")],
     [Input("table-results-routes", "active_cell"),
      Input("btn-show-all-routes", "n_clicks"),
-     Input("btn-confirm-all-routes", "n_clicks"),
-     Input("radio-scenario-map-select", "value")],
-    [State("table-results-routes", "derived_viewport_data"),
+     Input("btn-confirm-all-routes", "n_clicks")],
+    [State("radio-results-scenario-select", "value"),
+     State("table-results-routes", "derived_viewport_data"),
      State("store-model-results", "data"),
      State("stored-data", "data"),
      State("store-warehouses", "data"),
@@ -4859,51 +5012,35 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
     # 2. Destination Mappings
     lat_col = next((c for c in df_warehouses.columns if 'lat' in str(c).lower()), None)
     lon_col = next((c for c in df_warehouses.columns if 'lon' in str(c).lower()), None)
-
-    if not lat_col or not lon_col:
-        mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
-        uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
-        if mun_col and uf_col:
-            df_warehouses_map = df_warehouses.copy()
-            df_warehouses_map['lookup_key'] = df_warehouses_map[mun_col].astype(str) + ' - ' + df_warehouses_map[uf_col].astype(str)
-            def get_c(key):
-                if key in CITY_LOOKUP: return CITY_LOOKUP[key]
-                return {'latitude': None, 'longitude': None}
-            coords = df_warehouses_map['lookup_key'].apply(get_c)
-            df_warehouses_map['Latitude'] = coords.apply(lambda x: x['latitude'])
-            df_warehouses_map['Longitude'] = coords.apply(lambda x: x['longitude'])
-            dests_df = df_warehouses_map.dropna(subset=['Latitude', 'Longitude'])
-        else:
-            dests_df = pd.DataFrame()
-    else:
-        dests_df = df_warehouses.dropna(subset=[lat_col, lon_col]).copy()
-        dests_df = dests_df.rename(columns={lat_col: 'Latitude', lon_col: 'Longitude'})
+    mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
+    uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
+    armaz_col = next((c for c in df_warehouses.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
 
     dest_mapping = {}
-    if not dests_df.empty:
-        cda_col = next((c for c in dests_df.columns if 'cda' in str(c).lower()), None)
-        name_col = next((c for c in dests_df.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
-        mun_col_dest = next((c for c in dests_df.columns if 'munic' in str(c).lower()), None)
-
-        labels = pd.Series("", index=dests_df.index)
-        first = True
-        for col in [cda_col, name_col, mun_col_dest]:
-            if col:
-                val = dests_df[col].astype(str).str.strip()
-                mask = dests_df[col].notna()
-                if first:
-                    labels = labels.mask(mask, val)
-                    first = False
-                else:
-                    labels = labels.mask(mask, labels.where(~mask | (labels == ""), labels + " - " + val).where(labels != "", val))
-
-        empty_mask = labels == ""
-        if empty_mask.any():
-            labels.loc[empty_mask] = [f"Dest {i}" for i in dests_df.index[empty_mask]]
-
-        dests_df['__label'] = labels
-        dests_df = dests_df.drop_duplicates(subset=['__label'])
-        dest_mapping = dests_df.set_index('__label')[['Latitude', 'Longitude']].to_dict('index')
+    for _, row in df_warehouses.iterrows():
+        cda = str(row['CDA']).strip()
+        parts = []
+        if pd.notna(row['CDA']):
+            parts.append(str(row['CDA']).strip())
+        if armaz_col and pd.notna(row[armaz_col]):
+            parts.append(str(row[armaz_col]).strip())
+        if mun_col and pd.notna(row[mun_col]):
+            parts.append(str(row[mun_col]).strip())
+        
+        name = " - ".join(parts) if parts else cda
+        
+        # Resolve coords
+        lat_val = float(row[lat_col]) if lat_col and pd.notna(row[lat_col]) else None
+        lon_val = float(row[lon_col]) if lon_col and pd.notna(row[lon_col]) else None
+        if lat_val is None or lon_val is None:
+            if mun_col and uf_col and pd.notna(row[mun_col]) and pd.notna(row[uf_col]):
+                key = f"{str(row[mun_col]).strip()} - {str(row[uf_col]).strip()}"
+                if key in CITY_LOOKUP:
+                    lat_val = CITY_LOOKUP[key]['latitude']
+                    lon_val = CITY_LOOKUP[key]['longitude']
+        if lat_val is not None and lon_val is not None:
+            dest_mapping[name] = {"Latitude": lat_val, "Longitude": lon_val}
+            dest_mapping[cda] = {"Latitude": lat_val, "Longitude": lon_val}
 
     # 3. Customer Mappings
     customer_mapping = {}
@@ -4925,16 +5062,24 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
 
     def get_coords_optimized(orig_name, dest_name):
         origin_coords = None
+        orig_cda = orig_name.split(" - ")[0].strip() if orig_name else ""
         if orig_name in origin_mapping:
             o = origin_mapping[orig_name]
             origin_coords = (o['Latitude'], o['Longitude'])
         elif orig_name in dest_mapping:
             o = dest_mapping[orig_name]
             origin_coords = (o['Latitude'], o['Longitude'])
+        elif orig_cda in dest_mapping:
+            o = dest_mapping[orig_cda]
+            origin_coords = (o['Latitude'], o['Longitude'])
 
         dest_coords = None
+        dest_cda = dest_name.split(" - ")[0].strip() if dest_name else ""
         if dest_name in dest_mapping:
             d = dest_mapping[dest_name]
+            dest_coords = (d['Latitude'], d['Longitude'])
+        elif dest_cda in dest_mapping:
+            d = dest_mapping[dest_cda]
             dest_coords = (d['Latitude'], d['Longitude'])
         elif dest_name in customer_mapping:
             d = customer_mapping[dest_name]
@@ -5074,8 +5219,8 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
 
         return fig, details_html
 
-    # Show all routes or trigger scenario change redrawing
-    if trigger_id == "btn-confirm-all-routes" or trigger_id == "btn-show-all-routes" or trigger_id == "radio-scenario-map-select" or (trigger_id is None and routes):
+    # Show all routes
+    if trigger_id == "btn-confirm-all-routes" or trigger_id == "btn-show-all-routes" or (trigger_id is None and routes):
         if not routes:
             return default_fig, html.P(translate("Nenhuma rota encontrada.", lang), className="text-muted small")
 
@@ -5136,9 +5281,9 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
      Output("warehouse-details-container", "children")],
     [Input("table-results-warehouses", "active_cell"),
      Input("wh-route-type-filter", "value"),
-     Input("store-model-results", "data"),
-     Input("radio-scenario-map-select", "value")],
-    [State("table-results-warehouses", "derived_viewport_data"),
+     Input("store-model-results", "data")],
+    [State("radio-results-scenario-select", "value"),
+     State("table-results-warehouses", "derived_viewport_data"),
      State("stored-data", "data"),
      State("store-warehouses", "data"),
      State("stored-demand-data", "data"),
@@ -5190,51 +5335,35 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, scenar
     # 2. Warehouse Mappings
     lat_col = next((c for c in df_warehouses.columns if 'lat' in str(c).lower()), None)
     lon_col = next((c for c in df_warehouses.columns if 'lon' in str(c).lower()), None)
-
-    if not lat_col or not lon_col:
-        mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
-        uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
-        if mun_col and uf_col:
-            df_warehouses_map = df_warehouses.copy()
-            df_warehouses_map['lookup_key'] = df_warehouses_map[mun_col].astype(str) + ' - ' + df_warehouses_map[uf_col].astype(str)
-            def get_c(key):
-                if key in CITY_LOOKUP: return CITY_LOOKUP[key]
-                return {'latitude': None, 'longitude': None}
-            coords = df_warehouses_map['lookup_key'].apply(get_c)
-            df_warehouses_map['Latitude'] = coords.apply(lambda x: x['latitude'])
-            df_warehouses_map['Longitude'] = coords.apply(lambda x: x['longitude'])
-            dests_df = df_warehouses_map.dropna(subset=['Latitude', 'Longitude'])
-        else:
-            dests_df = pd.DataFrame()
-    else:
-        dests_df = df_warehouses.dropna(subset=[lat_col, lon_col]).copy()
-        dests_df = dests_df.rename(columns={lat_col: 'Latitude', lon_col: 'Longitude'})
+    mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
+    uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
+    armaz_col = next((c for c in df_warehouses.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
 
     dest_mapping = {}
-    if not dests_df.empty:
-        cda_col = next((c for c in dests_df.columns if 'cda' in str(c).lower()), None)
-        name_col = next((c for c in dests_df.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
-        mun_col_dest = next((c for c in dests_df.columns if 'munic' in str(c).lower()), None)
-
-        labels = pd.Series("", index=dests_df.index)
-        first = True
-        for col in [cda_col, name_col, mun_col_dest]:
-            if col:
-                val = dests_df[col].astype(str).str.strip()
-                mask = dests_df[col].notna()
-                if first:
-                    labels = labels.mask(mask, val)
-                    first = False
-                else:
-                    labels = labels.mask(mask, labels.where(~mask | (labels == ""), labels + " - " + val).where(labels != "", val))
-
-        empty_mask = labels == ""
-        if empty_mask.any():
-            labels.loc[empty_mask] = [f"Dest {i}" for i in dests_df.index[empty_mask]]
-
-        dests_df['__label'] = labels
-        dests_df = dests_df.drop_duplicates(subset=['__label'])
-        dest_mapping = dests_df.set_index('__label')[['Latitude', 'Longitude']].to_dict('index')
+    for _, row in df_warehouses.iterrows():
+        cda = str(row['CDA']).strip()
+        parts = []
+        if pd.notna(row['CDA']):
+            parts.append(str(row['CDA']).strip())
+        if armaz_col and pd.notna(row[armaz_col]):
+            parts.append(str(row[armaz_col]).strip())
+        if mun_col and pd.notna(row[mun_col]):
+            parts.append(str(row[mun_col]).strip())
+        
+        name = " - ".join(parts) if parts else cda
+        
+        # Resolve coords
+        lat_val = float(row[lat_col]) if lat_col and pd.notna(row[lat_col]) else None
+        lon_val = float(row[lon_col]) if lon_col and pd.notna(row[lon_col]) else None
+        if lat_val is None or lon_val is None:
+            if mun_col and uf_col and pd.notna(row[mun_col]) and pd.notna(row[uf_col]):
+                key = f"{str(row[mun_col]).strip()} - {str(row[uf_col]).strip()}"
+                if key in CITY_LOOKUP:
+                    lat_val = CITY_LOOKUP[key]['latitude']
+                    lon_val = CITY_LOOKUP[key]['longitude']
+        if lat_val is not None and lon_val is not None:
+            dest_mapping[name] = {"Latitude": lat_val, "Longitude": lon_val}
+            dest_mapping[cda] = {"Latitude": lat_val, "Longitude": lon_val}
 
     # 3. Customer Mappings
     customer_mapping = {}
@@ -5256,16 +5385,24 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, scenar
 
     def get_coords_optimized(orig_name, dest_name):
         origin_coords = None
+        orig_cda = orig_name.split(" - ")[0].strip() if orig_name else ""
         if orig_name in origin_mapping:
             o = origin_mapping[orig_name]
             origin_coords = (o['Latitude'], o['Longitude'])
         elif orig_name in dest_mapping:
             o = dest_mapping[orig_name]
             origin_coords = (o['Latitude'], o['Longitude'])
+        elif orig_cda in dest_mapping:
+            o = dest_mapping[orig_cda]
+            origin_coords = (o['Latitude'], o['Longitude'])
 
         dest_coords = None
+        dest_cda = dest_name.split(" - ")[0].strip() if dest_name else ""
         if dest_name in dest_mapping:
             d = dest_mapping[dest_name]
+            dest_coords = (d['Latitude'], d['Longitude'])
+        elif dest_cda in dest_mapping:
+            d = dest_mapping[dest_cda]
             dest_coords = (d['Latitude'], d['Longitude'])
         elif dest_name in customer_mapping:
             d = customer_mapping[dest_name]
@@ -5287,8 +5424,9 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, scenar
         
         for w in wh_decisions:
             w_name = w.get("Name", "")
-            if w_name in dest_mapping:
-                coords = dest_mapping[w_name]
+            w_cda = w.get("CDA", "")
+            coords = dest_mapping.get(w_name, dest_mapping.get(w_cda))
+            if coords:
                 wh_lats.append(coords['Latitude'])
                 wh_lons.append(coords['Longitude'])
                 wh_names.append(w_name)
@@ -5339,27 +5477,44 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, scenar
         return default_fig, html.P(translate("Erro: Linha selecionada inválida.", lang), className="text-muted small")
         
     selected_wh_info = table_data[row_idx]
-    selected_wh_name = selected_wh_info['Name']
+    selected_wh_name = selected_wh_info.get('Name', '')
+    selected_wh_cda = selected_wh_info.get('CDA', '')
 
     selected_wh_dec = None
     for w in wh_decisions:
-        if w["Name"] == selected_wh_name:
+        if (selected_wh_cda and w.get("CDA") == selected_wh_cda) or (w.get("Name") == selected_wh_name):
             selected_wh_dec = w
             break
 
     if not selected_wh_dec:
         return default_fig, html.P(translate("Detalhes do armazém não encontrados.", lang), className="text-muted small")
 
-    if selected_wh_name not in dest_mapping:
+    coords_key = None
+    if selected_wh_name in dest_mapping:
+        coords_key = selected_wh_name
+    elif selected_wh_cda in dest_mapping:
+        coords_key = selected_wh_cda
+    elif selected_wh_name.split(" - ")[0].strip() in dest_mapping:
+        coords_key = selected_wh_name.split(" - ")[0].strip()
+
+    if not coords_key:
         return default_fig, html.P(translate("Coordenadas do armazém não encontradas.", lang), className="text-muted small")
 
-    wh_coords = dest_mapping[selected_wh_name]
+    wh_coords = dest_mapping[coords_key]
     wh_lat, wh_lon = wh_coords['Latitude'], wh_coords['Longitude']
 
     # Gather routes and apply type filter
     wh_routes = []
     for r in routes:
-        if r["Origem"] == selected_wh_name or r["Destino"] == selected_wh_name:
+        orig = r.get("Origem", "")
+        dest = r.get("Destino", "")
+        orig_cda = orig.split(" - ")[0].strip() if orig else ""
+        dest_cda = dest.split(" - ")[0].strip() if dest else ""
+        
+        match_orig = (orig == selected_wh_name) or (selected_wh_cda and orig_cda == selected_wh_cda)
+        match_dest = (dest == selected_wh_name) or (selected_wh_cda and dest_cda == selected_wh_cda)
+        
+        if match_orig or match_dest:
             if filter_value == "all":
                 wh_routes.append(r)
             elif filter_value == "inflow" and r["Tipo de Rota"] == "Origem -> Armazém":
@@ -5483,11 +5638,11 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, scenar
     total_inflow = sum(r["Quantidade (ton)"] for r in routes if r["Destino"] == selected_wh_name)
     total_outflow = sum(r["Quantidade (ton)"] for r in routes if r["Origem"] == selected_wh_name)
 
-    opening_cost = selected_wh_dec.get("OpeningCost", 0.0)
-    expand_cost = selected_wh_dec.get("ExpandCost", 0.0)
-    bulk_cost = selected_wh_dec.get("BulkCost", 0.0)
-    storage_cost = selected_wh_dec.get("StorageCost", 0.0)
-    total_cost = selected_wh_dec.get("TotalCost", 0.0)
+    opening_cost = selected_wh_dec.get("OpeningCost", 0.0) or 0.0
+    expand_cost = selected_wh_dec.get("ExpandCost", 0.0) or 0.0
+    bulk_cost = selected_wh_dec.get("BulkCost", 0.0) or 0.0
+    storage_cost = selected_wh_dec.get("StorageCost", 0.0) or 0.0
+    total_cost = selected_wh_dec.get("TotalCost", opening_cost + expand_cost + bulk_cost + storage_cost) or 0.0
 
     def fmt_num_only(val, decimal_places=2):
         if val is None:
@@ -7354,13 +7509,14 @@ def update_prediction_status_badge(prediction_results, lang="pt"):
 # --- Stochastic Results Callbacks ---
 
 @app.callback(
-    Output("stochastic-results-container", "style"),
+    [Output("stochastic-results-placeholder", "style"),
+     Output("stochastic-results-actual-card", "style")],
     Input("store-model-results", "data")
 )
 def toggle_stochastic_results_container(results_data):
     if results_data and results_data.get("model_type") == "stochastic" and results_data.get("status") == "optimal":
-        return {"display": "block"}
-    return {"display": "none"}
+        return {"display": "none"}, {"display": "block"}
+    return {"display": "block"}, {"display": "none"}
 
 
 @app.callback(

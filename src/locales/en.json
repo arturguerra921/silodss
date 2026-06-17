@@ -828,5 +828,11 @@
     "Aviso: Previsões ausentes na aba 'Previsão'. O modelo estocástico requer previsões.": "Warning: Missing forecasts in the 'Forecast' tab. The stochastic model requires forecasts.",
     "Erro: O modelo estocástico requer que as previsões na aba 'Previsão' tenham sido executadas primeiro.": "Error: The stochastic model requires that the forecasts in the 'Forecast' tab have been executed first.",
     "A soma das probabilidades deve ser exatamente 1.0 (atual: {val:.2f})": "The sum of probabilities must be exactly 1.0 (current: {val:.2f})",
-    "Probabilidades válidas (soma = 1.0)": "Valid probabilities (sum = 1.0)"
+    "Probabilidades válidas (soma = 1.0)": "Valid probabilities (sum = 1.0)",
+    "Comparação de Cenários (Estocástico)": "Scenario Comparison (Stochastic)",
+    "Esta aba exibe a comparação de cenários e o valor da solução estocástica (EVPI/VSS) após a execução do modelo estocástico. Para visualizar estes resultados, ative o Modelo Estocástico na aba de Configuração do Modelo.": "This tab displays the scenario comparison and the value of the stochastic solution (EVPI/VSS) after executing the stochastic model. To view these results, activate the Stochastic Model in the Model Configuration tab.",
+    "(Cenário {scenario}): A oferta total acumulada ({supply:.0f}t) é menor do que a demanda interna total acumulada ({demand:.0f}t). O modelo pode ficar inviável.": "(Scenario {scenario}): The cumulative total supply ({supply:.0f}t) is less than the cumulative total demand ({demand:.0f}t). The model may become infeasible.",
+    "Cenário para Visualização:": "Scenario for Visualization:",
+    "Aviso de Viabilidade do Modelo": "Model Feasibility Warning",
+    "O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:": "The model identified potential feasibility constraints or supply lower than demand in the scenarios:"
 }

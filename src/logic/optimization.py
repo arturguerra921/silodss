@@ -94,6 +94,8 @@ def run_deterministic_model(
     demand_initial_inventory = {}
     
     cda_to_name = {}
+    mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
+    armaz_col = next((c for c in df_warehouses.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
 
     for _, row in df_warehouses.iterrows():
         cda = str(row['CDA']).strip()
@@ -106,10 +108,10 @@ def run_deterministic_model(
         parts = []
         if pd.notna(row['CDA']):
             parts.append(str(row['CDA']).strip())
-        if 'Armazenador' in row and pd.notna(row['Armazenador']):
-            parts.append(str(row['Armazenador']).strip())
-        if 'Município' in row and pd.notna(row['Município']):
-            parts.append(str(row['Município']).strip())
+        if armaz_col and armaz_col in row and pd.notna(row[armaz_col]):
+            parts.append(str(row[armaz_col]).strip())
+        if mun_col and mun_col in row and pd.notna(row[mun_col]):
+            parts.append(str(row[mun_col]).strip())
             
         cda_to_name[cda] = " - ".join(parts) if parts else cda
 
@@ -1082,6 +1084,12 @@ def build_stochastic_pyomo_model(
   cda_to_name = {}
 
   cols_wh = list(df_warehouses.columns)
+  mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
+  armaz_col = next((c for c in df_warehouses.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
+  
+  armaz_idx = cols_wh.index(armaz_col) if armaz_col in cols_wh else None
+  mun_idx = cols_wh.index(mun_col) if mun_col in cols_wh else None
+
   try:
     cda_idx = cols_wh.index('CDA')
     status_idx = cols_wh.index('Status')
@@ -1102,10 +1110,10 @@ def build_stochastic_pyomo_model(
       warehouse_uf[cda] = str(row[uf_idx]).strip()
       
       parts = [cda]
-      if len(row) > 10 and pd.notna(row[10]): # Armazenador (assumed col 10)
-        parts.append(str(row[10]).strip())
-      if len(row) > 11 and pd.notna(row[11]): # Município (assumed col 11)
-        parts.append(str(row[11]).strip())
+      if armaz_idx is not None and pd.notna(row[armaz_idx]):
+        parts.append(str(row[armaz_idx]).strip())
+      if mun_idx is not None and pd.notna(row[mun_idx]):
+        parts.append(str(row[mun_idx]).strip())
       cda_to_name[cda] = " - ".join(parts) if len(parts) > 1 else cda
 
       if status == 'Existente':
@@ -1131,10 +1139,10 @@ def build_stochastic_pyomo_model(
       parts = []
       if pd.notna(row.get('CDA')):
         parts.append(str(row['CDA']).strip())
-      if 'Armazenador' in row and pd.notna(row['Armazenador']):
-        parts.append(str(row['Armazenador']).strip())
-      if 'Município' in row and pd.notna(row['Município']):
-        parts.append(str(row['Município']).strip())
+      if armaz_col and armaz_col in row and pd.notna(row[armaz_col]):
+        parts.append(str(row[armaz_col]).strip())
+      if mun_col and mun_col in row and pd.notna(row[mun_col]):
+        parts.append(str(row[mun_col]).strip())
       cda_to_name[cda] = " - ".join(parts) if parts else cda
 
       if status == 'Existente':
@@ -1779,28 +1787,25 @@ def run_stochastic_model(
 
     # 3. Pre-solve feasibility checks
     pre_solve_warnings = []
-    # Quick access supply totals per period/scenario
+    # Quick access supply totals per scenario (summed across all periods)
     for s in ['pessimista', 'esperado', 'otimista']:
-      for t in periods:
         tot_supply = 0.0
         for (o, p, t_val), val in df_supply.groupby(['Cidade', 'Produto', 'Data'])['Peso (ton)'].sum().to_dict().items():
-          if t_val == t:
             wmape = wmapes_supply.get((p, o), 0.15)
             factor = (1.0 - wmape) if s == 'pessimista' else ((1.0 + wmape) if s == 'otimista' else 1.0)
             tot_supply += val * factor
             
         tot_demand = 0.0
         for (c, p, t_val), val in demand_min.items():
-          if t_val == t:
             wmape = wmapes_demand.get((p, c), 0.15)
             factor = (1.0 + wmape) if s == 'pessimista' else ((1.0 - wmape) if s == 'otimista' else 1.0)
             tot_demand += val * factor
             
         if tot_supply < tot_demand:
-          pre_solve_warnings.append(
-            translate("Período {period} (Cenário {scenario}): A oferta total ({supply:.0f}t) é menor do que a demanda interna total ({demand:.0f}t). O modelo pode ficar inviável.", lang)
-            .format(period=pd.to_datetime(t).strftime('%Y-%m'), scenario=s.capitalize(), supply=tot_supply, demand=tot_demand)
-          )
+            pre_solve_warnings.append(
+                translate("(Cenário {scenario}): A oferta total acumulada ({supply:.0f}t) é menor do que a demanda interna total acumulada ({demand:.0f}t). O modelo pode ficar inviável.", lang)
+                .format(scenario=s.capitalize(), supply=tot_supply, demand=tot_demand)
+            )
 
     if detailed_log:
       model.pprint()
@@ -2045,10 +2050,18 @@ def run_stochastic_model(
             
         turnover_annual = dyn_cap_annual / effective_static if effective_static > 0.0 else 0.0
         
+        opening_c = pyo.value(model.WarehouseOpen[d]) * pyo.value(model.OpeningCost[d]) if is_cand else 0.0
+        expand_c = pyo.value(model.IsExpanded[d]) * pyo.value(model.ExpandFixedCost[d]) + pyo.value(model.ExpandedCapacity[d]) * pyo.value(model.ExpandVarCost[d])
+        bulk_c = pyo.value(model.IsBulkified[d]) * pyo.value(model.BulkFixedCost[d]) + pyo.value(model.BulkCapacity[d]) * pyo.value(model.BulkVarCost[d]) if d in bulk_eligible_list else 0.0
+        storage_c = sum(pyo.value(model.Inventory[d, p, t, s]) * pyo.value(model.StorageTariff[d, p]) for p in all_products for t in periods)
+        total_c = opening_c + expand_c + bulk_c + storage_c
+
         wh_metrics.append({
           "CDA": d,
           "Name": cda_to_name.get(d, d),
+          "IsCandidate": is_cand,
           "IsOpen": is_open,
+          "DecidedStaticCapacity": cand_static if is_cand else static_capacity.get(d, 0.0),
           "IsExpanded": is_exp,
           "ExpandedVolume": exp_cap,
           "IsBulkified": is_bulk,
@@ -2059,10 +2072,11 @@ def run_stochastic_model(
           "DynamicCapacityRaw": dyn_cap_raw,
           "EffectiveStaticCapacity": effective_static,
           "TurnoverRatio": turnover_annual,
-          "OpeningCost": pyo.value(model.WarehouseOpen[d]) * pyo.value(model.OpeningCost[d]) if is_cand else 0.0,
-          "ExpandCost": pyo.value(model.IsExpanded[d]) * pyo.value(model.ExpandFixedCost[d]) + pyo.value(model.ExpandedCapacity[d]) * pyo.value(model.ExpandVarCost[d]),
-          "BulkCost": pyo.value(model.IsBulkified[d]) * pyo.value(model.BulkFixedCost[d]) + pyo.value(model.BulkCapacity[d]) * pyo.value(model.BulkVarCost[d]) if d in bulk_eligible_list else 0.0,
-          "StorageCost": sum(pyo.value(model.Inventory[d, p, t, s]) * pyo.value(model.StorageTariff[d, p]) for p in all_products for t in periods)
+          "OpeningCost": opening_c,
+          "ExpandCost": expand_c,
+          "BulkCost": bulk_c,
+          "StorageCost": storage_c,
+          "TotalCost": total_c
         })
       scenario_warehouse_metrics[s] = wh_metrics
 

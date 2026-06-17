@@ -501,12 +501,70 @@ def get_tab_results_layout(lang='pt'):
         is_open=False,
     )
 
-    # Seção Estocástica: Comparação de Cenários
-    stochastic_results_card = html.Div(
-        id="stochastic-results-container",
-        style={"display": "none"},  # Hidden by default, shown dynamically if stochastic results exist
+    stochastic_scenario_selector = html.Div(
+        id="results-scenario-selector-container",
+        style={"display": "none"},
         children=[
-            html.Hr(className="my-5"),
+            dbc.Card(
+                dbc.CardBody([
+                    html.Div([
+                        html.Span(translate("Cenário para Visualização:", lang), className="fw-bold me-3 text-primary-custom", style={"fontSize": "16px"}),
+                        dbc.RadioItems(
+                            id="radio-results-scenario-select",
+                            options=[
+                                {"label": translate("Pessimista", lang), "value": "pessimista"},
+                                {"label": translate("Esperado", lang), "value": "esperado"},
+                                {"label": translate("Otimista", lang), "value": "otimista"}
+                            ],
+                            value="esperado",
+                            inline=True,
+                            className="btn-group scenario-selector",
+                            inputClassName="btn-check",
+                            labelClassName="btn btn-outline-primary-custom",
+                            labelCheckedClassName="active btn-primary-custom",
+                            style={"display": "flex", "width": "100%", "maxWidth": "600px"}
+                        )
+                    ], className="d-flex align-items-center justify-content-center flex-wrap gap-2")
+                ]),
+                className="card-custom mb-24"
+            )
+        ]
+    )
+
+    # Layout Principal
+    return html.Div([
+        stochastic_scenario_selector,
+        dbc.Row(dbc.Col(kpi_card, width=12)),
+        warnings_container,
+        dbc.Row(dbc.Col(warehouse_card, width=12, className="mb-24")),
+        dbc.Row(dbc.Col(warehouse_map_card, width=12, className="mb-24")),
+        dbc.Row([
+            dbc.Col(table_card, width=12, className="mb-24")
+        ]),
+        dbc.Row(dbc.Col(map_card, width=12, className="mb-24")),
+        confirm_all_routes_modal
+    ])
+
+
+def get_tab_stochastic_results_layout(lang='pt'):
+    # Placeholder card displayed when results are not stochastic or missing
+    placeholder_card = dbc.Card(
+        dbc.CardBody([
+            html.Div([
+                html.I(className="bi bi-info-circle-fill text-primary-custom me-2", style={"fontSize": "20px"}),
+                html.Span(translate("Comparação de Cenários (Estocástico)", lang), className="fw-bold fs-5")
+            ], className="d-flex align-items-center mb-3"),
+            html.P(translate("Esta aba exibe a comparação de cenários e o valor da solução estocástica (EVPI/VSS) após a execução do modelo estocástico. Para visualizar estes resultados, ative o Modelo Estocástico na aba de Configuração do Modelo.", lang), className="text-muted mb-0")
+        ]),
+        id="stochastic-results-placeholder",
+        className="card-custom mb-3",
+        style={"display": "block"}
+    )
+
+    stochastic_results_card = html.Div(
+        id="stochastic-results-actual-card",
+        style={"display": "none"},
+        children=[
             dbc.Card(
                 [
                     dbc.CardHeader(
@@ -641,21 +699,7 @@ def get_tab_results_layout(lang='pt'):
                                 active_tab="tab-scenario-routes-esperado"
                             ),
 
-                            # Seletor de cenário para o Mapa Principal
-                            html.Div([
-                                html.Span(translate("Visualizar rotas no mapa correspondentes ao Cenário:", lang), className="fw-bold small me-3"),
-                                dbc.RadioItems(
-                                    id="radio-scenario-map-select",
-                                    options=[
-                                        {"label": translate("Pessimista", lang), "value": "pessimista"},
-                                        {"label": translate("Esperado", lang), "value": "esperado"},
-                                        {"label": translate("Otimista", lang), "value": "otimista"}
-                                    ],
-                                    value="esperado",
-                                    inline=True,
-                                    className="custom-radio-items"
-                                )
-                            ], className="mt-4 d-flex align-items-center bg-light p-3 rounded border justify-content-center")
+
                         ],
                         className="card-body-custom"
                     )
@@ -665,16 +709,7 @@ def get_tab_results_layout(lang='pt'):
         ]
     )
 
-    # Layout Principal
     return html.Div([
-        dbc.Row(dbc.Col(kpi_card, width=12)),
-        warnings_container,
-        dbc.Row(dbc.Col(warehouse_card, width=12, className="mb-24")),
-        dbc.Row(dbc.Col(warehouse_map_card, width=12, className="mb-24")),
-        dbc.Row([
-            dbc.Col(table_card, width=12, className="mb-24")
-        ]),
-        dbc.Row(dbc.Col(map_card, width=12, className="mb-24")),
-        stochastic_results_card,
-        confirm_all_routes_modal
+        placeholder_card,
+        stochastic_results_card
     ])
