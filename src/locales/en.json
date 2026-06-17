@@ -750,5 +750,14 @@
     "Decisões Armazéns": "Warehouse Decisions",
     "Rotas": "Routes",
     "Estoque por Período": "Inventory per Period",
-    "Estatísticas do Modelo": "Model Statistics"
+    "Estatísticas do Modelo": "Model Statistics",
+    "resumo": "overview",
+    "overview": "overview",
+    "Mostrar armazéns não utilizados": "Show unused warehouses",
+    "Show unused warehouses": "Show unused warehouses",
+    "Visualização de Armazéns Não Utilizados": "View Unused Warehouses",
+    "Por padrão, a tabela exibe apenas os armazéns que participaram ativamente do planejamento logístico ótimo (ou seja, armazéns existentes que tiveram fluxo de entrada/saída de produtos ou que mantiveram estoque final, além de novos armazéns candidatos que foram abertos pelo solver).": "By default, the table only displays warehouses that actively participated in the optimal logistics planning (i.e., existing warehouses that had inflow/outflow of products or maintained ending inventory, as well as new candidate warehouses opened by the solver).",
+    "Ao ativar esta opção, a tabela passará a exibir também todos os armazéns que não foram utilizados na solução ótima (como candidatos que permaneceram fechados ou armazéns existentes sem movimentação de carga). Isso é útil para analisar a rede completa e entender quais infraestruturas foram preteridas pelo modelo devido a custos de frete, armazenagem ou abertura.": "By enabling this option, the table will also display all warehouses that were not used in the optimal solution (such as candidates that remained closed or existing warehouses without cargo movement). This is useful for analyzing the complete network and understanding which infrastructures were rejected by the model due to freight, storage, or opening costs.",
+    "Exibe todos os armazéns cadastrados, incluindo aqueles que não tiveram fluxo ou novos candidatos que permaneceram fechados na solução ótima.": "Displays all registered warehouses, including those with no flow or new candidates that remained closed in the optimal solution.",
+    "Resumo": "Overview"
 }

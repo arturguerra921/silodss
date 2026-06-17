@@ -4559,17 +4559,115 @@ def download_results(n_clicks, results_data, lang='pt'):
     if not n_clicks or not results_data or results_data.get("status") != "optimal":
         return dash.no_update
 
+    kpis = results_data.get("kpis", {})
     routes = results_data.get("routes", [])
-    if not routes:
-        return dash.no_update
+    wh_decisions = results_data.get("warehouse_decisions", [])
+    inventory = results_data.get("inventory", [])
+    model_stats = results_data.get("model_stats", {})
+    objective = results_data.get("objective", 0.0)
 
-    df = pd.DataFrame(routes)
+    # 1. Sheet 1: KPIs
+    kpi_rows = [
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total Ótimo (R$)", lang), "Valor" if lang == "pt" else "Value": objective},
+        {"Métrica" if lang == "pt" else "Metric": translate("Volume Total Movimentado (ton)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_tons", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Distância Total Percorrida (km)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_km", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Frete (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_freight_cost", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Armazenagem (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_storage_cost", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Abertura (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_opening_cost", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Expansão (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_expand_cost", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Granelização (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_bulk_cost", 0.0)},
+    ]
+    df_kpi = pd.DataFrame(kpi_rows)
 
-    # Remove Qtd. de Viagens if all values are None or missing
-    if "Qtd. de Viagens" in df.columns and df["Qtd. de Viagens"].isnull().all():
-        df = df.drop(columns=["Qtd. de Viagens"])
+    # 2. Sheet 2: Decisões Armazéns
+    wh_rows = []
+    for w in wh_decisions:
+        is_cand = w.get("IsCandidate", False)
+        type_str = translate("Candidato", lang) if is_cand else translate("Existente", lang)
+        
+        is_open = w.get("IsOpen", False)
+        status_str = translate("Aberto", lang) if is_open else translate("Fechado", lang)
+        
+        is_exp = w.get("IsExpanded", False)
+        exp_str = translate("Sim", lang) if is_exp else translate("Não", lang)
+        
+        is_bulk = w.get("IsBulkified", False)
+        bulk_str = translate("Sim", lang) if is_bulk else translate("Não", lang)
+        
+        wh_rows.append({
+            "CDA": w.get("CDA", ""),
+            translate("Nome", lang): w.get("Name", ""),
+            translate("Tipo", lang): type_str,
+            translate("Status", lang): status_str,
+            translate("Cap. Estática (ton)", lang): w.get("DecidedStaticCapacity", 0.0),
+            translate("Expandido?", lang): exp_str,
+            translate("Expansão (ton)", lang): w.get("ExpandedVolume", 0.0),
+            translate("Granelizado?", lang): bulk_str,
+            translate("Granelização (ton/dia)", lang): w.get("BulkCapacityAdded", 0.0),
+            translate("Cap. Efetiva (ton)", lang): w.get("EffectiveStaticCapacity", 0.0),
+            translate("Saída Total (ton)", lang): w.get("TotalOutflow", 0.0),
+            translate("Estoque Final (ton)", lang): w.get("FinalStock", 0.0),
+            translate("Cap. Dinâmica Anual (ton/ano)", lang): w.get("DynamicCapacity", 0.0),
+            translate("Giro Anual", lang): w.get("TurnoverRatio", 0.0)
+        })
+    df_wh = pd.DataFrame(wh_rows)
 
-    return dcc.send_data_frame(df.to_excel, translate("Optimization_Results.xlsx", lang), index=False)
+    # 3. Sheet 3: Rotas
+    route_rows = []
+    for r in routes:
+        row = {
+            translate("Origem", lang): r.get("Origem", ""),
+            translate("Destino", lang): r.get("Destino", ""),
+            translate("Produto", lang): r.get("Produto", ""),
+            translate("Quantidade (ton)", lang): r.get("Quantidade (ton)", 0.0),
+            translate("Período", lang): r.get("Período", ""),
+            translate("Tipo de Rota", lang): translate(r.get("Tipo de Rota", ""), lang),
+            translate("Distancia (km)", lang): r.get("Distancia (km)", 0.0),
+            translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0),
+            translate("Custo Armazenagem (R$)", lang): r.get("Custo Armazenagem (R$)", 0.0),
+            translate("Custo Total (R$)", lang): r.get("Custo Total (R$)", 0.0)
+        }
+        if "Qtd. de Viagens" in r and r["Qtd. de Viagens"] is not None:
+            row[translate("Qtd. de Viagens", lang)] = r["Qtd. de Viagens"]
+        route_rows.append(row)
+    df_routes = pd.DataFrame(route_rows)
+
+    # 4. Sheet 4: Estoque por Período
+    inv_rows = []
+    for i in inventory:
+        inv_rows.append({
+            "CDA": i.get("CDA", ""),
+            translate("Nome", lang): i.get("Name", ""),
+            translate("Produto", lang): i.get("Produto", ""),
+            translate("Período", lang): i.get("Período", ""),
+            translate("Estoque (ton)", lang): i.get("Quantidade (ton)", 0.0)
+        })
+    df_inv = pd.DataFrame(inv_rows)
+
+    # 5. Sheet 5: Estatísticas do Modelo
+    stats_rows = [
+        {"Métrica" if lang == "pt" else "Metric": translate("Status da Solução", lang), "Valor" if lang == "pt" else "Value": translate(results_data.get("status", ""), lang)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Tempo de Execução (segundos)", lang), "Valor" if lang == "pt" else "Value": kpis.get("execution_time", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Total de Variáveis", lang), "Valor" if lang == "pt" else "Value": model_stats.get("total_variables", 0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Total de Restrições", lang), "Valor" if lang == "pt" else "Value": model_stats.get("total_constraints", 0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Variáveis Binárias", lang), "Valor" if lang == "pt" else "Value": model_stats.get("binary_variables", 0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Variáveis Inteiras", lang), "Valor" if lang == "pt" else "Value": model_stats.get("integer_variables", 0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Variáveis Contínuas", lang), "Valor" if lang == "pt" else "Value": model_stats.get("continuous_variables", 0)},
+    ]
+    df_stats = pd.DataFrame(stats_rows)
+
+    def to_xlsx(bytes_io):
+        with pd.ExcelWriter(bytes_io, engine='openpyxl') as writer:
+            df_kpi.to_excel(writer, sheet_name=translate("Resumo", lang), index=False)
+            df_wh.to_excel(writer, sheet_name=translate("Decisões Armazéns", lang), index=False)
+            df_routes.to_excel(writer, sheet_name=translate("Rotas", lang), index=False)
+            df_inv.to_excel(writer, sheet_name=translate("Estoque por Período", lang), index=False)
+            df_stats.to_excel(writer, sheet_name=translate("Estatísticas do Modelo", lang), index=False)
+
+    filename = translate("Optimization_Results.xlsx", lang)
+    return dcc.send_bytes(to_xlsx, filename)
+
+
 
 @app.callback(
     Output("modal-confirm-all-routes", "is_open"),

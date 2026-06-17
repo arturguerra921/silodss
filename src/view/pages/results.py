@@ -189,12 +189,22 @@ def get_tab_results_layout(lang='pt'):
                         ),
                     ], className="g-3 mb-4"),
                     html.Div([
-                        dbc.Label(translate("Mostrar todos os armazéns", lang), html_for="switch-show-all-warehouses", className="me-2 fw-bold mb-0"),
+                        dbc.Label(translate("Mostrar armazéns não utilizados", lang), html_for="switch-show-all-warehouses", className="me-2 fw-bold mb-0"),
                         dbc.Switch(
                             id="switch-show-all-warehouses",
                             value=False,
                             className="custom-switch",
                             style={"display": "inline-block", "verticalAlign": "middle"}
+                        ),
+                        html.I(
+                            className="bi bi-question-circle-fill text-muted ms-2",
+                            id="help-unused-warehouses",
+                            style={"cursor": "help", "fontSize": "var(--font-size-small)"}
+                        ),
+                        dbc.Tooltip(
+                            translate("Exibe todos os armazéns cadastrados, incluindo aqueles que não tiveram fluxo ou novos candidatos que permaneceram fechados na solução ótima.", lang),
+                            target="help-unused-warehouses",
+                            placement="right"
                         ),
                     ], className="d-flex align-items-center mb-3"),
                     dbc.Spinner(

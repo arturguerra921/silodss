@@ -751,5 +751,14 @@
     "Decisões Armazéns": "Decisões Armazéns",
     "Rotas": "Rotas",
     "Estoque por Período": "Estoque por Período",
-    "Estatísticas do Modelo": "Estatísticas do Modelo"
+    "Estatísticas do Modelo": "Estatísticas do Modelo",
+    "resumo": "resumo",
+    "overview": "resumo",
+    "Mostrar armazéns não utilizados": "Mostrar armazéns não utilizados",
+    "Show unused warehouses": "Mostrar armazéns não utilizados",
+    "Visualização de Armazéns Não Utilizados": "Visualização de Armazéns Não Utilizados",
+    "Por padrão, a tabela exibe apenas os armazéns que participaram ativamente do planejamento logístico ótimo (ou seja, armazéns existentes que tiveram fluxo de entrada/saída de produtos ou que mantiveram estoque final, além de novos armazéns candidatos que foram abertos pelo solver).": "Por padrão, a tabela exibe apenas os armazéns que participaram ativamente do planejamento logístico ótimo (ou seja, armazéns existentes que tiveram fluxo de entrada/saída de produtos ou que mantiveram estoque final, além de novos armazéns candidatos que foram abertos pelo solver).",
+    "Ao ativar esta opção, a tabela passará a exibir também todos os armazéns que não foram utilizados na solução ótima (como candidatos que permaneceram fechados ou armazéns existentes sem movimentação de carga). Isso é útil para analisar a rede completa e entender quais infraestruturas foram preteridas pelo modelo devido a custos de frete, armazenagem ou abertura.": "Ao ativar esta opção, a tabela passará a exibir também todos os armazéns que não foram utilizados na solução ótima (como candidatos que permaneceram fechados ou armazéns existentes sem movimentação de carga). Isso é útil para analisar a rede completa e entender quais infraestruturas foram preteridas pelo modelo devido a custos de frete, armazenagem ou abertura.",
+    "Exibe todos os armazéns cadastrados, incluindo aqueles que não tiveram fluxo ou novos candidatos que permaneceram fechados na solução ótima.": "Exibe todos os armazéns cadastrados, incluindo aqueles que não tiveram fluxo ou novos candidatos que permaneceram fechados na solução ótima.",
+    "Resumo": "Resumo"
 }
