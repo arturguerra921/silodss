@@ -522,4 +522,15 @@ small, .small {
   color: #FFFFFF !important;
 }
 
+/* Make scenario buttons stretch to fill the 600px container width */
+.scenario-selector .form-check {
+  flex: 1;
+  margin-right: 0 !important;
+  display: flex;
+}
+
+.scenario-selector .form-check label {
+  width: 100%;
+}
+
 

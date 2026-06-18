@@ -11,13 +11,7 @@ def get_tab_results_layout(lang='pt'):
             dbc.CardHeader(
                 html.Div([
                     html.Span(translate("Métricas da Operação (Total)", lang), className="me-2 fw-bold"),
-                    dbc.Button(
-                        [html.I(className="bi bi-download me-2"), translate("Baixar Relatório Completo (.xlsx)", lang)],
-                        id='btn-download-results',
-                        n_clicks=0,
-                        color="none", className="btn-success-custom ms-auto btn-sm"
-                    )
-                ], className="d-flex align-items-center justify-content-between w-100"),
+                ], className="d-flex align-items-center"),
                 className="card-header-custom"
             ),
             dbc.CardBody(
@@ -501,39 +495,66 @@ def get_tab_results_layout(lang='pt'):
         is_open=False,
     )
 
-    stochastic_scenario_selector = html.Div(
+    download_report_card = dbc.Card(
+        dbc.CardBody(
+            dbc.Button(
+                [html.I(className="bi bi-download me-2"), translate("Baixar Relatório Completo (.xlsx)", lang)],
+                id='btn-download-results',
+                n_clicks=0,
+                color="none",
+                className="btn-success-custom w-100 d-flex align-items-center justify-content-center fw-bold h-100",
+                style={"borderRadius": "8px", "fontSize": "17px", "padding": "12px"}
+            ),
+            className="d-flex align-items-center justify-content-center p-3 h-100"
+        ),
+        className="shadow-sm border-0 h-100",
+        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px", "minHeight": "90px"}
+    )
+
+    scenario_selector_card = dbc.Card(
+        dbc.CardBody(
+            dbc.Row([
+                dbc.Col(
+                    html.Span(translate("Cenário para Visualização:", lang), className="fw-bold text-primary-custom", style={"fontSize": "17px"}),
+                    width=12, md=5, className="d-flex align-items-center justify-content-md-end justify-content-center mb-2 mb-md-0"
+                ),
+                dbc.Col(
+                    dbc.RadioItems(
+                        id="radio-results-scenario-select",
+                        options=[
+                            {"label": translate("Pessimista", lang), "value": "pessimista"},
+                            {"label": translate("Esperado", lang), "value": "esperado"},
+                            {"label": translate("Otimista", lang), "value": "otimista"}
+                        ],
+                        value="esperado",
+                        inline=True,
+                        className="btn-group scenario-selector",
+                        inputClassName="btn-check",
+                        labelClassName="btn btn-outline-primary-custom d-flex align-items-center justify-content-center",
+                        labelCheckedClassName="active btn-primary-custom",
+                        style={"display": "flex", "width": "100%", "maxWidth": "500px", "height": "46px", "fontSize": "17px"}
+                    ),
+                    width=12, md=7, className="d-flex align-items-center justify-content-md-start justify-content-center"
+                )
+            ], className="align-items-center h-100")
+        ),
+        className="shadow-sm border-0 h-100",
+        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px", "minHeight": "90px"}
+    )
+
+    stochastic_scenario_selector = dbc.Col(
+        scenario_selector_card,
         id="results-scenario-selector-container",
-        style={"display": "none"},
-        children=[
-            dbc.Card(
-                dbc.CardBody([
-                    html.Div([
-                        html.Span(translate("Cenário para Visualização:", lang), className="fw-bold me-3 text-primary-custom", style={"fontSize": "16px"}),
-                        dbc.RadioItems(
-                            id="radio-results-scenario-select",
-                            options=[
-                                {"label": translate("Pessimista", lang), "value": "pessimista"},
-                                {"label": translate("Esperado", lang), "value": "esperado"},
-                                {"label": translate("Otimista", lang), "value": "otimista"}
-                            ],
-                            value="esperado",
-                            inline=True,
-                            className="btn-group scenario-selector",
-                            inputClassName="btn-check",
-                            labelClassName="btn btn-outline-primary-custom",
-                            labelCheckedClassName="active btn-primary-custom",
-                            style={"display": "flex", "width": "100%", "maxWidth": "600px"}
-                        )
-                    ], className="d-flex align-items-center justify-content-center flex-wrap gap-2")
-                ]),
-                className="card-custom mb-24"
-            )
-        ]
+        width=12, lg=9,
+        style={"display": "none"}
     )
 
     # Layout Principal
     return html.Div([
-        stochastic_scenario_selector,
+        dbc.Row([
+            dbc.Col(download_report_card, width=12, lg=3),
+            stochastic_scenario_selector
+        ], className="g-3 mb-24 align-items-stretch"),
         dbc.Row(dbc.Col(kpi_card, width=12)),
         warnings_container,
         dbc.Row(dbc.Col(warehouse_card, width=12, className="mb-24")),
