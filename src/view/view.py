@@ -5287,7 +5287,9 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
     [Input("store-model-results", "data"),
      Input("graph-scenario-minimap-pessimista", "relayoutData"),
      Input("graph-scenario-minimap-esperado", "relayoutData"),
-     Input("graph-scenario-minimap-otimista", "relayoutData")],
+     Input("graph-scenario-minimap-otimista", "relayoutData"),
+     Input("main-tabs", "active_tab"),
+     Input("stochastic-results-actual-card", "style")],
     [State("graph-scenario-minimap-pessimista", "figure"),
      State("graph-scenario-minimap-esperado", "figure"),
      State("graph-scenario-minimap-otimista", "figure"),
@@ -5296,7 +5298,7 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
      State("stored-demand-data", "data"),
      State("store-lang", "data")]
 )
-def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_relayout,
+def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_relayout, active_tab, card_style,
                                 pess_fig, esp_fig, otim_fig,
                                 stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     # Default map centered on Brazil
@@ -5378,6 +5380,9 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
                         if zoom is not None:
                             fig["layout"]["mapbox"]["zoom"] = zoom
                 return pess_fig, esp_fig, otim_fig
+
+    if active_tab != 'tab-stochastic-results':
+        return default_fig, default_fig, default_fig
 
     if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
         return default_fig, default_fig, default_fig
@@ -5462,7 +5467,7 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
                     colors_list.append(color)
                     
                     status_str = translate("Aberto", lang) if is_open else translate("Fechado", lang)
-                    wh_type = translate("Candidato" if w.get("IsCandidate") else "Existente", lang)
+                    wh_type = translate("Candidato", lang) if w.get("IsCandidate") else translate("Existente", lang)
                     
                     hover_text = (
                         f"<b>{name}</b> (CDA: {cda})<br>"
@@ -5515,7 +5520,8 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
      Output("warehouse-details-container", "children")],
     [Input("table-results-warehouses", "active_cell"),
      Input("wh-route-type-filter", "value"),
-     Input("store-model-results", "data")],
+     Input("store-model-results", "data"),
+     Input("main-tabs", "active_tab")],
     [State("radio-results-scenario-select", "value"),
      State("table-results-warehouses", "derived_viewport_data"),
      State("stored-data", "data"),
@@ -5524,7 +5530,7 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
      State("store-lang", "data")],
     prevent_initial_call=False
 )
-def update_warehouse_results_map(active_cell, filter_value, results_data, scenario_map_select, table_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
+def update_warehouse_results_map(active_cell, filter_value, results_data, active_tab, scenario_map_select, table_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     # Default map centered on Brazil
     default_fig = go.Figure(go.Scattermapbox())
     default_fig.update_layout(
@@ -5533,6 +5539,9 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, scenar
         mapbox_center={"lat": -14.2350, "lon": -51.9253},
         margin={"r": 0, "t": 0, "l": 0, "b": 0}
     )
+
+    if active_tab != 'tab-results':
+        return default_fig, html.P(translate("Resultados indisponíveis.", lang), className="text-muted small")
 
     if not results_data or results_data.get("status") != "optimal":
         return default_fig, html.P(translate("Resultados indisponíveis.", lang), className="text-muted small")
@@ -8027,10 +8036,11 @@ def populate_stochastic_results(results_data, lang="pt"):
 @app.callback(
     Output("graph-scenario-inventory", "figure"),
     [Input("store-model-results", "data"),
-     Input("dropdown-scenario-inventory-warehouses", "value")],
+     Input("dropdown-scenario-inventory-warehouses", "value"),
+     Input("stochastic-results-actual-card", "style")],
     [State("store-lang", "data")]
 )
-def update_scenario_inventory_chart(results_data, selected_warehouses, lang="pt"):
+def update_scenario_inventory_chart(results_data, selected_warehouses, card_style, lang="pt"):
     def make_default():
         fig = go.Figure()
         fig.update_layout(
@@ -8131,10 +8141,11 @@ def update_scenario_inventory_chart(results_data, selected_warehouses, lang="pt"
 @app.callback(
     Output("graph-warehouse-utilization", "figure"),
     [Input("store-model-results", "data"),
-     Input("dropdown-warehouse-utilization-warehouses", "value")],
+     Input("dropdown-warehouse-utilization-warehouses", "value"),
+     Input("stochastic-results-actual-card", "style")],
     [State("store-lang", "data")]
 )
-def update_warehouse_utilization_chart(results_data, selected_warehouses, lang="pt"):
+def update_warehouse_utilization_chart(results_data, selected_warehouses, card_style, lang="pt"):
     def make_default():
         fig = go.Figure()
         fig.update_layout(
