@@ -834,5 +834,17 @@
     "(Cenário {scenario}): A oferta total acumulada ({supply:.0f}t) é menor do que a demanda interna total acumulada ({demand:.0f}t). O modelo pode ficar inviável.": "(Scenario {scenario}): The cumulative total supply ({supply:.0f}t) is less than the cumulative total demand ({demand:.0f}t). The model may become infeasible.",
     "Cenário para Visualização:": "Scenario for Visualization:",
     "Aviso de Viabilidade do Modelo": "Model Feasibility Warning",
-    "O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:": "The model identified potential feasibility constraints or supply lower than demand in the scenarios:"
+    "O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:": "The model identified potential feasibility constraints or supply lower than demand in the scenarios:",
+    "Calcular EVPI e VSS": "Compute EVPI and VSS",
+    "O cálculo do EVPI/VSS pode demorar alguns minutos. Ele ajuda a avaliar o benefício de adotar o modelo estocástico considerando os diferentes cenários e suas incertezas.": "The calculation of EVPI/VSS may take a few minutes. It helps evaluate the benefit of adopting the stochastic model considering the different scenarios and their uncertainties.",
+    "Valor Esperado da Informação Perfeita (EVPI)": "Expected Value of Perfect Information (EVPI)",
+    "O ganho máximo que seria possível obter caso o resultado de cada cenário fosse conhecido antes de qualquer decisão.": "The maximum benefit that could be gained if the outcome of each scenario were known before any decision was made.",
+    "A incerteza tem grande impacto nos resultados. Melhorar previsões ou reduzir a incerteza pode gerar ganhos significativos.": "Uncertainty has a large impact on results. Improving forecasts or reducing uncertainty could bring significant gains.",
+    "A incerteza tem pouco impacto. Os resultados são semelhantes independentemente do cenário que ocorrer.": "Uncertainty has little impact. Results are similar regardless of which scenario occurs.",
+    "Valor da Solução Estocástica (VSS)": "Value of the Stochastic Solution (VSS)",
+    "O ganho de usar um modelo que considera múltiplos cenários em vez de um modelo que usa apenas o cenário médio.": "The gain from using a model that accounts for multiple scenarios, compared to a model that uses only the average scenario.",
+    "Considerar múltiplos cenários leva a decisões visivelmente melhores. O modelo estocástico agrega valor claro.": "Considering multiple scenarios leads to noticeably better decisions. The stochastic model adds clear value.",
+    "O cenário médio é uma aproximação suficiente. Um modelo mais simples chegaria a resultados similares.": "The average scenario is a good enough approximation. A simpler model would reach similar results.",
+    "Relação entre os dois (VSS ≤ EVPI)": "Relationship between the two (VSS ≤ EVPI)",
+    "O EVPI é o melhor resultado possível sob qualquer circunstância. O VSS mostra o quão próximo o modelo estocástico chega desse teto. Se o VSS exceder o EVPI, há um erro no modelo.": "EVPI is the best possible outcome under any circumstance. VSS shows how close the stochastic model gets to that ceiling. If VSS exceeds EVPI, there is an error in the model."
 }

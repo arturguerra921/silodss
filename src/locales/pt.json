@@ -835,5 +835,17 @@
     "(Cenário {scenario}): A oferta total acumulada ({supply:.0f}t) é menor do que a demanda interna total acumulada ({demand:.0f}t). O modelo pode ficar inviável.": "(Cenário {scenario}): A oferta total acumulada ({supply:.0f}t) é menor do que a demanda interna total acumulada ({demand:.0f}t). O modelo pode ficar inviável.",
     "Cenário para Visualização:": "Cenário para Visualização:",
     "Aviso de Viabilidade do Modelo": "Aviso de Viabilidade do Modelo",
-    "O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:": "O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:"
+    "O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:": "O modelo identificou possíveis restrições de viabilidade ou oferta menor que a demanda nos cenários:",
+    "Calcular EVPI e VSS": "Calcular EVPI e VSS",
+    "O cálculo do EVPI/VSS pode demorar alguns minutos. Ele ajuda a avaliar o benefício de adotar o modelo estocástico considerando os diferentes cenários e suas incertezas.": "O cálculo do EVPI/VSS pode demorar alguns minutos. Ele ajuda a avaliar o benefício de adotar o modelo estocástico considerando os diferentes cenários e suas incertezas.",
+    "Valor Esperado da Informação Perfeita (EVPI)": "Valor Esperado da Informação Perfeita (EVPI)",
+    "O ganho máximo que seria possível obter caso o resultado de cada cenário fosse conhecido antes de qualquer decisão.": "O ganho máximo que seria possível obter caso o resultado de cada cenário fosse conhecido antes de qualquer decisão.",
+    "A incerteza tem grande impacto nos resultados. Melhorar previsões ou reduzir a incerteza pode gerar ganhos significativos.": "A incerteza tem grande impacto nos resultados. Melhorar previsões ou reduzir a incerteza pode gerar ganhos significativos.",
+    "A incerteza tem pouco impacto. Os resultados são semelhantes independentemente do cenário que ocorrer.": "A incerteza tem pouco impacto. Os resultados são semelhantes independentemente do cenário que ocorrer.",
+    "Valor da Solução Estocástica (VSS)": "Valor da Solução Estocástica (VSS)",
+    "O ganho de usar um modelo que considera múltiplos cenários em vez de um modelo que usa apenas o cenário médio.": "O ganho de usar um modelo que considera múltiplos cenários em vez de um modelo que usa apenas o cenário médio.",
+    "Considerar múltiplos cenários leva a decisões visivelmente melhores. O modelo estocástico agrega valor claro.": "Considerar múltiplos cenários leva a decisões visivelmente melhores. O modelo estocástico agrega valor claro.",
+    "O cenário médio é uma aproximação suficiente. Um modelo mais simples chegaria a resultados similares.": "O cenário médio é uma aproximação suficiente. Um modelo mais simples chegaria a resultados similares.",
+    "Relação entre os dois (VSS ≤ EVPI)": "Relação entre os dois (VSS ≤ EVPI)",
+    "O EVPI é o melhor resultado possível sob qualquer circunstância. O VSS mostra o quão próximo o modelo estocástico chega desse teto. Se o VSS exceder o EVPI, há um erro no modelo.": "O EVPI é o melhor resultado possível sob qualquer circunstância. O VSS mostra o quão próximo o modelo estocástico chega desse teto. Se o VSS exceder o EVPI, há um erro no modelo."
 }

@@ -5276,6 +5276,240 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
     return default_fig, html.P(translate("Selecione uma rota na tabela para ver os detalhes.", lang), className="text-muted small")
 
 
+# --- Scenario Comparison Map Callbacks ---
+
+# --- Scenario Comparison Map Callbacks ---
+
+@app.callback(
+    [Output("graph-scenario-minimap-pessimista", "figure"),
+     Output("graph-scenario-minimap-esperado", "figure"),
+     Output("graph-scenario-minimap-otimista", "figure")],
+    [Input("store-model-results", "data"),
+     Input("graph-scenario-minimap-pessimista", "relayoutData"),
+     Input("graph-scenario-minimap-esperado", "relayoutData"),
+     Input("graph-scenario-minimap-otimista", "relayoutData")],
+    [State("graph-scenario-minimap-pessimista", "figure"),
+     State("graph-scenario-minimap-esperado", "figure"),
+     State("graph-scenario-minimap-otimista", "figure"),
+     State("stored-data", "data"),
+     State("store-warehouses", "data"),
+     State("stored-demand-data", "data"),
+     State("store-lang", "data")]
+)
+def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_relayout,
+                                pess_fig, esp_fig, otim_fig,
+                                stored_data, stored_warehouses, stored_demand_data, lang='pt'):
+    # Default map centered on Brazil
+    def make_default_map():
+        fig = go.Figure(go.Scattermapbox())
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            mapbox_zoom=3,
+            mapbox_center={"lat": -14.2350, "lon": -51.9253},
+            margin={"r": 0, "t": 0, "l": 0, "b": 0},
+            showlegend=False
+        )
+        return fig
+
+    default_fig = make_default_map()
+
+    ctx = dash.callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+    # Handle map zoom/pan synchronization
+    if trigger_id in ["graph-scenario-minimap-pessimista", "graph-scenario-minimap-esperado", "graph-scenario-minimap-otimista"]:
+        relayout_data = None
+        trigger_fig = None
+        if trigger_id == "graph-scenario-minimap-pessimista":
+            relayout_data = pess_relayout
+            trigger_fig = pess_fig
+        elif trigger_id == "graph-scenario-minimap-esperado":
+            relayout_data = esp_relayout
+            trigger_fig = esp_fig
+        elif trigger_id == "graph-scenario-minimap-otimista":
+            relayout_data = otim_relayout
+            trigger_fig = otim_fig
+
+        if relayout_data:
+            center = None
+            zoom = None
+            
+            # Extract zoom
+            zoom = relayout_data.get("mapbox.zoom")
+            
+            # Extract center (handle flat keys as well as dictionary representation)
+            current_center = None
+            if trigger_fig and isinstance(trigger_fig, dict) and "layout" in trigger_fig and "mapbox" in trigger_fig["layout"]:
+                current_center = trigger_fig["layout"]["mapbox"].get("center")
+                
+            mapbox_center = relayout_data.get("mapbox.center")
+            if isinstance(mapbox_center, dict):
+                center = mapbox_center.copy()
+            else:
+                lat = relayout_data.get("mapbox.center.lat")
+                lon = relayout_data.get("mapbox.center.lon")
+                if lat is not None or lon is not None:
+                    curr_lat = current_center.get("lat", -14.2350) if isinstance(current_center, dict) else -14.2350
+                    curr_lon = current_center.get("lon", -51.9253) if isinstance(current_center, dict) else -51.9253
+                    center = {
+                        "lat": lat if lat is not None else curr_lat,
+                        "lon": lon if lon is not None else curr_lon
+                    }
+
+            if center is not None or zoom is not None:
+                # Compare to current state to prevent circular/feedback callbacks
+                any_change = False
+                for fig in [pess_fig, esp_fig, otim_fig]:
+                    if fig and isinstance(fig, dict) and "layout" in fig and "mapbox" in fig["layout"]:
+                        current_mapbox = fig["layout"]["mapbox"]
+                        if center is not None and current_mapbox.get("center") != center:
+                            any_change = True
+                        if zoom is not None and current_mapbox.get("zoom") != zoom:
+                            any_change = True
+                
+                if not any_change:
+                    return dash.no_update, dash.no_update, dash.no_update
+
+                # Update maps layout in-place and return them
+                for fig in [pess_fig, esp_fig, otim_fig]:
+                    if fig and isinstance(fig, dict) and "layout" in fig and "mapbox" in fig["layout"]:
+                        if center is not None:
+                            fig["layout"]["mapbox"]["center"] = center
+                        if zoom is not None:
+                            fig["layout"]["mapbox"]["zoom"] = zoom
+                return pess_fig, esp_fig, otim_fig
+
+    if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
+        return default_fig, default_fig, default_fig
+
+    if not stored_data or not stored_warehouses:
+        return default_fig, default_fig, default_fig
+
+    try:
+        df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+
+        # Destination Mappings
+        lat_col = next((c for c in df_warehouses.columns if 'lat' in str(c).lower()), None)
+        lon_col = next((c for c in df_warehouses.columns if 'lon' in str(c).lower()), None)
+        mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
+        uf_col = next((c for c in df_warehouses.columns if 'uf' in str(c).lower()), None)
+        armaz_col = next((c for c in df_warehouses.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
+
+        dest_mapping = {}
+        for _, row in df_warehouses.iterrows():
+            cda = str(row['CDA']).strip()
+            parts = []
+            if pd.notna(row['CDA']):
+                parts.append(str(row['CDA']).strip())
+            if armaz_col and pd.notna(row[armaz_col]):
+                parts.append(str(row[armaz_col]).strip())
+            if mun_col and pd.notna(row[mun_col]):
+                parts.append(str(row[mun_col]).strip())
+            
+            name = " - ".join(parts) if parts else cda
+            
+            lat_val = float(row[lat_col]) if lat_col and pd.notna(row[lat_col]) else None
+            lon_val = float(row[lon_col]) if lon_col and pd.notna(row[lon_col]) else None
+            if lat_val is None or lon_val is None:
+                if mun_col and uf_col and pd.notna(row[mun_col]) and pd.notna(row[uf_col]):
+                    key = f"{str(row[mun_col]).strip()} - {str(row[uf_col]).strip()}"
+                    if key in CITY_LOOKUP:
+                        lat_val = CITY_LOOKUP[key]['latitude']
+                        lon_val = CITY_LOOKUP[key]['longitude']
+            if lat_val is not None and lon_val is not None:
+                dest_mapping[name] = {"Latitude": lat_val, "Longitude": lon_val}
+                dest_mapping[cda] = {"Latitude": lat_val, "Longitude": lon_val}
+
+        wh_metrics_scen = results_data.get("scenario_warehouse_metrics", {})
+
+        # Compute a common center and zoom for all three maps to align them
+        all_wh_lats = []
+        all_wh_lons = []
+        for w in wh_metrics_scen.get("esperado", []):
+            cda = w["CDA"]
+            name = w["Name"]
+            coords = dest_mapping.get(cda) or dest_mapping.get(name)
+            if coords:
+                all_wh_lats.append(coords["Latitude"])
+                all_wh_lons.append(coords["Longitude"])
+
+        if all_wh_lats and all_wh_lons:
+            map_center = {"lat": np.mean(all_wh_lats), "lon": np.mean(all_wh_lons)}
+            map_zoom = 3.8
+        else:
+            map_center = {"lat": -14.2350, "lon": -51.9253}
+            map_zoom = 3.5
+
+        def make_scenario_wh_map(scen_name):
+            fig = go.Figure()
+            s_whs = wh_metrics_scen.get(scen_name, [])
+            
+            lats = []
+            lons = []
+            colors_list = []
+            texts = []
+            
+            for w in s_whs:
+                cda = w["CDA"]
+                name = w["Name"]
+                coords = dest_mapping.get(cda) or dest_mapping.get(name)
+                if coords:
+                    lats.append(coords["Latitude"])
+                    lons.append(coords["Longitude"])
+                    
+                    is_open = w.get("IsOpen", False)
+                    color = "#006633" if is_open else "#C8102E" # UNB_GREEN vs DANGER
+                    colors_list.append(color)
+                    
+                    status_str = translate("Aberto", lang) if is_open else translate("Fechado", lang)
+                    wh_type = translate("Candidato" if w.get("IsCandidate") else "Existente", lang)
+                    
+                    hover_text = (
+                        f"<b>{name}</b> (CDA: {cda})<br>"
+                        f"{translate('Tipo', lang)}: {wh_type}<br>"
+                        f"{translate('Status', lang)}: {status_str}<br>"
+                        f"{translate('Capacidade Estática Eficiente', lang)}: {w.get('EffectiveStaticCapacity', 0.0):,.0f} t<br>"
+                        f"{translate('Saída Total', lang)}: {w.get('TotalOutflow', 0.0):,.0f} t<br>"
+                        f"{translate('Estoque Final', lang)}: {w.get('FinalStock', 0.0):,.0f} t<br>"
+                        f"{translate('Movimentação Total', lang)}: {w.get('DynamicCapacityRaw', 0.0):,.0f} t"
+                    )
+                    texts.append(hover_text)
+            
+            if lats:
+                fig.add_trace(go.Scattermapbox(
+                    mode="markers",
+                    lon=lons,
+                    lat=lats,
+                    marker=dict(
+                        size=12,
+                        color=colors_list,
+                        opacity=0.9
+                    ),
+                    text=texts,
+                    hoverinfo="text",
+                    showlegend=False
+                ))
+            
+            fig.update_layout(
+                mapbox_style="open-street-map",
+                mapbox_zoom=map_zoom,
+                mapbox_center=map_center,
+                margin={"r": 0, "t": 0, "l": 0, "b": 0},
+                showlegend=False
+            )
+            return fig
+
+        fig_pess = make_scenario_wh_map("pessimista")
+        fig_esp = make_scenario_wh_map("esperado")
+        fig_otim = make_scenario_wh_map("otimista")
+
+        return fig_pess, fig_esp, fig_otim
+
+    except Exception as e:
+        print(f"Error drawing scenario maps: {e}")
+        return default_fig, default_fig, default_fig
+
+
 @app.callback(
     [Output("graph-results-wh-map", "figure"),
      Output("warehouse-details-container", "children")],
@@ -7520,20 +7754,21 @@ def toggle_stochastic_results_container(results_data):
 
 
 @app.callback(
-    [Output("table-scenario-kpis", "data"),
+    [Output("scenario-kpi-cards-container", "children"),
      Output("graph-scenario-costs", "figure"),
-     Output("graph-scenario-inventory", "figure"),
-     Output("table-scenario-routes-pessimista-container", "children"),
-     Output("table-scenario-routes-esperado-container", "children"),
-     Output("table-scenario-routes-otimista-container", "children"),
+     Output("dropdown-scenario-inventory-warehouses", "options"),
+     Output("dropdown-warehouse-utilization-warehouses", "options"),
+     Output("dropdown-scenario-inventory-warehouses", "value"),
+     Output("dropdown-warehouse-utilization-warehouses", "value"),
+     Output("table-warehouse-diff", "data"),
+     Output("table-warehouse-diff", "style_data_conditional"),
      Output("stochastic-warnings-container", "children")],
-    [Input("store-model-results", "data"),
-     Input("select-scenario-inventory", "value")],
+    [Input("store-model-results", "data")],
     [State("store-lang", "data")]
 )
-def populate_stochastic_results(results_data, selected_inv_scenario, lang="pt"):
+def populate_stochastic_results(results_data, lang="pt"):
     if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
-        return [], go.Figure(), go.Figure(), "", "", "", ""
+        return [], go.Figure(), [], [], None, None, [], [], ""
 
     # BR format helpers
     def fmt_curr(val):
@@ -7546,20 +7781,88 @@ def populate_stochastic_results(results_data, selected_inv_scenario, lang="pt"):
             val = 0.0
         return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    # 1. Scenario KPI Table Data
+    # 1. Scenario KPI Side-by-Side Cards
     scenario_kpis = results_data.get("scenario_kpis", {})
-    kpi_table_data = []
+    esp_kpis = scenario_kpis.get("esperado", {})
+
+    kpis_def = [
+        {"key": "total_cost", "label": "Custo Total", "is_curr": True, "is_cost": True},
+        {"key": "total_tons", "label": "Total Movimentado", "is_curr": False, "is_cost": False},
+        {"key": "total_km", "label": "Distância Total", "is_curr": False, "is_cost": True},
+        {"key": "total_freight_cost", "label": "Custo Frete", "is_curr": True, "is_cost": True},
+        {"key": "total_storage_cost", "label": "Custo Armazenagem", "is_curr": True, "is_cost": True},
+        {"key": "total_opening_cost", "label": "Custo Abertura", "is_curr": True, "is_cost": True},
+        {"key": "total_expand_cost", "label": "Custo Expansão", "is_curr": True, "is_cost": True},
+        {"key": "total_bulk_cost", "label": "Custo Granelização", "is_curr": True, "is_cost": True},
+    ]
+
+    def make_delta_badge(val, baseline_val, is_cost_or_dist=True):
+        if baseline_val == 0:
+            return html.Span("-", className="delta-badge-neutral ms-2")
+        delta_pct = (val - baseline_val) / baseline_val * 100
+        if abs(delta_pct) < 1e-4:
+            return html.Span("0,00%", className="delta-badge-neutral ms-2")
+        
+        sign = "+" if delta_pct > 0 else ""
+        val_str = f"{sign}{delta_pct:,.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+        
+        if is_cost_or_dist:
+            if delta_pct < 0:
+                return html.Span(val_str, className="delta-badge-positive ms-2")
+            else:
+                return html.Span(val_str, className="delta-badge-negative ms-2")
+        else:
+            if delta_pct > 0:
+                return html.Span(val_str, className="delta-badge-positive ms-2")
+            else:
+                return html.Span(val_str, className="delta-badge-negative ms-2")
+
+    card_cols = []
     for s_name in ["pessimista", "esperado", "otimista"]:
         sk = scenario_kpis.get(s_name, {})
-        kpi_table_data.append({
-            "Cenário": translate(s_name.capitalize(), lang),
-            "Custo Total": fmt_curr(sk.get("total_cost", 0.0)),
-            "Total Movimentado": fmt_num(sk.get("total_tons", 0.0)),
-            "Custo Frete": fmt_curr(sk.get("total_freight_cost", 0.0)),
-            "Custo Armazenagem": fmt_curr(sk.get("total_storage_cost", 0.0))
-        })
+        kpi_rows = []
+        for kpi in kpis_def:
+            val = sk.get(kpi["key"], 0.0)
+            base_val = esp_kpis.get(kpi["key"], 0.0)
+            
+            val_formatted = fmt_curr(val) if kpi["is_curr"] else fmt_num(val)
+            if kpi["key"] == "total_km":
+                val_formatted = f"{val_formatted} km"
+            elif kpi["key"] == "total_tons":
+                val_formatted = f"{val_formatted} t"
+                
+            if s_name == "esperado":
+                badge = html.Span(translate("Referência", lang), className="delta-badge-neutral ms-2")
+            else:
+                badge = make_delta_badge(val, base_val, is_cost_or_dist=kpi["is_cost"])
+                
+            kpi_rows.append(html.Div([
+                html.Div([
+                    html.Span(translate(kpi["label"], lang), className="text-muted fw-bold"),
+                ], className="d-flex justify-content-between align-items-center mb-1"),
+                html.Div([
+                    html.Span(val_formatted, className="fw-bold text-dark fs-5"),
+                    badge
+                ], className="d-flex align-items-center justify-content-between mb-4 border-bottom pb-2")
+            ]))
+            
+        header_color_class = {
+            "pessimista": "text-danger-custom",
+            "esperado": "text-primary-custom",
+            "otimista": "text-success-custom"
+        }.get(s_name, "text-dark")
+        
+        card_cols.append(dbc.Col([
+            dbc.Card([
+                dbc.CardHeader(
+                    html.H4(translate(s_name.capitalize(), lang), className=f"fw-bold mb-0 {header_color_class}"),
+                    className="bg-transparent border-0 pt-3 pb-2"
+                ),
+                dbc.CardBody(kpi_rows, className="pt-0 pb-2")
+            ], className=f"scenario-card-{s_name} shadow-sm h-100 p-4")
+        ], width=12, lg=4))
 
-    # 2. Scenario Cost Comparison Chart
+    # 2. Grouped Cost Chart
     cost_cats = [
         translate("Frete", lang),
         translate("Armazenagem", lang),
@@ -7569,114 +7872,144 @@ def populate_stochastic_results(results_data, selected_inv_scenario, lang="pt"):
     ]
     
     fig_costs = go.Figure()
-    scenarios = ["pessimista", "esperado", "otimista"]
-    colors = {
-        "pessimista": UNB_THEME.get('UNB_YELLOW_DARK', '#997A00'),
-        "esperado": UNB_THEME.get('UNB_BLUE', '#003366'),
-        "otimista": UNB_THEME.get('UNB_GREEN', '#006633')
+    cost_colors = {
+        "pessimista": "#C8102E",
+        "esperado": "#003366",
+        "otimista": "#006633"
     }
     
-    for s in scenarios:
+    # Calculate max cost value across all scenarios to establish a 5% threshold
+    all_y_vals = []
+    scenario_y_vals = {}
+    for s in ["pessimista", "esperado", "otimista"]:
         sk = scenario_kpis.get(s, {})
         opening = sk.get("total_opening_cost", 0.0)
         expand = sk.get("total_expand_cost", 0.0)
         bulk = sk.get("total_bulk_cost", 0.0)
         freight = sk.get("total_freight_cost", 0.0)
         storage = sk.get("total_storage_cost", 0.0)
+        vals = [freight, storage, opening, expand, bulk]
+        all_y_vals.extend(vals)
+        scenario_y_vals[s] = vals
         
-        y_vals = [freight, storage, opening, expand, bulk]
+    max_val = max(all_y_vals) if all_y_vals else 0.0
+    
+    for s in ["pessimista", "esperado", "otimista"]:
+        y_vals = scenario_y_vals[s]
+        hover_texts = [fmt_curr(val) for val in y_vals]
+        
+        # Suppress text labels if value is >= 5% of max_val. Only show text for small non-zero values.
+        text_labels = []
+        text_positions = []
+        for val in y_vals:
+            if val > 0 and max_val > 0 and val < 0.05 * max_val:
+                text_labels.append(fmt_curr(val))
+                text_positions.append("outside")
+            else:
+                text_labels.append("")
+                text_positions.append("none")
+                
         fig_costs.add_trace(go.Bar(
             name=translate(s.capitalize(), lang),
             x=cost_cats,
             y=y_vals,
-            marker_color=colors[s]
+            marker_color=cost_colors[s],
+            text=text_labels,
+            textposition=text_positions,
+            customdata=hover_texts,
+            hovertemplate=f"<b>{translate(s.capitalize(), lang)}</b><br>%{{x}}: %{{customdata}}<extra></extra>"
         ))
         
     fig_costs.update_layout(
         barmode='group',
-        margin=dict(l=40, r=40, t=20, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        font=dict(family="Roboto, sans-serif", size=11),
+        margin=dict(l=40, r=40, t=80, b=40),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.08,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=12)
+        ),
+        font=dict(family="Roboto, sans-serif", size=12),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
-    fig_costs.update_yaxes(gridcolor='#E5E7EB', zeroline=False)
+    fig_costs.update_xaxes(tickfont=dict(size=12))
+    fig_costs.update_yaxes(gridcolor='#E5E7EB', zeroline=False, tickfont=dict(size=12))
 
-    # 3. Inventory Stock Stack Chart
-    inv_data = results_data.get("scenario_inventory", {}).get(selected_inv_scenario or "esperado", [])
-    fig_inv = go.Figure()
-    if inv_data:
-        df_inv = pd.DataFrame(inv_data)
-        if not df_inv.empty:
-            df_inv_grouped = df_inv.groupby(["Período", "Name"])["Quantidade (ton)"].sum().reset_index()
-            for wh in df_inv_grouped["Name"].unique():
-                df_wh = df_inv_grouped[df_inv_grouped["Name"] == wh]
-                fig_inv.add_trace(go.Bar(
-                    name=wh,
-                    x=df_wh["Período"],
-                    y=df_wh["Quantidade (ton)"]
-                ))
+    # Extract warehouse options for filters
+    wh_metrics_scen = results_data.get("scenario_warehouse_metrics", {})
+    esp_whs = wh_metrics_scen.get("esperado", [])
+    
+    # Sort wh_names alphabetically by display name
+    wh_names = sorted(
+        [(w["CDA"], w["Name"]) for w in esp_whs],
+        key=lambda x: x[1]
+    )
+    
+    # Unique names list for dropdown options
+    wh_names_list = sorted(list(set(w["Name"] for w in esp_whs)))
+    dropdown_options = [{"label": name, "value": name} for name in wh_names_list]
+
+    # 5. Warehouse Decision Differences Table
+    diff_table_data = []
+    cda_names = {}
+    cda_types = {}
+    for w in esp_whs:
+        cda_names[w["CDA"]] = w["Name"]
+        cda_types[w["CDA"]] = translate("Candidato", lang) if w["IsCandidate"] else translate("Existente", lang)
+        
+    for cda, name in wh_names:
+        decisions_by_scen = {}
+        for s in ["pessimista", "esperado", "otimista"]:
+            s_whs = wh_metrics_scen.get(s, [])
+            w = next((x for x in s_whs if x["CDA"] == cda), None)
+            if w:
+                status = translate("Aberto", lang) if w.get("IsOpen") else translate("Fechado", lang)
+                exp_lbl = ""
+                if w.get("IsExpanded"):
+                    exp_vol = fmt_num(w.get("ExpandedVolume", 0.0))
+                    exp_lbl = f" + {translate('Exp.', lang)} ({exp_vol} t)"
+                bulk_lbl = ""
+                if w.get("IsBulkified"):
+                    bulk_cap = fmt_num(w.get("BulkCapacityAdded", 0.0))
+                    bulk_lbl = f" + {translate('Granel', lang)} ({bulk_cap} t)"
+                dec_str = f"{status}{exp_lbl}{bulk_lbl}"
+            else:
+                dec_str = "-"
+            decisions_by_scen[s] = dec_str
             
-    fig_inv.update_layout(
-        barmode='stack',
-        margin=dict(l=40, r=40, t=20, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        font=dict(family="Roboto, sans-serif", size=11),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
-    )
-    fig_inv.update_yaxes(gridcolor='#E5E7EB', zeroline=False)
-
-    # 4. Route Tables per Scenario
-    route_containers = {}
-    for s in ["pessimista", "esperado", "otimista"]:
-        routes_s = results_data.get("scenario_routes", {}).get(s, [])
-        table_rows = []
-        for r in routes_s:
-            table_rows.append({
-                "Origem": r["Origem"],
-                "Destino": r["Destino"],
-                "Produto": r["Produto"],
-                "Quantidade (ton)": round(r["Quantidade (ton)"], 2),
-                "Período": r.get("Período", ""),
-                "Tipo de Rota": r.get("Tipo de Rota", "")
+        if len(set(decisions_by_scen.values())) > 1:
+            diff_table_data.append({
+                "Armazém": cda_names[cda],
+                "Tipo": cda_types[cda],
+                "Pessimista": decisions_by_scen["pessimista"],
+                "Esperado": decisions_by_scen["esperado"],
+                "Otimista": decisions_by_scen["otimista"]
             })
             
-        columns = [
-            {'name': translate('Origem', lang), 'id': 'Origem'},
-            {'name': translate('Destino', lang), 'id': 'Destino'},
-            {'name': translate('Produto', lang), 'id': 'Produto'},
-            {'name': translate('Qtd (ton)', lang), 'id': 'Quantidade (ton)'},
-            {'name': translate('Período', lang), 'id': 'Período'},
-            {'name': translate('Tipo de Rota', lang), 'id': 'Tipo de Rota'}
-        ]
-        
-        route_containers[s] = dash_table.DataTable(
-            columns=columns,
-            data=table_rows,
-            page_size=10,
-            style_cell={
-                'textAlign': 'center',
-                'fontFamily': "'Roboto', sans-serif",
-                'padding': '8px',
-                'fontSize': 'var(--font-size-small)',
-                'color': UNB_THEME['SECONDARY']
-            },
-            style_header={
-                'backgroundColor': '#F8F9FA',
-                'color': UNB_THEME['PRIMARY'],
-                'fontWeight': 'bold',
-                'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
-            },
-            style_data_conditional=[
-                {
-                    'if': {'row_index': 'odd'},
-                    'backgroundColor': '#f8f9fa'
-                }
-            ]
-        )
+    style_wh_diff = [
+        {
+            'if': {'row_index': 'odd'},
+            'backgroundColor': '#f8f9fa'
+        }
+    ]
+    for idx, row in enumerate(diff_table_data):
+        esp_val = row["Esperado"]
+        for s_col in ["Pessimista", "Otimista"]:
+            if row[s_col] != esp_val:
+                style_wh_diff.append({
+                    'if': {
+                        'row_index': idx,
+                        'column_id': s_col
+                    },
+                    'backgroundColor': '#FFF3CD',
+                    'color': '#856404',
+                    'fontWeight': 'bold'
+                })
 
-    # 5. Stochastic Feasibility Warnings
+    # 6. Feasibility Warnings
     warnings = results_data.get("warnings", [])
     warnings_div = []
     if warnings:
@@ -7688,9 +8021,206 @@ def populate_stochastic_results(results_data, selected_inv_scenario, lang="pt"):
             html.Ul(warnings_list, className="mb-0")
         ], className="alert-warning-custom shadow-sm mb-3")]
 
-    return (kpi_table_data, fig_costs, fig_inv, 
-            route_containers["pessimista"], route_containers["esperado"], route_containers["otimista"], 
-            warnings_div)
+    return (card_cols, fig_costs, dropdown_options, dropdown_options, None, None, diff_table_data, style_wh_diff, warnings_div)
+
+
+@app.callback(
+    Output("graph-scenario-inventory", "figure"),
+    [Input("store-model-results", "data"),
+     Input("dropdown-scenario-inventory-warehouses", "value")],
+    [State("store-lang", "data")]
+)
+def update_scenario_inventory_chart(results_data, selected_warehouses, lang="pt"):
+    def make_default():
+        fig = go.Figure()
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+        return fig
+    
+    if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
+        return make_default()
+
+    try:
+        scenario_inv = results_data.get("scenario_inventory", {})
+        dfs = []
+        for s in ["pessimista", "esperado", "otimista"]:
+            inv_data = scenario_inv.get(s, [])
+            if inv_data:
+                df_s = pd.DataFrame(inv_data)
+                if not df_s.empty:
+                    df_s["Cenário"] = translate(s.capitalize(), lang)
+                    dfs.append(df_s)
+                    
+        fig_inv = go.Figure()
+        if dfs:
+            df_all = pd.concat(dfs, ignore_index=True)
+            df_grouped = df_all.groupby(["Período", "Cenário", "Name"])["Quantidade (ton)"].sum().reset_index()
+            
+            if selected_warehouses:
+                df_grouped = df_grouped[df_grouped["Name"].isin(selected_warehouses)]
+                
+            warehouses = sorted(df_grouped["Name"].unique())
+            scenarios_pt = [translate("Pessimista", lang), translate("Esperado", lang), translate("Otimista", lang)]
+            
+            # Setup warehouse fixed colors using px.colors.qualitative.Plotly
+            import plotly.express as px
+            color_cycle = px.colors.qualitative.Plotly
+            wh_color_map = {wh: color_cycle[idx % len(color_cycle)] for idx, wh in enumerate(warehouses)}
+            
+            def hex_to_rgba(hex_str, alpha):
+                hex_str = hex_str.lstrip('#')
+                if len(hex_str) == 3:
+                    hex_str = ''.join(c*2 for c in hex_str)
+                r = int(hex_str[0:2], 16)
+                g = int(hex_str[2:4], 16)
+                b = int(hex_str[4:6], 16)
+                return f"rgba({r}, {g}, {b}, {alpha})"
+            
+            for wh in warehouses:
+                df_wh = df_grouped[df_grouped["Name"] == wh]
+                for s in scenarios_pt:
+                    df_wh_s = df_wh[df_wh["Cenário"] == s]
+                    
+                    base_color = wh_color_map[wh]
+                    # Apply color opacity based on scenario
+                    if s == translate("Pessimista", lang):
+                        bar_color = hex_to_rgba(base_color, 0.4)
+                    elif s == translate("Otimista", lang):
+                        bar_color = hex_to_rgba(base_color, 0.7)
+                    else:  # Esperado (reference)
+                        bar_color = base_color
+                        
+                    fig_inv.add_trace(go.Bar(
+                        name=wh,
+                        x=df_wh_s["Período"],
+                        y=df_wh_s["Quantidade (ton)"],
+                        offsetgroup=s,
+                        legendgroup=wh,
+                        showlegend=(s == translate("Esperado", lang)),
+                        marker=dict(
+                            color=bar_color
+                        ),
+                        hovertemplate=f"<b>{wh}</b><br>{translate('Cenário', lang)}: {s}<br>{translate('Período', lang)}: %{{x}}<br>{translate('Quantidade', lang)}: %{{y:,.2f}} t<extra></extra>"
+                    ))
+                    
+        fig_inv.update_layout(
+            barmode='stack',
+            margin=dict(l=40, r=40, t=80, b=40),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.08,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=14)
+            ),
+            font=dict(family="Roboto, sans-serif", size=14),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+        fig_inv.update_xaxes(tickfont=dict(size=14))
+        fig_inv.update_yaxes(gridcolor='#E5E7EB', zeroline=False, tickfont=dict(size=14))
+        return fig_inv
+    except Exception as e:
+        print(f"Error drawing scenario inventory chart: {e}")
+        return make_default()
+
+
+@app.callback(
+    Output("graph-warehouse-utilization", "figure"),
+    [Input("store-model-results", "data"),
+     Input("dropdown-warehouse-utilization-warehouses", "value")],
+    [State("store-lang", "data")]
+)
+def update_warehouse_utilization_chart(results_data, selected_warehouses, lang="pt"):
+    def make_default():
+        fig = go.Figure()
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+        return fig
+    
+    if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
+        return make_default()
+
+    try:
+        fig_wh_util = go.Figure()
+        wh_metrics_scen = results_data.get("scenario_warehouse_metrics", {})
+        esp_whs = wh_metrics_scen.get("esperado", [])
+        
+        wh_names = sorted(
+            [(w["CDA"], w["Name"]) for w in esp_whs],
+            key=lambda x: x[1]
+        )
+        if selected_warehouses:
+            wh_names = [x for x in wh_names if x[1] in selected_warehouses]
+            
+        cost_colors = {
+            "pessimista": "#C8102E",
+            "esperado": "#003366",
+            "otimista": "#006633"
+        }
+        
+        for s in ["pessimista", "esperado", "otimista"]:
+            s_whs = wh_metrics_scen.get(s, [])
+            s_dict = {w["CDA"]: w for w in s_whs}
+            y_vals = []
+            x_names = []
+            for cda, name in wh_names:
+                w = s_dict.get(cda, {})
+                vol = w.get("TotalOutflow", 0.0) + w.get("FinalStock", 0.0)
+                y_vals.append(vol)
+                x_names.append(name)
+                
+            fig_wh_util.add_trace(go.Bar(
+                name=translate(s.capitalize(), lang),
+                x=x_names,
+                y=y_vals,
+                marker_color=cost_colors[s]
+            ))
+            
+        cap_vals = []
+        x_names = []
+        for cda, name in wh_names:
+            w = next((x for x in esp_whs if x["CDA"] == cda), {})
+            cap_vals.append(w.get("EffectiveStaticCapacity", 0.0))
+            x_names.append(name)
+            
+        fig_wh_util.add_trace(go.Scatter(
+            name=translate("Capacidade Efetiva", lang),
+            x=x_names,
+            y=cap_vals,
+            mode="markers",
+            marker=dict(
+                symbol="line-ew-open",
+                size=24,
+                line=dict(width=3, color="#7E7E65")
+            )
+        ))
+        fig_wh_util.update_layout(
+            barmode='group',
+            margin=dict(l=40, r=40, t=80, b=40),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.08,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=14)
+            ),
+            font=dict(family="Roboto, sans-serif", size=14),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+        fig_wh_util.update_xaxes(tickfont=dict(size=14))
+        fig_wh_util.update_yaxes(gridcolor='#E5E7EB', zeroline=False, tickfont=dict(size=14))
+        return fig_wh_util
+    except Exception as e:
+        print(f"Error drawing scenario utilization chart: {e}")
+        return make_default()
 
 
 # --- EVPI/VSS Background Computation Callback ---
@@ -7698,12 +8228,14 @@ def populate_stochastic_results(results_data, selected_inv_scenario, lang="pt"):
 @app.callback(
     output=(
         Output("res-evpi-value", "children"),
-        Output("res-vss-value", "children"),
-        Output("btn-compute-evpi-vss", "disabled")
+        Output("res-vss-value", "children")
     ),
     inputs=[
-        Input("btn-compute-evpi-vss", "n_clicks"),
-        Input("store-model-results", "data"),
+        Input("main-tabs", "active_tab"),
+        Input("store-model-results", "data")
+    ],
+    state=[
+        State("res-evpi-value", "children"),
         State('stored-data', 'data'),
         State('store-warehouses', 'data'),
         State('store-prod-warehouses', 'data'),
@@ -7736,12 +8268,10 @@ def populate_stochastic_results(results_data, selected_inv_scenario, lang="pt"):
         State('store-lang', 'data')
     ],
     background=True,
-    running=[
-        (Output("btn-compute-evpi-vss", "disabled"), True, False),
-    ],
     prevent_initial_call=True
 )
-def run_evpi_vss(n_clicks, results_data, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
+def run_evpi_vss(active_tab, results_data, current_evpi,
+                 stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
                  toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
                  expansion_enabled, bulk_enabled,
                  ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
@@ -7751,11 +8281,17 @@ def run_evpi_vss(n_clicks, results_data, stored_data, stored_warehouses, stored_
     ctx = dash.callback_context
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
-    if trigger_id == "store-model-results" or not n_clicks:
-        return "R$ -", "R$ -", False
-
     if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
-        return "R$ -", "R$ -", False
+        return "R$ -", "R$ -"
+
+    if trigger_id == "store-model-results":
+        return "R$ -", "R$ -"
+
+    if active_tab != "tab-stochastic-results":
+        return dash.no_update, dash.no_update
+
+    if current_evpi and current_evpi != "R$ -":
+        return dash.no_update, dash.no_update
 
     stochastic_objective = results_data.get("objective", 0.0)
 
@@ -7840,11 +8376,14 @@ def run_evpi_vss(n_clicks, results_data, stored_data, stored_warehouses, stored_
         evpi_val = evpi_vss_results.get("evpi", 0.0)
         vss_val = evpi_vss_results.get("vss", 0.0)
 
-        return fmt_curr(evpi_val), fmt_curr(vss_val), False
+        evpi_formatted = fmt_curr(evpi_val)
+        vss_formatted = fmt_curr(vss_val)
+
+        return evpi_formatted, vss_formatted
 
     except Exception as e:
         print(f"Error computing EVPI/VSS: {e}")
-        return "R$ -", "R$ -", False
+        return "R$ -", "R$ -"
 
 
 def view():

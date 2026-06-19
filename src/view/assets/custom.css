@@ -533,4 +533,57 @@ small, .small {
   width: 100%;
 }
 
+/* Scenario card styles */
+.scenario-card-pessimista {
+    border-left: 4px solid #C8102E !important;
+}
+
+.scenario-card-esperado {
+    border-left: 4px solid #003366 !important;
+}
+
+.scenario-card-otimista {
+    border-left: 4px solid #006633 !important;
+}
+
+/* Delta badges styling */
+.delta-badge-positive {
+    background-color: #D4EDDA !important;
+    color: #155724 !important;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.delta-badge-negative {
+    background-color: #F8D7DA !important;
+    color: #721C24 !important;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.delta-badge-neutral {
+    background-color: #E2E3E5 !important;
+    color: #383D41 !important;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+/* Mini map container */
+.mini-map-container {
+    margin-top: 16px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #E2E3E5;
+}
+
+
 
