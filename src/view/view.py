@@ -2579,7 +2579,7 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
           if c_num < 0:
             raise ValueError()
         except ValueError:
-          return no_update, no_update, True, translate("Para armazéns Existentes, as capacities devem ser números maiores ou iguais a 0.", lang)
+          return no_update, no_update, True, translate("Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang)
 
       static_cap = float(static_cap_val)
       reception_cap = float(reception_cap_val)
@@ -4349,7 +4349,7 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
 
     except Exception as e:
         import traceback
-        err_msg = f"Erro fatal ao executar o modelo:\n{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        err_msg = translate("Erro fatal ao executar o modelo:", lang) + f"\n{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         return err_msg, "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
 
 
