@@ -21,7 +21,6 @@ class TestDeterministicModel(unittest.TestCase):
         "UF": "DF",
         "Tipo": "Silo",
         "Cap. Estática (t)": 200.0,
-        "Estoque Inicial (t)": 0.0,
         "Cap. Recepção (t)": 50.0,
         "Cap. Expedição (t)": 50.0,
         "Cap. Estática Máxima (t)": 0.0,
@@ -144,6 +143,65 @@ class TestDeterministicModel(unittest.TestCase):
     self.assertEqual(od_route["Origem"], "Sorriso - MT")
     self.assertEqual(od_route["Destino"], "WH-001 - CONAB - Brasília")
     self.assertEqual(od_route["Quantidade (ton)"], 100.0)
+
+  @patch('src.logic.optimization.SolverFactory')
+  def test_run_deterministic_model_infeasible_pre_check(self, mock_solver_factory):
+    # Supply = 50, Demand = 100
+    df_supply = pd.DataFrame([
+      {"Cidade": "Sorriso - MT", "Produto": "Soja", "Data": "2026-01", "Peso (ton)": 50.0}
+    ])
+    df_warehouses = pd.DataFrame([
+      {
+        "CDA": "WH-001",
+        "Status": "Existente",
+        "Armazenador": "CONAB",
+        "Município": "Brasília",
+        "UF": "DF",
+        "Tipo": "Silo",
+        "Cap. Estática (t)": 200.0,
+        "Cap. Recepção (t)": 50.0,
+        "Cap. Expedição (t)": 50.0,
+        "Cap. Estática Máxima (t)": 0.0,
+        "Custo de Abertura ($)": 0.0
+      }
+    ])
+    df_compat = pd.DataFrame([
+      {"Produto": "Soja", "Silo": "☑", "Convencional": "☐"}
+    ])
+    df_dist_supply_wh = pd.DataFrame([
+      {"Origem": "Sorriso - MT", "WH-001 - CONAB - Brasília": 100.0}
+    ])
+    df_dist_wh_demand = pd.DataFrame([
+      {"Origem": "WH-001 - CONAB - Brasília", "São Paulo - SP": 200.0}
+    ])
+    df_dist_wh_wh = pd.DataFrame([
+      {"Origem": "WH-001 - CONAB - Brasília", "WH-001 - CONAB - Brasília": 0.0}
+    ])
+    df_demand = pd.DataFrame([
+      {"Cidade": "São Paulo - SP", "Produto": "Soja", "Latitude": -23.5505, "Longitude": -46.6333, "Data": "2026-01", "Peso (ton)": 100.0}
+    ])
+    df_freight = pd.DataFrame([
+      {"Estado": "MT", "Frete Tonelada Km": 0.3},
+      {"Estado": "DF", "Frete Tonelada Km": 0.3}
+    ])
+    df_storage = pd.DataFrame([
+      {"Produto": "Soja", "Armazenar": 10.0}
+    ])
+
+    with self.assertRaises(ValueError) as ctx:
+      run_deterministic_model(
+        df_supply=df_supply,
+        df_warehouses=df_warehouses,
+        df_compat=df_compat,
+        df_dist_supply_wh=df_dist_supply_wh,
+        df_dist_wh_demand=df_dist_wh_demand,
+        df_dist_wh_wh=df_dist_wh_wh,
+        df_demand=df_demand,
+        df_freight=df_freight,
+        df_storage=df_storage,
+        lang="pt"
+      )
+    self.assertIn("Erro: Oferta total", str(ctx.exception))
 
 if __name__ == '__main__':
   unittest.main()

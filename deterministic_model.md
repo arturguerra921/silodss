@@ -49,7 +49,7 @@ A strict coordination rule ensures that during the entire planning horizon, any 
 
 1. The amount of available supply at each origin location for each commodity type is known and deterministic for every monthly time step.
 
-2. The initial inventory of commodities present in **existing** warehouses is known and deterministic. Candidate warehouses start with zero inventory.
+2. The initial inventory of commodities present in all warehouses is zero.
 
 3. Monthly storage tariffs, state-based freight rates, and candidate warehouse opening costs are known and fixed.
 
@@ -95,7 +95,6 @@ A strict coordination rule ensures that during the entire planning horizon, any 
 | $\text{StaticCap}_d$ | `model.StaticCapacity[d]` | Initial static storage capacity of warehouse $d \in D_{\text{exist}}$ (in t). **Not defined for $d \in D_{\text{cand}}$; see $\kappa_d$ below.** |
 | $\text{ReceptionCap}_d$ | `model.ReceptionCapacity[d]` | Initial maximum daily receiving rate of warehouse $d \in D_{\text{exist}}$ (in t/day). **Not defined for $d \in D_{\text{cand}}$.** |
 | $\text{ShippingCap}_d$ | `model.ShippingCapacity[d]` | Initial maximum daily shipping rate of warehouse $d \in D_{\text{exist}}$ (in t/day). **Not defined for $d \in D_{\text{cand}}$.** |
-| $I_{dp}$ | `model.InitialInventory[d,p]` | Initial inventory of product $p$ present at existing warehouse $d \in D_{\text{exist}}$ before the first period (in t). Set to $0$ for all $d \in D_{\text{cand}}$. |
 | $\text{OpenCost}_d$ | `model.OpeningCost[d]` | Fixed setup/capital cost to open candidate warehouse $d \in D_{\text{cand}}$ (in \$). |
 | $\text{MaxCandStatic}_d$ | `model.MaxCandStaticCapacity[d]` | **[NEW]** Maximum allowable static storage capacity for candidate warehouse $d \in D_{\text{cand}}$ (in t). Bounds the $\kappa_d$ decision variable. |
 | $\text{StorageCost}_{d,p}$ | `model.StorageTariff[d,p]` | Storage tariff at destination $d$ for product $p$ (in \$/t per month). |
@@ -191,10 +190,8 @@ $$
 Where, for the boundary condition at the first period ($t = 1$), the lagged state is defined as:
 
 $$
-e_{dp,0} = I_{dp} \quad \forall d \in D,\ p \in P
+e_{dp,0} = 0 \quad \forall d \in D,\ p \in P
 $$
-
-With $I_{dp} = 0$ for all $d \in D_{\text{cand}}$.
 
 #### 3. Warehouse Static Capacity Bound
 

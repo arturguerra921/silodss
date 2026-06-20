@@ -2250,10 +2250,8 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
       cols_map['Cap. Recepção (t)'] = col
     elif 'exped' in col_lower or 'envio' in col_lower:
       cols_map['Cap. Expedição (t)'] = col
-    elif 'custo' in col_lower and ('abert' in col_lower or 'open' in col_lower):
+    elif ('custo' in col_lower and ('abert' in col_lower or 'open' in col_lower)) or 'opening' in col_lower:
       cols_map['Custo de Abertura ($)'] = col
-    elif 'estoque' in col_lower or 'stock' in col_lower or 'inventory' in col_lower:
-      cols_map['Estoque Inicial (t)'] = col
 
   new_df = pd.DataFrame()
   
@@ -2295,7 +2293,6 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
     new_df['Tipo'] = ''
 
   for col_key, col_target in [('Cap. Estática (t)', 'Cap. Estática (t)'),
-                              ('Estoque Inicial (t)', 'Estoque Inicial (t)'),
                               ('Cap. Estática Máxima (t)', 'Cap. Estática Máxima (t)'),
                               ('Cap. Recepção (t)', 'Cap. Recepção (t)'),
                               ('Cap. Expedição (t)', 'Cap. Expedição (t)'),
@@ -2363,7 +2360,7 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
 
   cands_mask = new_df['Status'] == 'Candidato'
   new_df.loc[cands_mask, ['Armazenador', 'Tipo']] = ''
-  new_df.loc[cands_mask, ['Cap. Estática (t)', 'Estoque Inicial (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
+  new_df.loc[cands_mask, ['Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
 
   exist_mask = new_df['Status'] == 'Existente'
   if 'Custo de Abertura ($)' in new_df.columns:
@@ -2392,7 +2389,6 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
       # capacities
       for cap_col_name, cap_label in [
           ('Cap. Estática (t)', translate("Capacidade Estática", lang)),
-          ('Estoque Inicial (t)', translate("Estoque Inicial", lang)),
           ('Cap. Recepção (t)', translate("Capacidade de Recepção", lang)),
           ('Cap. Expedição (t)', translate("Capacidade de Expedição", lang))
       ]:
@@ -2405,10 +2401,6 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
             raise ValueError()
         except ValueError:
           raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang))
-
-      # Check that Estoque Inicial is <= Current Static Cap for existing
-      if float(row['Cap. Estática (t)']) < float(row['Estoque Inicial (t)']):
-        raise ValueError(translate("Erro no arquivo: Para armazéns Existentes, o Estoque Inicial não pode ser maior do que a Capacidade Estática atual.", lang))
 
     else:
       # Candidate validation
@@ -2435,7 +2427,7 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
   # Reorder columns to ensure CDA is always first, matching the strict pattern
   cols_order = [
     'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-    'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Estoque Inicial (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
+    'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
   ]
   for col in cols_order:
     if col not in new_df.columns:
@@ -2464,7 +2456,6 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
    State('wh-input-provider', 'value'),
    State('wh-input-type', 'value'),
    State('wh-input-static-cap', 'value'),
-   State('wh-input-initial-stock', 'value'),
    State('wh-input-max-static-cap', 'value'),
    State('wh-input-reception-cap', 'value'),
    State('wh-input-expedition-cap', 'value'),
@@ -2475,7 +2466,7 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
 def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn_clear_clicks,
                             store_data, table_data, upload_filename, status_val, city_val,
                             lat_val, lon_val, provider_val, type_val, static_cap_val,
-                            initial_stock_val, max_static_cap_val, reception_cap_val,
+                            max_static_cap_val, reception_cap_val,
                             expedition_cap_val, opening_cost_val, lang):
   ctx = dash.callback_context
   if not ctx.triggered:
@@ -2494,7 +2485,7 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
   if trigger_id == 'btn-confirm-clear-warehouses':
     empty_df = pd.DataFrame(columns=[
       'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Estoque Inicial (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
     ])
     return empty_df.to_json(date_format='iso', orient='split'), None, no_update, no_update
 
@@ -2546,7 +2537,6 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       provider = ''
       wh_type = ''
       static_cap = 0.0
-      initial_stock = 0.0
       reception_cap = 0.0
       expedition_cap = 0.0
 
@@ -2579,7 +2569,6 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       # capacities validation
       for cap_val, cap_label in [
           (static_cap_val, translate("Capacidade Estática", lang)),
-          (initial_stock_val, translate("Estoque Inicial", lang)),
           (reception_cap_val, translate("Capacidade de Recepção", lang)),
           (expedition_cap_val, translate("Capacidade de Expedição", lang))
       ]:
@@ -2590,15 +2579,11 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
           if c_num < 0:
             raise ValueError()
         except ValueError:
-          return no_update, no_update, True, translate("Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang)
+          return no_update, no_update, True, translate("Para armazéns Existentes, as capacities devem ser números maiores ou iguais a 0.", lang)
 
       static_cap = float(static_cap_val)
-      initial_stock = float(initial_stock_val)
       reception_cap = float(reception_cap_val)
       expedition_cap = float(expedition_cap_val)
-
-      if static_cap < initial_stock:
-        return no_update, no_update, True, translate("Para armazéns Existentes, o Estoque Inicial não pode ser maior do que a Capacidade Estática atual.", lang)
 
       max_static_cap = 0.0
       opening_cost = 0.0
@@ -2613,7 +2598,6 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       'Armazenador': provider,
       'Tipo': wh_type,
       'Cap. Estática (t)': static_cap,
-      'Estoque Inicial (t)': initial_stock,
       'Cap. Estática Máxima (t)': max_static_cap,
       'Cap. Recepção (t)': reception_cap,
       'Cap. Expedição (t)': expedition_cap,
@@ -2642,7 +2626,7 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
     # Clear fields for Candidates
     cands_mask = table_df['Status'] == 'Candidato'
     table_df.loc[cands_mask, ['Armazenador', 'Tipo']] = ''
-    table_df.loc[cands_mask, ['Cap. Estática (t)', 'Estoque Inicial (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
+    table_df.loc[cands_mask, ['Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)']] = 0.0
 
     # Clear opening cost and max static cap for Existente
     exist_mask = table_df['Status'] == 'Existente'
@@ -2671,7 +2655,6 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
         
         for cap_col_name, cap_label in [
             ('Cap. Estática (t)', translate("Capacidade Estática", lang)),
-            ('Estoque Inicial (t)', translate("Estoque Inicial", lang)),
             ('Cap. Recepção (t)', translate("Capacidade de Recepção", lang)),
             ('Cap. Expedição (t)', translate("Capacidade de Expedição", lang))
         ]:
@@ -2685,11 +2668,6 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
           except ValueError:
             return no_update, no_update, True, translate("Para armazéns Existentes, as capacidades devem ser números maiores ou iguais a 0.", lang)
 
-        # Current capacity >= initial stock
-        curr_initial_stock = float(row.get('Estoque Inicial (t)', 0.0))
-        curr_static_cap = float(row.get('Cap. Estática (t)', 0.0))
-        if curr_static_cap < curr_initial_stock:
-          return no_update, no_update, True, translate("Para armazéns Existentes, o Estoque Inicial não pode ser maior do que a Capacidade Estática atual.", lang)
       else:
         # Candidate validation
         max_static_cap_val = row.get('Cap. Estática Máxima (t)')
@@ -2722,7 +2700,7 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
     
     cols = [
       'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Estoque Inicial (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
     ]
     for col in cols:
       if col not in table_df.columns:
@@ -2803,7 +2781,6 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
     mun_idx = col_names.index('Município')
     uf_idx = col_names.index('UF')
     cap_idx = col_names.index('Cap. Estática (t)')
-    stock_idx = col_names.index('Estoque Inicial (t)')
     type_idx = col_names.index('Tipo')
     
     try:
@@ -2813,8 +2790,7 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
           f"<b>{row[prov_idx]}</b><br>"
           f"{row[mun_idx]} - {row[uf_idx]}<br>"
           f"{translate('Tipo', lang)}: {row[type_idx]}<br>"
-          f"{translate('Capacidade Estática (t)', lang)}: {row[cap_idx]:,.1f}<br>"
-          f"{translate('Estoque Inicial (t)', lang)}: {row[stock_idx]:,.1f}"
+          f"{translate('Capacidade Estática (t)', lang)}: {row[cap_idx]:,.1f}"
         )
     except (ValueError, IndexError):
       for _, row in df_existing.iterrows():
@@ -2823,8 +2799,7 @@ def update_warehouses_table_and_map(store_data, active_tab, lang):
           f"<b>{row['Armazenador']}</b><br>"
           f"{row['Município']} - {row['UF']}<br>"
           f"{translate('Tipo', lang)}: {row['Tipo']}<br>"
-          f"{translate('Capacidade Estática (t)', lang)}: {row['Cap. Estática (t)']:,.1f}<br>"
-          f"{translate('Estoque Inicial (t)', lang)}: {row['Estoque Inicial (t)']:,.1f}"
+          f"{translate('Capacidade Estática (t)', lang)}: {row['Cap. Estática (t)']:,.1f}"
         )
 
     fig.add_trace(go.Scattermapbox(
@@ -3036,7 +3011,6 @@ def download_warehouses_template(n_clicks, lang):
     'Armazenador': ['CONAB Exemplo', ''],
     'Tipo': ['Convencional', ''],
     'Cap. Estática (t)': [10000.0, 0.0],
-    'Estoque Inicial (t)': [5000.0, 0.0],
     'Cap. Recepção (t)': [1000.0, 0.0],
     'Cap. Expedição (t)': [800.0, 0.0],
     'Cap. Estática Máxima (t)': [0.0, 20000.0],
@@ -6074,6 +6048,52 @@ def close_model_modal(results_data, cancel_clicks, error_text):
     return False
 
 
+@app.callback(
+    Output("error-modal", "is_open", allow_duplicate=True),
+    Output("modal-body-content", "children", allow_duplicate=True),
+    Input("model-output-text", "children"),
+    [State("radio-model-type", "value"),
+     State("store-lang", "data")],
+    prevent_initial_call=True
+)
+def trigger_error_popup_on_model_error(output_text, model_type, lang):
+    if not output_text:
+        return dash.no_update, dash.no_update
+    
+    text_str = str(output_text)
+    
+    is_error = (
+        "Erro" in text_str or 
+        "Error" in text_str or 
+        "Falha ao encontrar" in text_str or 
+        "Failed to find" in text_str or 
+        "infeasible" in text_str.lower()
+    )
+    
+    if is_error:
+        body_elements = []
+        
+        if "Falha ao encontrar" in text_str or "Failed to find" in text_str:
+            title_msg = translate("Aviso: Solução Não Encontrada", lang)
+            desc_msg = translate(
+                "O solver não conseguiu encontrar uma solução ótima. "
+                "Isso geralmente ocorre se o modelo for inviável (infeasible), ou seja, as restrições impostas não podem ser satisfeitas simultaneamente (ex: demanda maior que a capacidade total de expedição/recepção, falta de conexões permitidas entre produtos e armazéns, etc).", 
+                lang
+            )
+            body_elements.append(html.H5(title_msg, className="text-warning mb-2"))
+            body_elements.append(html.P(desc_msg))
+            body_elements.append(html.Hr())
+            body_elements.append(html.P(f"{translate('Detalhes:', lang)} {text_str}"))
+        else:
+            title_msg = translate("Erro na Execução do Modelo", lang)
+            body_elements.append(html.H5(title_msg, className="text-danger mb-2"))
+            body_elements.append(html.P(text_str, style={"whiteSpace": "pre-wrap", "wordBreak": "break-word"}))
+            
+        return True, html.Div(body_elements)
+        
+    return dash.no_update, dash.no_update
+
+
 # --- Demand Callbacks ---
 
 @app.callback(
@@ -8037,10 +8057,11 @@ def populate_stochastic_results(results_data, lang="pt"):
     Output("graph-scenario-inventory", "figure"),
     [Input("store-model-results", "data"),
      Input("dropdown-scenario-inventory-warehouses", "value"),
-     Input("stochastic-results-actual-card", "style")],
+     Input("stochastic-results-actual-card", "style"),
+     Input("main-tabs", "active_tab")],
     [State("store-lang", "data")]
 )
-def update_scenario_inventory_chart(results_data, selected_warehouses, card_style, lang="pt"):
+def update_scenario_inventory_chart(results_data, selected_warehouses, card_style, active_tab, lang="pt"):
     def make_default():
         fig = go.Figure()
         fig.update_layout(
@@ -8049,6 +8070,9 @@ def update_scenario_inventory_chart(results_data, selected_warehouses, card_styl
         )
         return fig
     
+    if active_tab != 'tab-stochastic-results':
+        return make_default()
+        
     if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
         return make_default()
 
@@ -8142,10 +8166,11 @@ def update_scenario_inventory_chart(results_data, selected_warehouses, card_styl
     Output("graph-warehouse-utilization", "figure"),
     [Input("store-model-results", "data"),
      Input("dropdown-warehouse-utilization-warehouses", "value"),
-     Input("stochastic-results-actual-card", "style")],
+     Input("stochastic-results-actual-card", "style"),
+     Input("main-tabs", "active_tab")],
     [State("store-lang", "data")]
 )
-def update_warehouse_utilization_chart(results_data, selected_warehouses, card_style, lang="pt"):
+def update_warehouse_utilization_chart(results_data, selected_warehouses, card_style, active_tab, lang="pt"):
     def make_default():
         fig = go.Figure()
         fig.update_layout(
@@ -8154,6 +8179,9 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
         )
         return fig
     
+    if active_tab != 'tab-stochastic-results':
+        return make_default()
+        
     if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
         return make_default()
 

@@ -103,7 +103,7 @@ $$
 e_{dpts} = e_{dp,\,t-1,\,s} + \text{Inflow}_{dpts} - \text{Outflow}_{dpts} \quad \forall d \in D,\ p \in P,\ t \in T,\ s \in S
 $$
 Where:
-* For $t = 1$: $e_{dp,\,t-1,\,s} = I_{dp}$ (Initial inventory parameter).
+* For $t = 1$: $e_{dp,\,t-1,\,s} = 0$.
 * $\text{Inflow}_{dpts} = \sum_{\{o \mid (o,d,p) \in R_{ODP}\}} x_{odpts} + \sum_{\{d_1 \mid (d_1,d,p) \in R_{DDP}\}} y_{d_1dpts}$
 * $\text{Outflow}_{dpts} = \sum_{\{c \mid (d,c,p) \in R_{DCP}\}} z_{dcpts} + \sum_{\{d_2 \mid (d,d_2,p) \in R_{DDP}\}} y_{dd_2pts}$
 

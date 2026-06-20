@@ -620,40 +620,40 @@ def get_tab_stochastic_results_layout(lang='pt'):
                 html.Div([
                     # EVPI section
                     html.Div([
-                        html.Div(translate("Valor Esperado da Informação Perfeita (EVPI)", lang), className="fw-bold mb-2 text-primary-custom", style={"fontSize": "16px"}),
-                        html.P(translate("O ganho máximo que seria possível obter caso o resultado de cada cenário fosse conhecido antes de qualquer decisão.", lang), className="text-muted mb-2", style={"fontSize": "14px", "lineHeight": "1.4"}),
+                        html.Div(translate("Valor Esperado da Informação Perfeita (EVPI)", lang), className="fw-bold mb-2 text-primary-custom", style={"fontSize": "18px"}),
+                        html.P(translate("O ganho máximo que seria possível obter caso o resultado de cada cenário fosse conhecido antes de qualquer decisão.", lang), className="text-muted mb-2", style={"fontSize": "16px", "lineHeight": "1.4"}),
                         html.Div([
                             html.Div([
                                 html.Span(html.I(className="bi bi-arrow-up text-success-custom fs-6 fw-bold"), className="delta-badge-positive me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
-                                html.Span(translate("A incerteza tem grande impacto nos resultados. Melhorar previsões ou reduzir a incerteza pode gerar ganhos significativos.", lang), className="text-muted", style={"fontSize": "13px", "lineHeight": "1.4"})
+                                html.Span(translate("A incerteza tem grande impacto nos resultados. Melhorar previsões ou reduzir a incerteza pode gerar ganhos significativos.", lang), className="text-muted", style={"fontSize": "15px", "lineHeight": "1.4"})
                             ], className="d-flex align-items-start mb-2"),
                             html.Div([
                                 html.Span(html.I(className="bi bi-arrow-down text-danger-custom fs-6 fw-bold"), className="delta-badge-negative me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
-                                html.Span(translate("A incerteza tem pouco impacto. Os resultados são semelhantes independentemente do cenário que ocorrer.", lang), className="text-muted", style={"fontSize": "13px", "lineHeight": "1.4"})
+                                html.Span(translate("A incerteza tem pouco impacto. Os resultados são semelhantes independentemente do cenário que ocorrer.", lang), className="text-muted", style={"fontSize": "15px", "lineHeight": "1.4"})
                             ], className="d-flex align-items-start")
                         ], className="mt-2")
                     ], className="p-3 mb-3 rounded border bg-light", style={"borderLeft": "4px solid #003366"}),
                     
                     # VSS section
                     html.Div([
-                        html.Div(translate("Valor da Solução Estocástica (VSS)", lang), className="fw-bold mb-2 text-success-custom", style={"fontSize": "16px"}),
-                        html.P(translate("O ganho de usar um modelo que considera múltiplos cenários em vez de um modelo que usa apenas o cenário médio.", lang), className="text-muted mb-2", style={"fontSize": "14px", "lineHeight": "1.4"}),
+                        html.Div(translate("Valor da Solução Estocástica (VSS)", lang), className="fw-bold mb-2 text-success-custom", style={"fontSize": "18px"}),
+                        html.P(translate("O ganho de usar um modelo que considera múltiplos cenários em vez de um modelo que usa apenas o cenário médio.", lang), className="text-muted mb-2", style={"fontSize": "16px", "lineHeight": "1.4"}),
                         html.Div([
                             html.Div([
                                 html.Span(html.I(className="bi bi-arrow-up text-success-custom fs-6 fw-bold"), className="delta-badge-positive me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
-                                html.Span(translate("Considerar múltiplos cenários leva a decisões visivelmente melhores. O modelo estocástico agrega valor claro.", lang), className="text-muted", style={"fontSize": "13px", "lineHeight": "1.4"})
+                                html.Span(translate("Considerar múltiplos cenários leva a decisões visivelmente melhores. O modelo estocástico agrega valor claro.", lang), className="text-muted", style={"fontSize": "15px", "lineHeight": "1.4"})
                             ], className="d-flex align-items-start mb-2"),
                             html.Div([
                                 html.Span(html.I(className="bi bi-arrow-down text-danger-custom fs-6 fw-bold"), className="delta-badge-negative me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
-                                html.Span(translate("O cenário médio é uma aproximação suficiente. Um modelo mais simples chegaria a resultados similares.", lang), className="text-muted", style={"fontSize": "13px", "lineHeight": "1.4"})
+                                html.Span(translate("O cenário médio é uma aproximação suficiente. Um modelo mais simples chegaria a resultados similares.", lang), className="text-muted", style={"fontSize": "15px", "lineHeight": "1.4"})
                             ], className="d-flex align-items-start")
                         ], className="mt-2")
                     ], className="p-3 mb-3 rounded border bg-light", style={"borderLeft": "4px solid #006633"}),
                     
                     # Relationship section
                     html.Div([
-                        html.Div(translate("Relação entre os dois (VSS ≤ EVPI)", lang), className="fw-bold mb-2 text-dark", style={"fontSize": "16px"}),
-                        html.P(translate("O EVPI é o melhor resultado possível sob qualquer circunstância. O VSS mostra o quão próximo o modelo estocástico chega desse teto. Se o VSS exceder o EVPI, há um erro no modelo.", lang), className="text-muted mb-0", style={"fontSize": "14px", "lineHeight": "1.4"})
+                        html.Div(translate("Relação entre os dois (VSS ≤ EVPI)", lang), className="fw-bold mb-2 text-dark", style={"fontSize": "18px"}),
+                        html.P(translate("O EVPI é o melhor resultado possível sob qualquer circunstância. O VSS mostra o quão próximo o modelo estocástico chega desse teto. Se o VSS exceder o EVPI, há um erro no modelo.", lang), className="text-muted mb-0", style={"fontSize": "16px", "lineHeight": "1.4"})
                     ], className="p-3 mb-3 rounded border bg-light", style={"borderLeft": "4px solid #7E7E65"}),
                 ], className="mt-3 border-top pt-3")
             ], className="d-flex flex-column justify-content-center h-100 gap-3")

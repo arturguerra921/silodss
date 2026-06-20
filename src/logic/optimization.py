@@ -91,7 +91,6 @@ def run_deterministic_model(
     max_cand_static_capacity = {}
     warehouse_type = {}
     warehouse_uf = {}
-    demand_initial_inventory = {}
     
     cda_to_name = {}
     mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
@@ -120,12 +119,10 @@ def run_deterministic_model(
             static_capacity[cda] = safe_parse_numeric(row['Cap. Estática (t)'])
             reception_capacity[cda] = safe_parse_numeric(row['Cap. Recepção (t)'])
             shipping_capacity[cda] = safe_parse_numeric(row['Cap. Expedição (t)'])
-            demand_initial_inventory[cda] = safe_parse_numeric(row['Estoque Inicial (t)'])
         else: # Candidate
             candidate_warehouses_list.append(cda)
             opening_cost[cda] = safe_parse_numeric(row['Custo de Abertura ($)'])
             max_cand_static_capacity[cda] = safe_parse_numeric(row['Cap. Estática Máxima (t)'])
-            demand_initial_inventory[cda] = 0.0
 
     # 1.3 Product Compatibility
     compat_dict = {}
@@ -144,20 +141,6 @@ def run_deterministic_model(
                 prod_dest_compat[(prod, cda)] = compat_dict[(prod, t)]
             else:
                 prod_dest_compat[(prod, cda)] = True # fallback default
-
-    # 1.4 Initial inventory mapping distributed across compatible products
-    initial_inventory_dp = {}
-    for d in all_warehouses_list:
-        for p in all_products:
-            initial_inventory_dp[(d, p)] = 0.0
-            
-    for d in existing_warehouses_list:
-        compat_prods = [p for p in all_products if prod_dest_compat.get((p, d), True)]
-        total_init_stock = demand_initial_inventory.get(d, 0.0)
-        if compat_prods and total_init_stock > 0:
-            split_stock = total_init_stock / len(compat_prods)
-            for p in compat_prods:
-                initial_inventory_dp[(d, p)] = split_stock
 
     # 1.5 Bulkification eligibility based on type selection
     bulk_eligible_types_set = set(bulk_eligible_types or [])
@@ -225,6 +208,21 @@ def run_deterministic_model(
         else:
             if pd.notna(val):
                 demand_max[(c, p, t)] = float(val)
+
+    # Pre-optimization feasibility check: total supply >= total demand in the first period
+    if periods:
+        p1 = periods[0]
+        for p in all_products:
+            tot_sup = sum(val for (o, prod, t), val in supply_dict.items() if prod == p and t == p1)
+            tot_dem = sum(val for (c, prod, t), val in demand_min.items() if prod == p and t == p1)
+            if tot_sup < tot_dem:
+                msg = translate("Erro: Oferta total ({supply:.2f} ton) é menor que a demanda total ({demand:.2f} ton) no primeiro período ({period}) para o produto '{product}'.", lang).format(
+                    supply=tot_sup,
+                    demand=tot_dem,
+                    period=str(p1),
+                    product=p
+                )
+                raise ValueError(msg)
 
     # 1.7 Parse Distance Matrices
     distance_od = {}
@@ -401,10 +399,6 @@ def run_deterministic_model(
     def ship_cap_init(m, d):
         return shipping_capacity.get(d, 0.0)
     model.ShippingCapacity = pyo.Param(model.Destinations_exist, initialize=ship_cap_init)
-
-    def init_inv_init(m, d, p):
-        return initial_inventory_dp.get((d, p), 0.0)
-    model.InitialInventory = pyo.Param(model.Destinations, model.Products, initialize=init_inv_init)
 
     def open_cost_init(m, d):
         return opening_cost.get(d, 0.0)
@@ -587,7 +581,7 @@ def run_deterministic_model(
                   
         # Check index for boundary condition using predecessor map
         if t == periods[0]:
-            prev_inv = m.InitialInventory[d, p]
+            prev_inv = 0.0
         else:
             prev_t = prev_period_map[t]
             prev_inv = m.Inventory[d, p, prev_t]
@@ -1079,7 +1073,6 @@ def build_stochastic_pyomo_model(
   max_cand_static_capacity = {}
   warehouse_type = {}
   warehouse_uf = {}
-  demand_initial_inventory = {}
   
   cda_to_name = {}
 
@@ -1096,7 +1089,6 @@ def build_stochastic_pyomo_model(
     cap_est_idx = cols_wh.index('Cap. Estática (t)')
     cap_rec_idx = cols_wh.index('Cap. Recepção (t)')
     cap_exp_idx = cols_wh.index('Cap. Expedição (t)')
-    est_ini_idx = cols_wh.index('Estoque Inicial (t)')
     cust_ab_idx = cols_wh.index('Custo de Abertura ($)')
     cap_max_idx = cols_wh.index('Cap. Estática Máxima (t)')
     tipo_idx = cols_wh.index('Tipo')
@@ -1121,12 +1113,10 @@ def build_stochastic_pyomo_model(
         static_capacity[cda] = safe_parse_numeric(row[cap_est_idx])
         reception_capacity[cda] = safe_parse_numeric(row[cap_rec_idx])
         shipping_capacity[cda] = safe_parse_numeric(row[cap_exp_idx])
-        demand_initial_inventory[cda] = safe_parse_numeric(row[est_ini_idx])
       else:
         candidate_warehouses_list.append(cda)
         opening_cost[cda] = safe_parse_numeric(row[cust_ab_idx])
         max_cand_static_capacity[cda] = safe_parse_numeric(row[cap_max_idx])
-        demand_initial_inventory[cda] = 0.0
   except (ValueError, IndexError):
     # Fallback to iterrows
     for _, row in df_warehouses.iterrows():
@@ -1150,12 +1140,10 @@ def build_stochastic_pyomo_model(
         static_capacity[cda] = safe_parse_numeric(row['Cap. Estática (t)'])
         reception_capacity[cda] = safe_parse_numeric(row['Cap. Recepção (t)'])
         shipping_capacity[cda] = safe_parse_numeric(row['Cap. Expedição (t)'])
-        demand_initial_inventory[cda] = safe_parse_numeric(row['Estoque Inicial (t)'])
       else:
         candidate_warehouses_list.append(cda)
         opening_cost[cda] = safe_parse_numeric(row['Custo de Abertura ($)'])
         max_cand_static_capacity[cda] = safe_parse_numeric(row['Cap. Estática Máxima (t)'])
-        demand_initial_inventory[cda] = 0.0
 
   # Product compatibility
   compat_dict = {}
@@ -1174,20 +1162,6 @@ def build_stochastic_pyomo_model(
         prod_dest_compat[(prod, cda)] = compat_dict[(prod, t)]
       else:
         prod_dest_compat[(prod, cda)] = True
-
-  # Initial inventory
-  initial_inventory_dp = {}
-  for d in all_warehouses_list:
-    for p in all_products:
-      initial_inventory_dp[(d, p)] = 0.0
-      
-  for d in existing_warehouses_list:
-    compat_prods = [p for p in all_products if prod_dest_compat.get((p, d), True)]
-    total_init_stock = demand_initial_inventory.get(d, 0.0)
-    if compat_prods and total_init_stock > 0:
-      split_stock = total_init_stock / len(compat_prods)
-      for p in compat_prods:
-        initial_inventory_dp[(d, p)] = split_stock
 
   # Bulkification eligibility
   bulk_eligible_types_set = set(bulk_eligible_types or [])
@@ -1285,6 +1259,23 @@ def build_stochastic_pyomo_model(
     demand_min_scenarios[(c, p, t, "esperado")] = val
     demand_min_scenarios[(c, p, t, "pessimista")] = val * (1.0 + wmape)
     demand_min_scenarios[(c, p, t, "otimista")] = val * (1.0 - wmape)
+
+  # Pre-optimization feasibility check: total supply >= total demand in the first period for all scenarios
+  if periods:
+    p1 = periods[0]
+    for s in ["esperado", "pessimista", "otimista"]:
+      for p in all_products:
+        tot_sup = sum(val for (o, prod, t, scen), val in supply_dict_scenarios.items() if prod == p and t == p1 and scen == s)
+        tot_dem = sum(val for (c, prod, t, scen), val in demand_min_scenarios.items() if prod == p and t == p1 and scen == s)
+        if tot_sup < tot_dem:
+          msg = translate("Erro: Oferta total ({supply:.2f} ton) é menor que a demanda total ({demand:.2f} ton) no primeiro período ({period}) para o produto '{product}' no cenário '{scenario}'.", lang).format(
+              supply=tot_sup,
+              demand=tot_dem,
+              period=str(p1),
+              product=p,
+              scenario=translate(s, lang)
+          )
+          raise ValueError(msg)
 
   # Distance Matrices
   distance_od = {}
@@ -1460,10 +1451,6 @@ def build_stochastic_pyomo_model(
     return shipping_capacity.get(d, 0.0)
   model.ShippingCapacity = pyo.Param(model.Destinations_exist, initialize=ship_cap_init)
 
-  def init_inv_init(m, d, p):
-    return initial_inventory_dp.get((d, p), 0.0)
-  model.InitialInventory = pyo.Param(model.Destinations, model.Products, initialize=init_inv_init)
-
   def open_cost_init(m, d):
     return opening_cost.get(d, 0.0)
   model.OpeningCost = pyo.Param(model.Destinations_cand, initialize=open_cost_init)
@@ -1578,7 +1565,7 @@ def build_stochastic_pyomo_model(
               sum(m.FlowDD[d, d2, p, t, s] for d2 in valid_trans_out)
               
     if t == periods[0]:
-      prev_inv = m.InitialInventory[d, p]
+      prev_inv = 0.0
     else:
       prev_t = prev_period_map[t]
       prev_inv = m.Inventory[d, p, prev_t, s]
