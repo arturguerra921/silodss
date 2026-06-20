@@ -8001,6 +8001,7 @@ def populate_stochastic_results(results_data, lang="pt"):
         
     fig_costs.update_layout(
         barmode='group',
+        height=350,
         margin=dict(l=40, r=40, t=80, b=40),
         legend=dict(
             orientation="h",
@@ -8191,6 +8192,7 @@ def update_scenario_inventory_chart(results_data, selected_warehouses, card_styl
                     
         fig_inv.update_layout(
             barmode='stack',
+            height=380,
             margin=dict(l=40, r=40, t=80, b=40),
             legend=dict(
                 orientation="h",
@@ -8291,6 +8293,7 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
         ))
         fig_wh_util.update_layout(
             barmode='group',
+            height=430,
             margin=dict(l=40, r=40, t=80, b=40),
             legend=dict(
                 orientation="h",
@@ -8315,51 +8318,49 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
 # --- EVPI/VSS Background Computation Callback ---
 
 @app.callback(
-    output=(
-        Output("res-evpi-value", "children"),
-        Output("res-vss-value", "children")
-    ),
-    inputs=[
-        Input("main-tabs", "active_tab"),
-        Input("store-model-results", "data")
-    ],
-    state=[
-        State("res-evpi-value", "children"),
-        State('stored-data', 'data'),
-        State('store-warehouses', 'data'),
-        State('store-prod-warehouses', 'data'),
-        State('store-distance-matrix', 'data'),
-        State('stored-demand-data', 'data'),
-        State('toggle-detailed-log', 'value'),
-        State('toggle-pareto-routes', 'value'),
-        State('input-allocation-days', 'value'),
-        State('input-transshipment-discount', 'value'),
-        State('input-solver-gap', 'value'),
-        State('input-solver-time-limit', 'value'),
-        State('toggle-expansion-enabled', 'value'),
-        State('toggle-bulk-enabled', 'value'),
-        State('input-ratio-expand-rec', 'value'),
-        State('input-ratio-expand-ship', 'value'),
-        State('input-max-expand-capacity', 'value'),
-        State('input-expand-fixed-cost', 'value'),
-        State('input-expand-var-cost', 'value'),
-        State('input-max-bulk-capacity', 'value'),
-        State('input-bulk-fixed-cost', 'value'),
-        State('input-bulk-var-cost', 'value'),
-        State('input-bulk-eligible-types', 'value'),
-        State('input-prob-pessimista', 'value'),
-        State('input-prob-esperado', 'value'),
-        State('input-prob-otimista', 'value'),
-        State('radio-error-source', 'value'),
-        State('input-supply-error-pct', 'value'),
-        State('input-demand-error-pct', 'value'),
-        State('store-prediction-results', 'data'),
-        State('store-lang', 'data')
-    ],
-    background=True,
-    prevent_initial_call=True
+  output=(
+    Output("res-evpi-value", "children"),
+    Output("res-vss-value", "children")
+  ),
+  inputs=[
+    Input("store-model-results", "data")
+  ],
+  state=[
+    State('stored-data', 'data'),
+    State('store-warehouses', 'data'),
+    State('store-prod-warehouses', 'data'),
+    State('store-distance-matrix', 'data'),
+    State('stored-demand-data', 'data'),
+    State('toggle-detailed-log', 'value'),
+    State('toggle-pareto-routes', 'value'),
+    State('input-allocation-days', 'value'),
+    State('input-transshipment-discount', 'value'),
+    State('input-solver-gap', 'value'),
+    State('input-solver-time-limit', 'value'),
+    State('toggle-expansion-enabled', 'value'),
+    State('toggle-bulk-enabled', 'value'),
+    State('input-ratio-expand-rec', 'value'),
+    State('input-ratio-expand-ship', 'value'),
+    State('input-max-expand-capacity', 'value'),
+    State('input-expand-fixed-cost', 'value'),
+    State('input-expand-var-cost', 'value'),
+    State('input-max-bulk-capacity', 'value'),
+    State('input-bulk-fixed-cost', 'value'),
+    State('input-bulk-var-cost', 'value'),
+    State('input-bulk-eligible-types', 'value'),
+    State('input-prob-pessimista', 'value'),
+    State('input-prob-esperado', 'value'),
+    State('input-prob-otimista', 'value'),
+    State('radio-error-source', 'value'),
+    State('input-supply-error-pct', 'value'),
+    State('input-demand-error-pct', 'value'),
+    State('store-prediction-results', 'data'),
+    State('store-lang', 'data')
+  ],
+  background=True,
+  prevent_initial_call=True
 )
-def run_evpi_vss(active_tab, results_data, current_evpi,
+def run_evpi_vss(results_data,
                  stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
                  toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
                  expansion_enabled, bulk_enabled,
@@ -8367,112 +8368,101 @@ def run_evpi_vss(active_tab, results_data, current_evpi,
                  max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
                  prob_pessimista, prob_esperado, prob_otimista, error_source,
                  supply_error_pct, demand_error_pct, prediction_results_json, lang='pt'):
-    ctx = dash.callback_context
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
-    if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
-        return "R$ -", "R$ -"
+  if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
+    return "R$ -", "R$ -"
 
-    if trigger_id == "store-model-results":
-        return "R$ -", "R$ -"
+  stochastic_objective = results_data.get("objective", 0.0)
 
-    if active_tab != "tab-stochastic-results":
-        return dash.no_update, dash.no_update
+  try:
+    # Load distance matrices
+    import json
+    stored_dict = json.loads(stored_matrix)
+    df_dist_supply_wh = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
+    df_dist_wh_demand = pd.read_json(io.StringIO(stored_dict['warehouses_to_demand']), orient='split')
+    df_dist_wh_wh = pd.read_json(io.StringIO(stored_dict['warehouses_to_warehouses']), orient='split')
 
-    if current_evpi and current_evpi != "R$ -":
-        return dash.no_update, dash.no_update
+    # Load input DataFrames
+    df_supply = pd.read_json(io.StringIO(stored_data), orient='split')
+    df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+    df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
+    df_demand = pd.read_json(io.StringIO(stored_demand), orient='split')
 
-    stochastic_objective = results_data.get("objective", 0.0)
+    # Load local CSVs for Freight and Storage
+    import os
+    data_dir = os.path.join(os.path.dirname(__file__), 'assets', 'data')
+    try:
+      df_freight = pd.read_csv(os.path.join(data_dir, 'Valor_Tonelada_km.csv'), sep=';', encoding='iso-8859-1')
+    except Exception:
+      df_freight = pd.DataFrame()
 
     try:
-        # Load distance matrices
-        import json
-        stored_dict = json.loads(stored_matrix)
-        df_dist_supply_wh = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
-        df_dist_wh_demand = pd.read_json(io.StringIO(stored_dict['warehouses_to_demand']), orient='split')
-        df_dist_wh_wh = pd.read_json(io.StringIO(stored_dict['warehouses_to_warehouses']), orient='split')
+      df_storage = pd.read_csv(os.path.join(data_dir, 'Tarifa_de_Armazenagem.csv'), sep=';', encoding='iso-8859-1')
+    except Exception:
+      df_storage = pd.DataFrame()
 
-        # Load input DataFrames
-        df_supply = pd.read_json(io.StringIO(stored_data), orient='split')
-        df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
-        df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
-        df_demand = pd.read_json(io.StringIO(stored_demand), orient='split')
+    preds = json.loads(prediction_results_json) if prediction_results_json else {}
 
-        # Load local CSVs for Freight and Storage
-        import os
-        data_dir = os.path.join(os.path.dirname(__file__), 'assets', 'data')
-        try:
-            df_freight = pd.read_csv(os.path.join(data_dir, 'Valor_Tonelada_km.csv'), sep=';', encoding='iso-8859-1')
-        except Exception:
-            df_freight = pd.DataFrame()
+    p_pess = 0.33 if prob_pessimista is None else float(prob_pessimista)
+    p_esp = 0.34 if prob_esperado is None else float(prob_esperado)
+    p_otim = 0.33 if prob_otimista is None else float(prob_otimista)
 
-        try:
-            df_storage = pd.read_csv(os.path.join(data_dir, 'Tarifa_de_Armazenagem.csv'), sep=';', encoding='iso-8859-1')
-        except Exception:
-            df_storage = pd.DataFrame()
+    scenario_probabilities = {
+      "pessimista": p_pess,
+      "esperado": p_esp,
+      "otimista": p_otim
+    }
 
-        preds = json.loads(prediction_results_json) if prediction_results_json else {}
+    evpi_vss_results = compute_evpi_vss(
+      df_supply=df_supply,
+      df_warehouses=df_warehouses,
+      df_compat=df_compat,
+      df_dist_supply_wh=df_dist_supply_wh,
+      df_dist_wh_demand=df_dist_wh_demand,
+      df_dist_wh_wh=df_dist_wh_wh,
+      df_demand=df_demand,
+      df_freight=df_freight,
+      df_storage=df_storage,
+      scenario_probabilities=scenario_probabilities,
+      error_source=error_source or "prediction",
+      supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
+      demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
+      prediction_results=preds,
+      stochastic_objective=stochastic_objective,
+      detailed_log=detailed_log,
+      toggle_pareto=toggle_pareto,
+      input_allocation_days=input_allocation_days,
+      transshipment_discount=transshipment_discount,
+      solver_gap=solver_gap,
+      solver_time_limit=solver_time_limit,
+      ratio_expand_rec=ratio_expand_rec,
+      ratio_expand_ship=ratio_expand_ship,
+      max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+      expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+      expand_var_cost=expand_var_cost if expansion_enabled else None,
+      max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+      bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+      bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+      bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+      lang=lang
+    )
 
-        p_pess = 0.33 if prob_pessimista is None else float(prob_pessimista)
-        p_esp = 0.34 if prob_esperado is None else float(prob_esperado)
-        p_otim = 0.33 if prob_otimista is None else float(prob_otimista)
+    def fmt_curr(val):
+      if val is None:
+        return "R$ 0,00"
+      return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        scenario_probabilities = {
-            "pessimista": p_pess,
-            "esperado": p_esp,
-            "otimista": p_otim
-        }
+    evpi_val = evpi_vss_results.get("evpi", 0.0)
+    vss_val = evpi_vss_results.get("vss", 0.0)
 
-        evpi_vss_results = compute_evpi_vss(
-            df_supply=df_supply,
-            df_warehouses=df_warehouses,
-            df_compat=df_compat,
-            df_dist_supply_wh=df_dist_supply_wh,
-            df_dist_wh_demand=df_dist_wh_demand,
-            df_dist_wh_wh=df_dist_wh_wh,
-            df_demand=df_demand,
-            df_freight=df_freight,
-            df_storage=df_storage,
-            scenario_probabilities=scenario_probabilities,
-            error_source=error_source or "prediction",
-            supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
-            demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
-            prediction_results=preds,
-            stochastic_objective=stochastic_objective,
-            detailed_log=detailed_log,
-            toggle_pareto=toggle_pareto,
-            input_allocation_days=input_allocation_days,
-            transshipment_discount=transshipment_discount,
-            solver_gap=solver_gap,
-            solver_time_limit=solver_time_limit,
-            ratio_expand_rec=ratio_expand_rec,
-            ratio_expand_ship=ratio_expand_ship,
-            max_expand_capacity=max_expand_capacity if expansion_enabled else None,
-            expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
-            expand_var_cost=expand_var_cost if expansion_enabled else None,
-            max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
-            bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
-            bulk_var_cost=bulk_var_cost if bulk_enabled else None,
-            bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-            lang=lang
-        )
+    evpi_formatted = fmt_curr(evpi_val)
+    vss_formatted = fmt_curr(vss_val)
 
-        def fmt_curr(val):
-            if val is None:
-                return "R$ 0,00"
-            return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return evpi_formatted, vss_formatted
 
-        evpi_val = evpi_vss_results.get("evpi", 0.0)
-        vss_val = evpi_vss_results.get("vss", 0.0)
-
-        evpi_formatted = fmt_curr(evpi_val)
-        vss_formatted = fmt_curr(vss_val)
-
-        return evpi_formatted, vss_formatted
-
-    except Exception as e:
-        print(f"Error computing EVPI/VSS: {e}")
-        return "R$ -", "R$ -"
+  except Exception as e:
+    print(f"Error computing EVPI/VSS: {e}")
+    return "R$ -", "R$ -"
 
 
 def view():
