@@ -2,14 +2,15 @@ import unittest
 from unittest.mock import MagicMock, patch
 import pandas as pd
 import pyomo.environ as pyo
-from src.logic.optimization import run_deterministic_model
+import json
+from src.logic.optimization import run_stochastic_model, compute_evpi_vss
 
-class TestDeterministicModel(unittest.TestCase):
+class TestStochasticModel(unittest.TestCase):
   @patch('src.logic.optimization.SolverFactory')
-  def test_run_deterministic_model_success(self, mock_solver_factory):
-    # 1. Build small feasible mock dataset
+  def test_run_stochastic_model_success(self, mock_solver_factory):
+    # 1. Build small mock dataset
     df_supply = pd.DataFrame([
-      {"Cidade": "Sorriso - MT", "Produto": "Soja", "Data": "2026-01", "Peso (ton)": 100.0}
+      {"Cidade": "Sorriso - MT", "Produto": "Soja", "Data": "2026-01", "Peso (ton)": 150.0}
     ])
     
     df_warehouses = pd.DataFrame([
@@ -57,6 +58,28 @@ class TestDeterministicModel(unittest.TestCase):
       {"Produto": "Soja", "Armazenar": 10.0}
     ])
     
+    # Mock forecast predictions
+    mock_prediction_results = {
+      "supply_Sorriso - MT_Soja": {
+        "status": "success",
+        "series_type": "supply",
+        "product": "Soja",
+        "city": "Sorriso - MT",
+        "future_dates": ["2026-01"],
+        "future_preds": [150.0],
+        "wmape": 15.0
+      },
+      "demand_São Paulo - SP_Soja": {
+        "status": "success",
+        "series_type": "demand",
+        "product": "Soja",
+        "city": "São Paulo - SP",
+        "future_dates": ["2026-01"],
+        "future_preds": [100.0],
+        "wmape": 15.0
+      }
+    }
+    
     # Setup mock solver behaviour
     mock_solver = MagicMock()
     mock_solver_factory.return_value = mock_solver
@@ -67,10 +90,11 @@ class TestDeterministicModel(unittest.TestCase):
         for index in var:
           var[index].value = 0.0
       
-      # Set specific flows to represent mock solution
-      model.FlowOD["Sorriso - MT", "WH-001", "Soja", "2026-01"].value = 100.0
-      model.FlowDC["WH-001", "São Paulo - SP", "Soja", "2026-01"].value = 100.0
-      model.Inventory["WH-001", "Soja", "2026-01"].value = 0.0
+      # Set specific flows for each scenario to represent mock solution
+      for s in ['pessimista', 'esperado', 'otimista']:
+        model.FlowOD["Sorriso - MT", "WH-001", "Soja", "2026-01", s].value = 100.0
+        model.FlowDC["WH-001", "São Paulo - SP", "Soja", "2026-01", s].value = 100.0
+        model.Inventory["WH-001", "Soja", "2026-01", s].value = 0.0
       
       # Candidates open vars (even if empty)
       for d in model.Destinations_cand:
@@ -92,8 +116,8 @@ class TestDeterministicModel(unittest.TestCase):
 
     mock_solver.solve = mock_solve
     
-    # Run model
-    log_filename, results = run_deterministic_model(
+    # Run stochastic model
+    log_filename, results = run_stochastic_model(
       df_supply=df_supply,
       df_warehouses=df_warehouses,
       df_compat=df_compat,
@@ -103,6 +127,11 @@ class TestDeterministicModel(unittest.TestCase):
       df_demand=df_demand,
       df_freight=df_freight,
       df_storage=df_storage,
+      scenario_probabilities={"pessimista": 0.33, "esperado": 0.34, "otimista": 0.33},
+      error_source="prediction",
+      supply_error_pct=15.0,
+      demand_error_pct=15.0,
+      prediction_results=mock_prediction_results,
       detailed_log=False,
       toggle_pareto=False,
       input_allocation_days=30,
@@ -123,32 +152,24 @@ class TestDeterministicModel(unittest.TestCase):
     
     # Assert results
     self.assertIsNotNone(log_filename)
+    self.assertEqual(results["model_type"], "stochastic")
     self.assertEqual(results["status"], "optimal")
+    self.assertIn("scenario_routes", results)
+    self.assertIn("scenario_kpis", results)
+    self.assertIn("scenario_warehouse_metrics", results)
+    self.assertIn("scenario_inventory", results)
+    
+    # Verify expected kpis are filled
     self.assertIn("routes", results)
     self.assertIn("kpis", results)
-    self.assertIn("warehouse_decisions", results)
     self.assertIn("inventory", results)
-    
-    # Verify KPI structures
-    kpis = results["kpis"]
-    self.assertEqual(kpis["total_tons"], 100.0)
-    self.assertGreater(kpis["total_km"], 0)
-    self.assertGreater(kpis["total_freight_cost"], 0)
-    
-    # Verify route entries
-    routes = results["routes"]
-    self.assertTrue(len(routes) >= 2)
-    
-    od_route = next(r for r in routes if r["Tipo de Rota"] == "Origem -> Armazém")
-    self.assertEqual(od_route["Origem"], "Sorriso - MT")
-    self.assertEqual(od_route["Destino"], "WH-001 - CONAB - Brasília")
-    self.assertEqual(od_route["Quantidade (ton)"], 100.0)
 
-  @patch('src.logic.optimization.SolverFactory')
-  def test_run_deterministic_model_infeasible_pre_check(self, mock_solver_factory):
-    # Supply = 50, Demand = 100
+  def test_pre_solve_warnings(self):
+    # Set supply = 100, demand = 100. WMAPE is 15%.
+    # In pessimistic scenario: supply = 85.0, demand = 115.0.
+    # This should trigger the pre-optimization feasibility check failure.
     df_supply = pd.DataFrame([
-      {"Cidade": "Sorriso - MT", "Produto": "Soja", "Data": "2026-01", "Peso (ton)": 50.0}
+      {"Cidade": "Sorriso - MT", "Produto": "Soja", "Data": "2026-01", "Peso (ton)": 100.0}
     ])
     df_warehouses = pd.DataFrame([
       {
@@ -187,9 +208,29 @@ class TestDeterministicModel(unittest.TestCase):
     df_storage = pd.DataFrame([
       {"Produto": "Soja", "Armazenar": 10.0}
     ])
+    mock_prediction_results = {
+      "supply_Sorriso - MT_Soja": {
+        "status": "success",
+        "series_type": "supply",
+        "product": "Soja",
+        "city": "Sorriso - MT",
+        "future_dates": ["2026-01"],
+        "future_preds": [100.0],
+        "wmape": 15.0
+      },
+      "demand_São Paulo - SP_Soja": {
+        "status": "success",
+        "series_type": "demand",
+        "product": "Soja",
+        "city": "São Paulo - SP",
+        "future_dates": ["2026-01"],
+        "future_preds": [100.0],
+        "wmape": 15.0
+      }
+    }
 
     with self.assertRaises(ValueError) as ctx:
-      run_deterministic_model(
+      run_stochastic_model(
         df_supply=df_supply,
         df_warehouses=df_warehouses,
         df_compat=df_compat,
@@ -199,6 +240,26 @@ class TestDeterministicModel(unittest.TestCase):
         df_demand=df_demand,
         df_freight=df_freight,
         df_storage=df_storage,
+        scenario_probabilities={"pessimista": 0.33, "esperado": 0.34, "otimista": 0.33},
+        error_source="prediction",
+        supply_error_pct=15.0,
+        demand_error_pct=15.0,
+        prediction_results=mock_prediction_results,
+        detailed_log=False,
+        toggle_pareto=False,
+        input_allocation_days=30,
+        transshipment_discount=0.85,
+        solver_gap=1.0,
+        solver_time_limit=30,
+        ratio_expand_rec=0.10,
+        ratio_expand_ship=0.10,
+        max_expand_capacity=5000,
+        expand_fixed_cost=50000,
+        expand_var_cost=100,
+        max_bulk_capacity=500,
+        bulk_fixed_cost=30000,
+        bulk_var_cost=200,
+        bulk_eligible_types=["Silo"],
         lang="pt"
       )
     self.assertIn("Erro: Oferta total", str(ctx.exception))

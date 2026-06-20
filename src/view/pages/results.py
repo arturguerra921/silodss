@@ -11,13 +11,7 @@ def get_tab_results_layout(lang='pt'):
             dbc.CardHeader(
                 html.Div([
                     html.Span(translate("Métricas da Operação (Total)", lang), className="me-2 fw-bold"),
-                    dbc.Button(
-                        [html.I(className="bi bi-download me-2"), translate("Baixar Relatório Completo (.xlsx)", lang)],
-                        id='btn-download-results',
-                        n_clicks=0,
-                        color="none", className="btn-success-custom ms-auto btn-sm"
-                    )
-                ], className="d-flex align-items-center justify-content-between w-100"),
+                ], className="d-flex align-items-center"),
                 className="card-header-custom"
             ),
             dbc.CardBody(
@@ -501,8 +495,66 @@ def get_tab_results_layout(lang='pt'):
         is_open=False,
     )
 
+    download_report_card = dbc.Card(
+        dbc.CardBody(
+            dbc.Button(
+                [html.I(className="bi bi-download me-2"), translate("Baixar Relatório Completo (.xlsx)", lang)],
+                id='btn-download-results',
+                n_clicks=0,
+                color="none",
+                className="btn-success-custom w-100 d-flex align-items-center justify-content-center fw-bold h-100",
+                style={"borderRadius": "8px", "fontSize": "17px", "padding": "12px"}
+            ),
+            className="d-flex align-items-center justify-content-center p-3 h-100"
+        ),
+        className="shadow-sm border-0 h-100",
+        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px", "minHeight": "90px"}
+    )
+
+    scenario_selector_card = dbc.Card(
+        dbc.CardBody(
+            dbc.Row([
+                dbc.Col(
+                    html.Span(translate("Cenário para Visualização:", lang), className="fw-bold text-primary-custom", style={"fontSize": "17px"}),
+                    width=12, md=5, className="d-flex align-items-center justify-content-md-end justify-content-center mb-2 mb-md-0"
+                ),
+                dbc.Col(
+                    dbc.RadioItems(
+                        id="radio-results-scenario-select",
+                        options=[
+                            {"label": translate("Pessimista", lang), "value": "pessimista"},
+                            {"label": translate("Esperado", lang), "value": "esperado"},
+                            {"label": translate("Otimista", lang), "value": "otimista"}
+                        ],
+                        value="esperado",
+                        inline=True,
+                        className="btn-group scenario-selector",
+                        inputClassName="btn-check",
+                        labelClassName="btn btn-outline-primary-custom d-flex align-items-center justify-content-center",
+                        labelCheckedClassName="active btn-primary-custom",
+                        style={"display": "flex", "width": "100%", "maxWidth": "500px", "height": "46px", "fontSize": "17px"}
+                    ),
+                    width=12, md=7, className="d-flex align-items-center justify-content-md-start justify-content-center"
+                )
+            ], className="align-items-center h-100")
+        ),
+        className="shadow-sm border-0 h-100",
+        style={"backgroundColor": "#f8f9fa", "borderRadius": "12px", "minHeight": "90px"}
+    )
+
+    stochastic_scenario_selector = dbc.Col(
+        scenario_selector_card,
+        id="results-scenario-selector-container",
+        width=12, lg=9,
+        style={"display": "none"}
+    )
+
     # Layout Principal
     return html.Div([
+        dbc.Row([
+            dbc.Col(download_report_card, width=12, lg=3),
+            stochastic_scenario_selector
+        ], className="g-3 mb-24 align-items-stretch"),
         dbc.Row(dbc.Col(kpi_card, width=12)),
         warnings_container,
         dbc.Row(dbc.Col(warehouse_card, width=12, className="mb-24")),
@@ -512,4 +564,349 @@ def get_tab_results_layout(lang='pt'):
         ]),
         dbc.Row(dbc.Col(map_card, width=12, className="mb-24")),
         confirm_all_routes_modal
+    ])
+
+
+def get_tab_stochastic_results_layout(lang='pt'):
+    # Placeholder card displayed when results are not stochastic or missing
+    placeholder_card = dbc.Card(
+        dbc.CardBody([
+            html.Div([
+                html.I(className="bi bi-info-circle-fill text-primary-custom me-2", style={"fontSize": "20px"}),
+                html.Span(translate("Comparação de Cenários (Estocástico)", lang), className="fw-bold fs-5")
+            ], className="d-flex align-items-center mb-3"),
+            html.P(translate("Esta aba exibe a comparação de cenários e o valor da solução estocástica (EVPI/VSS) após a execução do modelo estocástico. Para visualizar estes resultados, ative o Modelo Estocástico na aba de Configuração do Modelo.", lang), className="text-muted mb-0")
+        ]),
+        id="stochastic-results-placeholder",
+        className="card-custom mb-3",
+        style={"display": "block"}
+    )
+
+    # EVPI/VSS card helper
+    evpi_vss_card = dbc.Card([
+        dbc.CardHeader(
+            html.Div([
+                html.Span(translate("Análise de Valor Estocástico", lang), className="me-2 fw-bold"),
+                html.I(
+                    className="bi bi-question-circle-fill text-muted",
+                    id="help-comp-evpi-vss",
+                    style={"cursor": "help", "fontSize": "var(--font-size-small)"}
+                ),
+                dbc.Tooltip(
+                    translate("O cálculo do EVPI/VSS pode demorar alguns minutos. Ele ajuda a avaliar o benefício de adotar o modelo estocástico considerando os diferentes cenários e suas incertezas.", lang),
+                    target="help-comp-evpi-vss",
+                    placement="right"
+                ),
+            ], className="d-flex align-items-center"),
+            className="card-header-custom"
+        ),
+        dbc.CardBody([
+            html.Div([
+                dbc.Spinner(
+                    html.Div([
+                        html.Div([
+                          html.H6(translate("EVPI", lang), className="text-muted small text-uppercase mb-1 fw-bold", style={"fontSize": "12px"}),
+                          html.H5(id="res-evpi-value", children="R$ -", className="text-info-custom fw-bold mb-0", style={"fontSize": "22px"})
+                        ], className="text-center p-3 bg-light rounded border mb-3"),
+                        html.Div([
+                          html.H6(translate("VSS", lang), className="text-muted small text-uppercase mb-1 fw-bold", style={"fontSize": "12px"}),
+                          html.H5(id="res-vss-value", children="R$ -", className="text-success-custom fw-bold mb-0", style={"fontSize": "22px"})
+                        ], className="text-center p-3 bg-light rounded border")
+                    ]),
+                    spinner_class_name="text-primary-custom"
+                ),
+                
+                # Static Explanations and Interpretation Guide
+                html.Div([
+                    # EVPI section
+                    html.Div([
+                        html.Div(translate("Valor Esperado da Informação Perfeita (EVPI)", lang), className="fw-bold mb-2 text-primary-custom", style={"fontSize": "18px"}),
+                        html.P(translate("O ganho máximo que seria possível obter caso o resultado de cada cenário fosse conhecido antes de qualquer decisão.", lang), className="text-muted mb-2", style={"fontSize": "17px", "lineHeight": "1.4"}),
+                        html.Div([
+                            html.Div([
+                                html.Span(html.I(className="bi bi-arrow-up text-success-custom fs-6 fw-bold"), className="delta-badge-positive me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
+                                html.Span(translate("A incerteza tem grande impacto nos resultados. Melhorar previsões ou reduzir a incerteza pode gerar ganhos significativos.", lang), className="text-muted", style={"fontSize": "16px", "lineHeight": "1.4"})
+                            ], className="d-flex align-items-start mb-2"),
+                            html.Div([
+                                html.Span(html.I(className="bi bi-arrow-down text-danger-custom fs-6 fw-bold"), className="delta-badge-negative me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
+                                html.Span(translate("A incerteza tem pouco impacto. Os resultados são semelhantes independentemente do cenário que ocorrer.", lang), className="text-muted", style={"fontSize": "16px", "lineHeight": "1.4"})
+                            ], className="d-flex align-items-start")
+                        ], className="mt-2")
+                    ], className="p-3 mb-3 rounded border bg-light", style={"borderLeft": "4px solid #003366"}),
+                    
+                    # VSS section
+                    html.Div([
+                        html.Div(translate("Valor da Solução Estocástica (VSS)", lang), className="fw-bold mb-2 text-success-custom", style={"fontSize": "18px"}),
+                        html.P(translate("O ganho de usar um modelo que considera múltiplos cenários em vez de um modelo que usa apenas o cenário médio.", lang), className="text-muted mb-2", style={"fontSize": "17px", "lineHeight": "1.4"}),
+                        html.Div([
+                            html.Div([
+                                html.Span(html.I(className="bi bi-arrow-up text-success-custom fs-6 fw-bold"), className="delta-badge-positive me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
+                                html.Span(translate("Considerar múltiplos cenários leva a decisões visivelmente melhores. O modelo estocástico agrega valor claro.", lang), className="text-muted", style={"fontSize": "16px", "lineHeight": "1.4"})
+                            ], className="d-flex align-items-start mb-2"),
+                            html.Div([
+                                html.Span(html.I(className="bi bi-arrow-down text-danger-custom fs-6 fw-bold"), className="delta-badge-negative me-2 d-inline-flex align-items-center justify-content-center", style={"width": "24px", "height": "24px", "minWidth": "24px", "borderRadius": "50%", "padding": "0"}),
+                                html.Span(translate("O cenário médio é uma aproximação suficiente. Um modelo mais simples chegaria a resultados similares.", lang), className="text-muted", style={"fontSize": "16px", "lineHeight": "1.4"})
+                            ], className="d-flex align-items-start")
+                        ], className="mt-2")
+                    ], className="p-3 mb-3 rounded border bg-light", style={"borderLeft": "4px solid #006633"}),
+                    
+                    # Relationship section
+                    html.Div([
+                        html.Div(translate("Relação entre os dois", lang), className="fw-bold mb-2 text-dark", style={"fontSize": "18px"}),
+                        html.P(translate("O EVPI é o melhor resultado possível sob qualquer circunstância. O VSS mostra o quão próximo o modelo estocástico chega desse teto.", lang), className="text-muted mb-0", style={"fontSize": "17px", "lineHeight": "1.4"})
+                    ], className="p-3 mb-3 rounded border bg-light", style={"borderLeft": "4px solid #7E7E65"}),
+                ], className="mt-3 border-top pt-3")
+            ], className="d-flex flex-column justify-content-center h-100 gap-3")
+        ], className="card-body-custom")
+    ], className="card-custom h-100")
+
+    stochastic_results_card = html.Div(
+        id="stochastic-results-actual-card",
+        style={"display": "none"},
+        children=[
+            # Section 1: Stochastic Warnings
+            html.Div(id="stochastic-warnings-container", className="mb-4"),
+
+            # Section 2: KPI Side-by-Side Cards (9/12 split, next to EVPI/VSS)
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(translate("Métricas Comparativas por Cenário", lang), className="me-2 fw-bold"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-kpi-cards", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Compara os KPIs de custo e volume entre os três cenários (Pessimista, Esperado, Otimista). Os badges Δ% indicam a variação percentual em relação ao cenário Esperado (referência).", lang),
+                                    target="help-comp-kpi-cards",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center"),
+                            className="card-header-custom"
+                        ),
+                        dbc.CardBody(
+                            dbc.Row(id="scenario-kpi-cards-container", className="g-3"),
+                            className="card-body-custom"
+                        )
+                    ], className="card-custom h-100")
+                ], width=12, lg=8),
+                dbc.Col(evpi_vss_card, width=12, lg=4)
+            ], className="g-3 mb-24 align-items-stretch"),
+
+            # Section 3: Grouped Cost Chart (full width)
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(translate("Custos Operacionais por Cenário", lang), className="me-2 fw-bold"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-costs-grouped", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Compara cada categoria de custo (Frete, Armazenagem, Abertura, Expansão, Granelização) lado a lado entre os três cenários. Identifique rapidamente qual categoria mais varia entre cenários.", lang),
+                                    target="help-comp-costs-grouped",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center"),
+                            className="card-header-custom"
+                        ),
+                        dbc.CardBody(
+                            dbc.Spinner(
+                                dcc.Graph(id="graph-scenario-costs", style={"height": "350px"}),
+                                spinner_class_name="text-primary-custom"
+                            ),
+                            className="card-body-custom"
+                        )
+                    ], className="card-custom h-100")
+                ], width=12, className="mb-24")
+            ], className="align-items-stretch"),
+
+            # Section 4: Inventory Comparison Chart (full width)
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(translate("Estoque em Armazéns por Período", lang), className="me-2 fw-bold"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-inventory", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Compara o estoque acumulado em armazéns ao longo dos períodos para todos os cenários simultaneamente. Identifique períodos onde os cenários divergem significativamente em necessidade de armazenagem.", lang),
+                                    target="help-comp-inventory",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center"),
+                            className="card-header-custom"
+                        ),
+                        dbc.CardBody([
+                            html.Div([
+                                dbc.Label(translate("Filtrar Armazéns", lang), className="fw-bold small mb-1 me-2"),
+                                dcc.Dropdown(
+                                    id="dropdown-scenario-inventory-warehouses",
+                                    multi=True,
+                                    placeholder=translate("Todos os armazéns", lang),
+                                    className="mb-3"
+                                )
+                            ], style={"maxWidth": "400px"}),
+                            dbc.Spinner(
+                                dcc.Graph(id="graph-scenario-inventory", style={"height": "380px"}),
+                                spinner_class_name="text-primary-custom"
+                            )
+                        ], className="card-body-custom")
+                    ], className="card-custom mb-24")
+                ], width=12)
+            ]),
+
+            # Section 5: Warehouse Utilization + Decision Differences
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(translate("Utilização de Armazéns por Cenário", lang), className="me-2 fw-bold"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-wh-util", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Mostra a utilização de cada armazém (Saída Total + Estoque Final) comparada à sua Capacidade Efetiva, para cada cenário. A linha de referência indica a capacidade máxima. Barras que se aproximam ou ultrapassam a linha indicam estresse operacional.", lang),
+                                    target="help-comp-wh-util",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center"),
+                            className="card-header-custom"
+                        ),
+                        dbc.CardBody([
+                            html.Div([
+                                dbc.Label(translate("Filtrar Armazéns", lang), className="fw-bold small mb-1 me-2"),
+                                dcc.Dropdown(
+                                    id="dropdown-warehouse-utilization-warehouses",
+                                    multi=True,
+                                    placeholder=translate("Todos os armazéns", lang),
+                                    className="mb-3"
+                                )
+                            ], style={"maxWidth": "400px"}),
+                            dbc.Spinner(
+                                dcc.Graph(id="graph-warehouse-utilization", style={"height": "430px"}),
+                                spinner_class_name="text-primary-custom"
+                            )
+                        ], className="card-body-custom")
+                    ], className="card-custom mb-24")
+                ], width=12)
+            ]),
+
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(translate("Diferenças nas Decisões de Armazéns", lang), className="me-2 fw-bold"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-wh-diff", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Exibe apenas os armazéns onde as decisões diferem entre cenários (ex: um candidato que abre no Pessimista mas permanece fechado no Otimista, ou expansões que ocorrem apenas em alguns cenários). Armazéns com decisões idênticas em todos os cenários não aparecem aqui.", lang),
+                                    target="help-comp-wh-diff",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center"),
+                            className="card-header-custom"
+                        ),
+                        dbc.CardBody(
+                            dbc.Spinner(
+                                dash_table.DataTable(
+                                    id="table-warehouse-diff",
+                                    columns=[
+                                        {"name": translate("Armazém", lang), "id": "Armazém"},
+                                        {"name": translate("Tipo", lang), "id": "Tipo"},
+                                        {"name": translate("Pessimista", lang), "id": "Pessimista"},
+                                        {"name": translate("Esperado", lang), "id": "Esperado"},
+                                        {"name": translate("Otimista", lang), "id": "Otimista"}
+                                    ],
+                                    data=[],
+                                    style_cell={
+                                        'textAlign': 'center',
+                                        'fontFamily': "'Roboto', sans-serif",
+                                        'padding': '8px',
+                                        'fontSize': 'var(--font-size-small)',
+                                        'color': UNB_THEME['SECONDARY']
+                                    },
+                                    style_header={
+                                        'backgroundColor': '#F8F9FA',
+                                        'color': UNB_THEME['PRIMARY'],
+                                        'fontWeight': 'bold',
+                                        'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
+                                    },
+                                    style_data_conditional=[
+                                        {
+                                            'if': {'row_index': 'odd'},
+                                            'backgroundColor': '#f8f9fa'
+                                        }
+                                    ]
+                                ),
+                                spinner_class_name="text-primary-custom"
+                            ),
+                            className="card-body-custom"
+                        )
+                    ], className="card-custom mb-24")
+                ], width=12)
+            ]),
+
+            # Section 6: Geographic Warehouse Comparison Map
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(translate("Comparação Geográfica dos Armazéns", lang), className="me-2 fw-bold"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-network-map", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Exibe a localização geográfica dos armazéns em cada um dos três cenários. Marcadores verdes indicam armazéns abertos/ativos no cenário correspondente, enquanto marcadores vermelhos representam armazéns fechados ou candidatos não selecionados.", lang),
+                                    target="help-comp-network-map",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center"),
+                            className="card-header-custom"
+                        ),
+                        dbc.CardBody([
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Div(translate("Cenário Pessimista", lang), className="fw-bold small text-center mb-2 text-danger-custom"),
+                                    html.Div(
+                                        dbc.Spinner(
+                                            dcc.Graph(
+                                                id="graph-scenario-minimap-pessimista",
+                                                style={"height": "400px"},
+                                                config={"displayModeBar": True, "scrollZoom": True}
+                                            ),
+                                            spinner_class_name="text-primary-custom"
+                                        ),
+                                        className="mini-map-container"
+                                    )
+                                ], width=12, lg=4),
+                                dbc.Col([
+                                    html.Div(translate("Cenário Esperado", lang), className="fw-bold small text-center mb-2 text-primary-custom"),
+                                    html.Div(
+                                        dbc.Spinner(
+                                            dcc.Graph(
+                                                id="graph-scenario-minimap-esperado",
+                                                style={"height": "400px"},
+                                                config={"displayModeBar": True, "scrollZoom": True}
+                                            ),
+                                            spinner_class_name="text-primary-custom"
+                                        ),
+                                        className="mini-map-container"
+                                    )
+                                ], width=12, lg=4),
+                                dbc.Col([
+                                    html.Div(translate("Cenário Otimista", lang), className="fw-bold small text-center mb-2 text-success-custom"),
+                                    html.Div(
+                                        dbc.Spinner(
+                                            dcc.Graph(
+                                                id="graph-scenario-minimap-otimista",
+                                                style={"height": "400px"},
+                                                config={"displayModeBar": True, "scrollZoom": True}
+                                            ),
+                                            spinner_class_name="text-primary-custom"
+                                        ),
+                                        className="mini-map-container"
+                                    )
+                                ], width=12, lg=4)
+                            ], className="g-3")
+                        ], className="card-body-custom")
+                    ], className="card-custom mb-24")
+                ], width=12)
+            ])
+        ]
+    )
+
+    return html.Div([
+        placeholder_card,
+        stochastic_results_card
     ])

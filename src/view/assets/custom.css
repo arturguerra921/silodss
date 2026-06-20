@@ -484,7 +484,6 @@ small, .small {
     background-color: #D9534F;
 }
 
-/* Checked/Active state styling */
 .wh-filter-group .btn-check:checked + .btn {
     background-color: #003366 !important;
     color: #FFFFFF !important;
@@ -494,5 +493,97 @@ small, .small {
 .wh-filter-group .btn-check:checked + .btn::before {
     border: 1.5px solid #FFFFFF;
 }
+
+/* Scenario selector color-coded buttons */
+.scenario-selector input[value="pessimista"]:checked + label,
+.scenario-selector input[value="pessimista"]:checked + .btn,
+.scenario-selector input[value="pessimista"] + label:hover,
+.scenario-selector input[value="pessimista"] + .btn:hover {
+  background-color: #C8102E !important;
+  border-color: #C8102E !important;
+  color: #FFFFFF !important;
+}
+
+.scenario-selector input[value="esperado"]:checked + label,
+.scenario-selector input[value="esperado"]:checked + .btn,
+.scenario-selector input[value="esperado"] + label:hover,
+.scenario-selector input[value="esperado"] + .btn:hover {
+  background-color: #003366 !important;
+  border-color: #003366 !important;
+  color: #FFFFFF !important;
+}
+
+.scenario-selector input[value="otimista"]:checked + label,
+.scenario-selector input[value="otimista"]:checked + .btn,
+.scenario-selector input[value="otimista"] + label:hover,
+.scenario-selector input[value="otimista"] + .btn:hover {
+  background-color: #006633 !important;
+  border-color: #006633 !important;
+  color: #FFFFFF !important;
+}
+
+/* Make scenario buttons stretch to fill the 600px container width */
+.scenario-selector .form-check {
+  flex: 1;
+  margin-right: 0 !important;
+  display: flex;
+}
+
+.scenario-selector .form-check label {
+  width: 100%;
+}
+
+/* Scenario card styles */
+.scenario-card-pessimista {
+    border-left: 4px solid #C8102E !important;
+}
+
+.scenario-card-esperado {
+    border-left: 4px solid #003366 !important;
+}
+
+.scenario-card-otimista {
+    border-left: 4px solid #006633 !important;
+}
+
+/* Delta badges styling */
+.delta-badge-positive {
+    background-color: #D4EDDA !important;
+    color: #155724 !important;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.delta-badge-negative {
+    background-color: #F8D7DA !important;
+    color: #721C24 !important;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.delta-badge-neutral {
+    background-color: #E2E3E5 !important;
+    color: #383D41 !important;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+/* Mini map container */
+.mini-map-container {
+    margin-top: 16px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #E2E3E5;
+}
+
 
 

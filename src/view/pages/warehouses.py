@@ -202,17 +202,7 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                                             ], className="d-flex align-items-center mb-1"),
                                             dbc.Input(id="wh-input-static-cap", type="number", placeholder=translate("Ex: 10000", lang), className="mb-16")
                                         ], width=12),
-                                        dbc.Col([
-                                            html.Div([
-                                                dbc.Label(translate("Estoque Inicial (t)", lang), className="fw-bold small mb-0 me-2"),
-                                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-initial-stock", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                                dbc.Tooltip(translate("Estoque inicial de produto já presente no armazém (ton).", lang),
-                                                    target="help-wh-initial-stock",
-                                                    placement="right"
-                                                ),
-                                            ], className="d-flex align-items-center mb-1"),
-                                            dbc.Input(id="wh-input-initial-stock", type="number", placeholder=translate("Ex: 500", lang), className="mb-16")
-                                        ], width=12),
+
                                         dbc.Col([
                                             html.Div([
                                                 dbc.Label(translate("Capacidade de Recepção", lang), className="fw-bold small mb-0 me-2"),
@@ -325,7 +315,7 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
     # Initial empty dataframe matching expected columns
     initial_cols = [
         "Status", "Município", "UF", "Latitude", "Longitude", 
-        "Armazenador", "Tipo", "Cap. Estática (t)", "Estoque Inicial (t)", "Cap. Recepção (t)", "Cap. Expedição (t)", "Cap. Estática Máxima (t)", "Custo de Abertura ($)"
+        "Armazenador", "Tipo", "Cap. Estática (t)", "Cap. Recepção (t)", "Cap. Expedição (t)", "Cap. Estática Máxima (t)", "Custo de Abertura ($)"
     ]
     initial_df = pd.DataFrame(columns=initial_cols)
 
