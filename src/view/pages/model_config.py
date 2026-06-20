@@ -20,11 +20,19 @@ def get_tab_model_config_layout(lang='pt'):
             ),
             dbc.CardBody(
                 [
-                    html.P(translate("Certifique-se de que preencheu os dados em todas as abas anteriores (Oferta, Armazéns, Relação Produto x Armazém, Demanda, Matriz de Distâncias) antes de executar.", lang), className="text-muted small mb-4"),
+                    html.P(translate("Certifique-se de que preencheu os dados em todas as abas anteriores antes de executar.", lang), className="text-muted small mb-4"),
 
                     # Seleção de tipo de modelo
                     html.Div([
-                        dbc.Label(translate("Tipo de Modelo", lang), className="fw-bold small mb-2", style={"color": "#9ca3af"}),
+                        html.Div([
+                            dbc.Label(translate("Tipo de Modelo", lang), className="fw-bold small mb-0 me-2", style={"color": "#9ca3af"}),
+                            html.I(className="bi bi-question-circle-fill text-muted", id="help-model-type", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                            dbc.Tooltip(
+                                translate("O modelo Determinístico otimiza a rede utilizando apenas o cenário esperado (valores nominais da previsão/dados). O modelo Estocástico otimiza as decisões considerando simultaneamente os cenários Pessimista, Esperado e Otimista ponderados por suas probabilidades, gerando uma solução robusta contra incertezas.", lang),
+                                target="help-model-type",
+                                placement="top"
+                            )
+                        ], className="d-flex align-items-center mb-2"),
                         dbc.RadioItems(
                             id="radio-model-type",
                             options=[
@@ -51,15 +59,39 @@ def get_tab_model_config_layout(lang='pt'):
                                         dbc.Label(translate("Probabilidades dos Cenários (Soma deve ser 1.0)", lang), className="fw-bold small mb-2", style={"color": "#9ca3af"}),
                                         dbc.Row([
                                             dbc.Col([
-                                                dbc.Label(translate("Pessimista", lang), className="small text-muted mb-1"),
+                                                html.Div([
+                                                    dbc.Label(translate("Pessimista", lang), className="small text-muted mb-1 me-1"),
+                                                    html.I(className="bi bi-question-circle-fill text-muted", id="help-prob-pessimista", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(
+                                                        translate("Cenário desfavorável: reduz a oferta (por 1 - WMAPE) e aumenta a demanda (por 1 + WMAPE) para simular escassez de produto e alto estresse na rede.", lang),
+                                                        target="help-prob-pessimista",
+                                                        placement="top"
+                                                    )
+                                                ], className="d-flex align-items-center mb-1"),
                                                 dbc.Input(id="input-prob-pessimista", type="number", min=0, max=1, step=0.01, placeholder="Ex: 0.33", value=0.33)
                                             ], width=4),
                                             dbc.Col([
-                                                dbc.Label(translate("Esperado", lang), className="small text-muted mb-1"),
+                                                html.Div([
+                                                    dbc.Label(translate("Esperado", lang), className="small text-muted mb-1 me-1"),
+                                                    html.I(className="bi bi-question-circle-fill text-muted", id="help-prob-esperado", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(
+                                                        translate("Cenário nominal: utiliza os valores originais da oferta e da demanda conforme a previsão ou dados informados, sem alterações.", lang),
+                                                        target="help-prob-esperado",
+                                                        placement="top"
+                                                    )
+                                                ], className="d-flex align-items-center mb-1"),
                                                 dbc.Input(id="input-prob-esperado", type="number", min=0, max=1, step=0.01, placeholder="Ex: 0.34", value=0.34)
                                             ], width=4),
                                             dbc.Col([
-                                                dbc.Label(translate("Otimista", lang), className="small text-muted mb-1"),
+                                                html.Div([
+                                                    dbc.Label(translate("Otimista", lang), className="small text-muted mb-1 me-1"),
+                                                    html.I(className="bi bi-question-circle-fill text-muted", id="help-prob-otimista", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(
+                                                        translate("Cenário favorável: aumenta a oferta (por 1 + WMAPE) e reduz a demanda (por 1 - WMAPE) para simular abundância de produto e baixa pressão na rede.", lang),
+                                                        target="help-prob-otimista",
+                                                        placement="top"
+                                                    )
+                                                ], className="d-flex align-items-center mb-1"),
                                                 dbc.Input(id="input-prob-otimista", type="number", min=0, max=1, step=0.01, placeholder="Ex: 0.33", value=0.33)
                                             ], width=4)
                                         ]),
@@ -68,7 +100,15 @@ def get_tab_model_config_layout(lang='pt'):
                                     
                                     # Fonte de Erro
                                     html.Div([
-                                        dbc.Label(translate("Fonte de Erro (WMAPE)", lang), className="fw-bold small mb-2", style={"color": "#9ca3af"}),
+                                        html.Div([
+                                            dbc.Label(translate("Fonte de Erro (WMAPE)", lang), className="fw-bold small mb-0 me-2", style={"color": "#9ca3af"}),
+                                            html.I(className="bi bi-question-circle-fill text-muted", id="help-error-source", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                            dbc.Tooltip(
+                                                translate("Define a origem da margem de erro (WMAPE) usada para calcular os cenários. 'Usar Métricas da Previsão' obtém o erro calculado no modelo de previsão para cada localidade/produto. 'Inserir Manualmente' aplica um percentual fixo global.", lang),
+                                                target="help-error-source",
+                                                placement="top"
+                                            )
+                                        ], className="d-flex align-items-center mb-2"),
                                         dbc.RadioItems(
                                             id="radio-error-source",
                                             options=[

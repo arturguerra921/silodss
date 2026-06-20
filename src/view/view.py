@@ -4169,6 +4169,69 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
         df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
         df_demand = pd.read_json(io.StringIO(stored_demand), orient='split')
 
+        # Normalize historical dates to string YYYY-MM
+        if not df_supply.empty:
+            df_supply["Data"] = pd.to_datetime(df_supply["Data"], errors='coerce').dt.strftime('%Y-%m')
+        if not df_demand.empty:
+            df_demand["Data"] = pd.to_datetime(df_demand["Data"], errors='coerce').dt.strftime('%Y-%m')
+
+        # Merge prediction data if available
+        if prediction_results_json:
+            try:
+                preds = json.loads(prediction_results_json)
+                if preds:
+                    supply_forecast_rows = []
+                    demand_forecast_rows = []
+                    
+                    coords_supply = df_supply.groupby(['Produto', 'Cidade'])[['Latitude', 'Longitude']].first().to_dict('index') if not df_supply.empty else {}
+                    coords_demand = df_demand.groupby(['Produto', 'Cidade'])[['Latitude', 'Longitude']].first().to_dict('index') if not df_demand.empty else {}
+                    
+                    for combo_key, combo_val in preds.items():
+                        if not isinstance(combo_val, dict) or combo_val.get('status') != 'success':
+                            continue
+                        
+                        s_type = combo_val.get('series_type')
+                        prod = combo_val.get('product')
+                        city = combo_val.get('city')
+                        future_dates = combo_val.get('future_dates', [])
+                        future_preds = combo_val.get('future_preds', [])
+                        is_infinite_demand = combo_val.get('is_infinite_demand', False)
+                        
+                        if s_type == 'supply':
+                            coords = coords_supply.get((prod, city), {'Latitude': 0.0, 'Longitude': 0.0})
+                            for d, val in zip(future_dates, future_preds):
+                                supply_forecast_rows.append({
+                                    "Produto": prod,
+                                    "Cidade": city,
+                                    "Latitude": coords.get('Latitude', 0.0),
+                                    "Longitude": coords.get('Longitude', 0.0),
+                                    "Data": d,
+                                    "Peso (ton)": float(val) if val is not None else None
+                                })
+                        elif s_type == 'demand':
+                            coords = coords_demand.get((prod, city), {'Latitude': 0.0, 'Longitude': 0.0})
+                            for d, val in zip(future_dates, future_preds):
+                                demand_forecast_rows.append({
+                                    "Produto": prod,
+                                    "Cidade": city,
+                                    "Latitude": coords.get('Latitude', 0.0),
+                                    "Longitude": coords.get('Longitude', 0.0),
+                                    "Data": d,
+                                    "Peso (ton)": float(val) if (val is not None and not is_infinite_demand) else None
+                                })
+                    
+                    if supply_forecast_rows:
+                        df_supply_forecast = pd.DataFrame(supply_forecast_rows)
+                        df_supply = pd.concat([df_supply, df_supply_forecast], ignore_index=True)
+                        df_supply = df_supply.sort_values(by=["Produto", "Cidade", "Data"])
+                        
+                    if demand_forecast_rows:
+                        df_demand_forecast = pd.DataFrame(demand_forecast_rows)
+                        df_demand = pd.concat([df_demand, df_demand_forecast], ignore_index=True)
+                        df_demand = df_demand.sort_values(by=["Produto", "Cidade", "Data"])
+            except Exception as e:
+                print(f"Error merging prediction results in execute_model: {e}")
+
         # Load local CSVs for Freight and Storage
         import os
         data_dir = os.path.join(os.path.dirname(__file__), 'assets', 'data')
@@ -7306,22 +7369,9 @@ def execute_prediction(n_clicks, model_name, test_size, horizon,
                     results_dict[combo_key] = {"status": "error", "message": str(e)}
                     fail_count += 1
 
-            if forecasted_rows:
-                df_forecasted = pd.DataFrame(forecasted_rows)
-                df_historical_str = df_historical.copy()
-                df_historical_str["Data"] = df_historical_str["Data"].dt.strftime('%Y-%m')
-                df_updated = pd.concat([df_historical_str, df_forecasted], ignore_index=True)
-            else:
-                df_updated = df_historical.copy()
-                df_updated["Data"] = df_updated["Data"].dt.strftime('%Y-%m')
-
-            df_updated = df_updated.sort_values(by=["Produto", "Cidade", "Data"])
-            serialized_updated = df_updated.to_json(date_format='iso', orient='split')
-
-            if s_type == 'supply':
-                stored_supply_out = serialized_updated
-            else:
-                stored_demand_out = serialized_updated
+            # We no longer modify the original stores.
+            # Merging will happen on the fly when executing the optimization model.
+            pass
 
         status_msg = translate("Previsão concluída com sucesso!", lang)
         status_msg += f" (Success: {success_count}, Failed/Insufficient Data: {fail_count})"

@@ -904,5 +904,10 @@
     "Variáveis Binárias": "Variáveis Binárias",
     "Variáveis Contínuas": "Variáveis Contínuas",
     "Variáveis Inteiras": "Variáveis Inteiras",
-    "Volume Total Movimentado (ton)": "Volume Total Movimentado (ton)"
+    "Volume Total Movimentado (ton)": "Volume Total Movimentado (ton)",
+    "O modelo Determinístico otimiza a rede utilizando apenas o cenário esperado (valores nominais da previsão/dados). O modelo Estocástico otimiza as decisões considerando simultaneamente os cenários Pessimista, Esperado e Otimista ponderados por suas probabilidades, gerando uma solução robusta contra incertezas.": "O modelo Determinístico otimiza a rede utilizando apenas o cenário esperado (valores nominais da previsão/dados). O modelo Estocástico otimiza as decisões considerando simultaneamente os cenários Pessimista, Esperado e Otimista ponderados por suas probabilidades, gerando uma solução robusta contra incertezas.",
+    "Cenário desfavorável: reduz a oferta (por 1 - WMAPE) e aumenta a demanda (por 1 + WMAPE) para simular escassez de produto e alto estresse na rede.": "Cenário desfavorável: reduz a oferta (por 1 - WMAPE) e aumenta a demanda (por 1 + WMAPE) para simular escassez de produto e alto estresse na rede.",
+    "Cenário nominal: utiliza os valores originais da oferta e da demanda conforme a previsão ou dados informados, sem alterações.": "Cenário nominal: utiliza os valores originais da oferta e da demanda conforme a previsão ou dados informados, sem alterações.",
+    "Cenário favorável: aumenta a oferta (por 1 + WMAPE) e reduz a demanda (por 1 - WMAPE) para simular abundância de produto e baixa pressão na rede.": "Cenário favorável: aumenta a oferta (por 1 + WMAPE) e reduz a demanda (por 1 - WMAPE) para simular abundância de produto e baixa pressão na rede.",
+    "Define a origem da margem de erro (WMAPE) usada para calcular os cenários. 'Usar Métricas da Previsão' obtém o erro calculado no modelo de previsão para cada localidade/produto. 'Inserir Manualmente' aplica um percentual fixo global.": "Define a origem da margem de erro (WMAPE) usada para calcular os cenários. 'Usar Métricas da Previsão' obtém o erro calculado no modelo de previsão para cada localidade/produto. 'Inserir Manualmente' aplica um percentual fixo global."
 }

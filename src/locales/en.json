@@ -145,7 +145,7 @@
     "Certifique-se de que as quantidades ofertadas totais são compatíveis com os limites de carga estabelecidos.": "Ensure that the total quantities offered are compatible with the established load limits.",
     "Certifique-se de que as quantidades ofertadas totais são múltiplos ou compatíveis com os limites de carga estabelecidos.": "Ensure that the total supplied quantities are multiples of or compatible with the established load limits.",
     "Certifique-se de que preencheu os dados em todas as abas anteriores (Oferta, Armazéns, Relação Produto x Armazém, Demanda, Matriz de Distâncias) antes de executar.": "Make sure you have filled in the data in all previous tabs (Supply, Warehouses, Product x Warehouse Relationship, Demand, Distance Matrix) before running.",
-    "Certifique-se de que preencheu os dados em todas as abas anteriores antes de executar.": "Make sure you have filled in the data in all previous tabs before executing.",
+    "Certifique-se de que preencheu os dados em todas as abas anteriores antes de executar.": "Make sure you have filled in the data in all previous tabs before running.",
     "Chamando solver CBC (MILP)...": "Calling CBC solver (MILP)...",
     "Chamando solver CBC...": "Calling CBC solver...",
     "Cidade": "City",
@@ -903,5 +903,10 @@
     "Variáveis Binárias": "Binary Variables",
     "Variáveis Contínuas": "Continuous Variables",
     "Variáveis Inteiras": "Integer Variables",
-    "Volume Total Movimentado (ton)": "Total Volume Moved (tons)"
+    "Volume Total Movimentado (ton)": "Total Volume Moved (tons)",
+    "O modelo Determinístico otimiza a rede utilizando apenas o cenário esperado (valores nominais da previsão/dados). O modelo Estocástico otimiza as decisões considerando simultaneamente os cenários Pessimista, Esperado e Otimista ponderados por suas probabilidades, gerando uma solução robusta contra incertezas.": "The Deterministic model optimizes the network using only the expected scenario (nominal forecast/data). The Stochastic model optimizes decisions by simultaneously considering the Pessimistic, Expected, and Optimistic scenarios weighted by their probabilities, generating a robust solution against uncertainty.",
+    "Cenário desfavorável: reduz a oferta (por 1 - WMAPE) e aumenta a demanda (por 1 + WMAPE) para simular escassez de produto e alto estresse na rede.": "Unfavorable scenario: reduces supply (by 1 - WMAPE) and increases demand (by 1 + WMAPE) to simulate product scarcity and high stress on the network.",
+    "Cenário nominal: utiliza os valores originais da oferta e da demanda conforme a previsão ou dados informados, sem alterações.": "Nominal scenario: uses original supply and demand values from the forecast or provided data, without changes.",
+    "Cenário favorável: aumenta a oferta (por 1 + WMAPE) e reduz a demanda (por 1 - WMAPE) para simular abundância de produto e baixa pressão na rede.": "Favorable scenario: increases supply (by 1 + WMAPE) and reduces demand (by 1 - WMAPE) to simulate product abundance and low pressure on the network.",
+    "Define a origem da margem de erro (WMAPE) usada para calcular os cenários. 'Usar Métricas da Previsão' obtém o erro calculado no modelo de previsão para cada localidade/produto. 'Inserir Manualmente' aplica um percentual fixo global.": "Defines the source of the error margin (WMAPE) used to calculate the scenarios. 'Use Prediction Metrics' uses the error calculated in the forecasting model for each location/product. 'Enter Manually' applies a global fixed percentage."
 }
