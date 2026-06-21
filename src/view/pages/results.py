@@ -467,7 +467,33 @@ def get_tab_results_layout(lang='pt'):
                     ])
                 ],
                 className="card-body-custom"
-            )
+            ),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.Span(translate("Estoque por Período", lang), className="me-2 fw-bold"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-results-wh-inventory", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Exibe o estoque do armazém selecionado ao longo dos períodos.", lang),
+                                    target="help-results-wh-inventory",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center"),
+                            className="card-header-custom"
+                        ),
+                        dbc.CardBody([
+                            dbc.Spinner(
+                                dcc.Graph(
+                                    id="graph-results-wh-inventory",
+                                    style={"height": "350px"}
+                                ),
+                                spinner_class_name="text-primary-custom"
+                            )
+                        ], className="card-body-custom")
+                    ], className="card-custom mb-3")
+                ], width=12)
+            ], id="warehouse-inventory-chart-row", className="mt-3 mx-0", style={"display": "none"})
         ],
         className="card-custom mb-3 mt-4"
     )
@@ -715,7 +741,7 @@ def get_tab_stochastic_results_layout(lang='pt'):
                         )
                     ], className="card-custom h-100")
                 ], width=12, className="mb-24")
-            ], className="align-items-stretch"),
+            ], className="align-items-stretch", style={"display": "none"}),
 
             # Section 4: Inventory Comparison Chart (full width)
             dbc.Row([
@@ -785,59 +811,6 @@ def get_tab_stochastic_results_layout(lang='pt'):
                 ], width=12)
             ]),
 
-            dbc.Row([
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardHeader(
-                            html.Div([
-                                html.Span(translate("Diferenças nas Decisões de Armazéns", lang), className="me-2 fw-bold"),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-wh-diff", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Exibe apenas os armazéns onde as decisões diferem entre cenários (ex: um candidato que abre no Pessimista mas permanece fechado no Otimista, ou expansões que ocorrem apenas em alguns cenários). Armazéns com decisões idênticas em todos os cenários não aparecem aqui.", lang),
-                                    target="help-comp-wh-diff",
-                                    placement="right"
-                                ),
-                            ], className="d-flex align-items-center"),
-                            className="card-header-custom"
-                        ),
-                        dbc.CardBody(
-                            dbc.Spinner(
-                                dash_table.DataTable(
-                                    id="table-warehouse-diff",
-                                    columns=[
-                                        {"name": translate("Armazém", lang), "id": "Armazém"},
-                                        {"name": translate("Tipo", lang), "id": "Tipo"},
-                                        {"name": translate("Pessimista", lang), "id": "Pessimista"},
-                                        {"name": translate("Esperado", lang), "id": "Esperado"},
-                                        {"name": translate("Otimista", lang), "id": "Otimista"}
-                                    ],
-                                    data=[],
-                                    style_cell={
-                                        'textAlign': 'center',
-                                        'fontFamily': "'Roboto', sans-serif",
-                                        'padding': '8px',
-                                        'fontSize': 'var(--font-size-small)',
-                                        'color': UNB_THEME['SECONDARY']
-                                    },
-                                    style_header={
-                                        'backgroundColor': '#F8F9FA',
-                                        'color': UNB_THEME['PRIMARY'],
-                                        'fontWeight': 'bold',
-                                        'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
-                                    },
-                                    style_data_conditional=[
-                                        {
-                                            'if': {'row_index': 'odd'},
-                                            'backgroundColor': '#f8f9fa'
-                                        }
-                                    ]
-                                ),
-                                spinner_class_name="text-primary-custom"
-                            ),
-                            className="card-body-custom"
-                        )
-                    ], className="card-custom mb-24")
-                ], width=12)
-            ]),
 
             # Section 6: Geographic Warehouse Comparison Map
             dbc.Row([
@@ -845,19 +818,81 @@ def get_tab_stochastic_results_layout(lang='pt'):
                     dbc.Card([
                         dbc.CardHeader(
                             html.Div([
-                                html.Span(translate("Comparação Geográfica dos Armazéns", lang), className="me-2 fw-bold"),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-network-map", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Exibe a localização geográfica dos armazéns em cada um dos três cenários. Marcadores verdes indicam armazéns abertos/ativos no cenário correspondente, enquanto marcadores vermelhos representam armazéns fechados ou candidatos não selecionados.", lang),
-                                    target="help-comp-network-map",
-                                    placement="right"
-                                ),
-                            ], className="d-flex align-items-center"),
+                                html.Div([
+                                    html.Span(translate("Comparação Geográfica dos Armazéns", lang), className="me-2 fw-bold"),
+                                    html.I(className="bi bi-question-circle-fill text-muted", id="help-comp-network-map", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                    dbc.Tooltip(translate("Exibe a localização geográfica dos armazéns em cada um dos três cenários. O tamanho e a cor dos marcadores variam conforme a métrica selecionada.", lang),
+                                        target="help-comp-network-map",
+                                        placement="right"
+                                    ),
+                                ], className="d-flex align-items-center"),
+                                html.Div([
+                                    dbc.RadioItems(
+                                        id="radio-scenario-comparison-variable",
+                                        className="btn-group btn-group-sm",
+                                        input_class_name="btn-check",
+                                        label_class_name="btn btn-outline-primary-custom d-flex align-items-center gap-2",
+                                        label_checked_class_name="active btn-primary-custom text-white",
+                                        options=[
+                                            {
+                                                "label": html.Div([
+                                                    html.Span(translate("Utilização de Capacidade", lang)),
+                                                    html.I(className="bi bi-question-circle-fill text-muted ms-1", id="help-radio-utilization", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(translate("Explicação Utilização de Capacidade", lang), target="help-radio-utilization", placement="top")
+                                                ], className="d-flex align-items-center"),
+                                                "value": "utilization"
+                                            },
+                                            {
+                                                "label": html.Div([
+                                                    html.Span(translate("Saída Total", lang)),
+                                                    html.I(className="bi bi-question-circle-fill text-muted ms-1", id="help-radio-outflow", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(translate("Explicação Saída Total", lang), target="help-radio-outflow", placement="top")
+                                                ], className="d-flex align-items-center"),
+                                                "value": "outflow"
+                                            },
+                                            {
+                                                "label": html.Div([
+                                                    html.Span(translate("Estoque Final", lang)),
+                                                    html.I(className="bi bi-question-circle-fill text-muted ms-1", id="help-radio-final-stock", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(translate("Explicação Estoque Final", lang), target="help-radio-final-stock", placement="top")
+                                                ], className="d-flex align-items-center"),
+                                                "value": "final_stock"
+                                            },
+                                            {
+                                                "label": html.Div([
+                                                    html.Span(translate("Custo de Armazenagem", lang)),
+                                                    html.I(className="bi bi-question-circle-fill text-muted ms-1", id="help-radio-storage-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(translate("Explicação Custo de Armazenagem", lang), target="help-radio-storage-cost", placement="top")
+                                                ], className="d-flex align-items-center"),
+                                                "value": "storage_cost"
+                                            },
+                                            {
+                                                "label": html.Div([
+                                                    html.Span(translate("Capacidade Dinâmica Anual", lang)),
+                                                    html.I(className="bi bi-question-circle-fill text-muted ms-1", id="help-radio-dynamic-capacity", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(translate("Explicação Capacidade Dinâmica Anual", lang), target="help-radio-dynamic-capacity", placement="top")
+                                                ], className="d-flex align-items-center"),
+                                                "value": "dynamic_capacity"
+                                            },
+                                            {
+                                                "label": html.Div([
+                                                    html.Span(translate("Giro Anual (Turnover)", lang)),
+                                                    html.I(className="bi bi-question-circle-fill text-muted ms-1", id="help-radio-turnover", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                                    dbc.Tooltip(translate("Explicação Giro Anual (Turnover)", lang), target="help-radio-turnover", placement="top")
+                                                ], className="d-flex align-items-center"),
+                                                "value": "turnover"
+                                            }
+                                        ],
+                                        value="utilization",
+                                    )
+                                ], className="d-flex justify-content-start")
+                            ], className="d-flex align-items-center justify-content-start flex-wrap gap-4 w-100"),
                             className="card-header-custom"
                         ),
                         dbc.CardBody([
                             dbc.Row([
                                 dbc.Col([
-                                    html.Div(translate("Cenário Pessimista", lang), className="fw-bold small text-center mb-2 text-danger-custom"),
+                                    html.Div(translate("Cenário Pessimista", lang), className="fw-bold fs-5 text-center mb-2 text-danger-custom"),
                                     html.Div(
                                         dbc.Spinner(
                                             dcc.Graph(
@@ -871,7 +906,7 @@ def get_tab_stochastic_results_layout(lang='pt'):
                                     )
                                 ], width=12, lg=4),
                                 dbc.Col([
-                                    html.Div(translate("Cenário Esperado", lang), className="fw-bold small text-center mb-2 text-primary-custom"),
+                                    html.Div(translate("Cenário Esperado", lang), className="fw-bold fs-5 text-center mb-2 text-primary-custom"),
                                     html.Div(
                                         dbc.Spinner(
                                             dcc.Graph(
@@ -885,7 +920,7 @@ def get_tab_stochastic_results_layout(lang='pt'):
                                     )
                                 ], width=12, lg=4),
                                 dbc.Col([
-                                    html.Div(translate("Cenário Otimista", lang), className="fw-bold small text-center mb-2 text-success-custom"),
+                                    html.Div(translate("Cenário Otimista", lang), className="fw-bold fs-5 text-center mb-2 text-success-custom"),
                                     html.Div(
                                         dbc.Spinner(
                                             dcc.Graph(

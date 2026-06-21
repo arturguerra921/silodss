@@ -585,5 +585,13 @@ small, .small {
     border: 1px solid #E2E3E5;
 }
 
-
-
+/* Custom outline primary button checked states and icons */
+.btn-check:checked + .btn-outline-primary-custom {
+    background-color: #003366 !important;
+    color: #FFFFFF !important;
+    border-color: #003366 !important;
+}
+.btn-outline-primary-custom:hover .bi,
+.btn-check:checked + .btn-outline-primary-custom .bi {
+    color: #FFFFFF !important;
+}

@@ -5325,6 +5325,7 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
      Input("graph-scenario-minimap-pessimista", "relayoutData"),
      Input("graph-scenario-minimap-esperado", "relayoutData"),
      Input("graph-scenario-minimap-otimista", "relayoutData"),
+     Input("radio-scenario-comparison-variable", "value"),
      Input("main-tabs", "active_tab"),
      Input("stochastic-results-actual-card", "style")],
     [State("graph-scenario-minimap-pessimista", "figure"),
@@ -5335,7 +5336,7 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
      State("stored-demand-data", "data"),
      State("store-lang", "data")]
 )
-def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_relayout, active_tab, card_style,
+def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_relayout, selected_var, active_tab, card_style,
                                 pess_fig, esp_fig, otim_fig,
                                 stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     # Default map centered on Brazil
@@ -5464,6 +5465,34 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
 
         wh_metrics_scen = results_data.get("scenario_warehouse_metrics", {})
 
+        # Resolve selected variable
+        var_key = selected_var or "utilization"
+
+        # Pre-calculate max values for scaling across all scenarios
+        max_vals = {
+            "outflow": 1.0,
+            "final_stock": 1.0,
+            "storage_cost": 1.0,
+            "dynamic_capacity": 1.0,
+            "turnover": 1.0
+        }
+        for s in ["pessimista", "esperado", "otimista"]:
+            for w in wh_metrics_scen.get(s, []):
+                for k in max_vals.keys():
+                    val = 0.0
+                    if k == "outflow":
+                        val = w.get("TotalOutflow", 0.0)
+                    elif k == "final_stock":
+                        val = w.get("FinalStock", 0.0)
+                    elif k == "storage_cost":
+                        val = w.get("StorageCost", 0.0)
+                    elif k == "dynamic_capacity":
+                        val = w.get("DynamicCapacity", 0.0)
+                    elif k == "turnover":
+                        val = w.get("TurnoverRatio", 0.0)
+                    if val > max_vals[k]:
+                        max_vals[k] = val
+
         # Compute a common center and zoom for all three maps to align them
         all_wh_lats = []
         all_wh_lons = []
@@ -5475,63 +5504,221 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
                 all_wh_lats.append(coords["Latitude"])
                 all_wh_lons.append(coords["Longitude"])
 
-        if all_wh_lats and all_wh_lons:
+        # Retrieve current zoom and center from existing figures to preserve user state
+        current_center = None
+        current_zoom = None
+        for fig in [pess_fig, esp_fig, otim_fig]:
+            if fig and isinstance(fig, dict) and "layout" in fig and "mapbox" in fig["layout"]:
+                current_center = fig["layout"]["mapbox"].get("center")
+                current_zoom = fig["layout"]["mapbox"].get("zoom")
+                break
+
+        if current_center is not None and current_zoom is not None:
+            map_center = current_center
+            map_zoom = current_zoom
+        elif all_wh_lats and all_wh_lons:
             map_center = {"lat": np.mean(all_wh_lats), "lon": np.mean(all_wh_lons)}
             map_zoom = 3.8
         else:
             map_center = {"lat": -14.2350, "lon": -51.9253}
             map_zoom = 3.5
 
+        # format helpers
+        def fmt_curr(val):
+            if val is None:
+                val = 0.0
+            return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        def fmt_num(val):
+            if val is None:
+                val = 0.0
+            return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            
+        def fmt_num_integer(val):
+            if val is None:
+                val = 0.0
+            return f"{val:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        # Get translation of selected metric
+        metric_labels = {
+            "utilization": translate("Utilização de Capacidade", lang),
+            "outflow": translate("Saída Total", lang),
+            "final_stock": translate("Estoque Final", lang),
+            "storage_cost": translate("Custo de Armazenagem", lang),
+            "dynamic_capacity": translate("Capacidade Dinâmica Anual", lang),
+            "turnover": translate("Giro Anual (Turnover)", lang)
+        }
+        metric_name = metric_labels.get(var_key, "")
+
+        # Determine legend values
+        if var_key == "utilization":
+            val_min = "0,0%"
+            val_mid = "50,0%"
+            val_max = "100,0%"
+        elif var_key in ["outflow", "final_stock", "dynamic_capacity"]:
+            max_val = max_vals.get(var_key, 0.0)
+            val_min = "0 t"
+            val_mid = f"{fmt_num_integer(max_val * 0.5)} t"
+            val_max = f"{fmt_num_integer(max_val)} t"
+        elif var_key == "storage_cost":
+            max_val = max_vals.get(var_key, 0.0)
+            val_min = "R$ 0,00"
+            val_mid = fmt_curr(max_val * 0.5)
+            val_max = fmt_curr(max_val)
+        elif var_key == "turnover":
+            max_val = max_vals.get(var_key, 0.0)
+            val_min = "0,00"
+            val_mid = fmt_num(max_val * 0.5)
+            val_max = fmt_num(max_val)
+
         def make_scenario_wh_map(scen_name):
             fig = go.Figure()
             s_whs = wh_metrics_scen.get(scen_name, [])
             
-            lats = []
-            lons = []
-            colors_list = []
-            texts = []
+            open_lats = []
+            open_lons = []
+            open_ratios = []
+            open_sizes = []
+            open_texts = []
+            
+            closed_lats = []
+            closed_lons = []
+            closed_sizes = []
+            closed_texts = []
             
             for w in s_whs:
                 cda = w["CDA"]
                 name = w["Name"]
                 coords = dest_mapping.get(cda) or dest_mapping.get(name)
                 if coords:
-                    lats.append(coords["Latitude"])
-                    lons.append(coords["Longitude"])
-                    
                     is_open = w.get("IsOpen", False)
-                    color = "#006633" if is_open else "#C8102E" # UNB_GREEN vs DANGER
-                    colors_list.append(color)
-                    
                     status_str = translate("Aberto", lang) if is_open else translate("Fechado", lang)
                     wh_type = translate("Candidato", lang) if w.get("IsCandidate") else translate("Existente", lang)
                     
-                    hover_text = (
-                        f"<b>{name}</b> (CDA: {cda})<br>"
-                        f"{translate('Tipo', lang)}: {wh_type}<br>"
-                        f"{translate('Status', lang)}: {status_str}<br>"
-                        f"{translate('Capacidade Estática Eficiente', lang)}: {w.get('EffectiveStaticCapacity', 0.0):,.0f} t<br>"
-                        f"{translate('Saída Total', lang)}: {w.get('TotalOutflow', 0.0):,.0f} t<br>"
-                        f"{translate('Estoque Final', lang)}: {w.get('FinalStock', 0.0):,.0f} t<br>"
-                        f"{translate('Movimentação Total', lang)}: {w.get('DynamicCapacityRaw', 0.0):,.0f} t"
-                    )
-                    texts.append(hover_text)
-            
-            if lats:
+                    # Formatting values
+                    fmt_static = f"{w.get('EffectiveStaticCapacity', 0.0):,.0f} t".replace(",", "X").replace(".", ",").replace("X", ".")
+                    fmt_outflow = f"{w.get('TotalOutflow', 0.0):,.0f} t".replace(",", "X").replace(".", ",").replace("X", ".")
+                    fmt_final = f"{w.get('FinalStock', 0.0):,.0f} t".replace(",", "X").replace(".", ",").replace("X", ".")
+                    fmt_storage = f"R$ {w.get('StorageCost', 0.0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    fmt_dyn = f"{w.get('DynamicCapacity', 0.0):,.0f} t".replace(",", "X").replace(".", ",").replace("X", ".")
+                    fmt_turnover = f"{w.get('TurnoverRatio', 0.0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    
+                    eff_static = w.get("EffectiveStaticCapacity", 0.0)
+                    dyn_cap_raw = w.get("DynamicCapacityRaw", 0.0)
+                    util_val = (dyn_cap_raw / eff_static) if eff_static > 0.0 else 0.0
+                    fmt_util = f"{util_val * 100:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                    # Highlight selected variable in hover tooltip
+                    hover_lines = [
+                        f"<b>{name}</b> (CDA: {cda})",
+                        f"{translate('Tipo', lang)}: {wh_type}",
+                        f"{translate('Status', lang)}: {status_str}",
+                    ]
+                    
+                    def wrap_selected(label, val_str, is_sel):
+                        if is_sel:
+                            return f"⭐ <b>{label}: {val_str}</b>"
+                        return f"{label}: {val_str}"
+
+                    hover_lines.append(wrap_selected(translate('Capacidade Estática Eficiente', lang), fmt_static, False))
+                    hover_lines.append(wrap_selected(translate('Saída Total', lang), fmt_outflow, var_key == "outflow"))
+                    hover_lines.append(wrap_selected(translate('Estoque Final', lang), fmt_final, var_key == "final_stock"))
+                    hover_lines.append(wrap_selected(translate('Custo de Armazenagem', lang), fmt_storage, var_key == "storage_cost"))
+                    hover_lines.append(wrap_selected(translate('Capacidade Dinâmica Anual', lang), fmt_dyn, var_key == "dynamic_capacity"))
+                    hover_lines.append(wrap_selected(translate('Giro Anual (Turnover)', lang), fmt_turnover, var_key == "turnover"))
+                    
+                    if is_open:
+                        hover_lines.append(wrap_selected(translate('Utilização de Capacidade', lang), fmt_util, var_key == "utilization"))
+                    
+                    tooltip_text = "<br>".join(hover_lines)
+
+                    if is_open:
+                        open_lats.append(coords["Latitude"])
+                        open_lons.append(coords["Longitude"])
+                        open_texts.append(tooltip_text)
+                        
+                        # Extract ratio for dynamic color and size scaling
+                        ratio = 0.0
+                        if var_key == "utilization":
+                            ratio = min(util_val, 1.0)
+                        elif var_key == "outflow":
+                            ratio = w.get("TotalOutflow", 0.0) / max_vals["outflow"] if max_vals["outflow"] > 0.0 else 0.0
+                        elif var_key == "final_stock":
+                            ratio = w.get("FinalStock", 0.0) / max_vals["final_stock"] if max_vals["final_stock"] > 0.0 else 0.0
+                        elif var_key == "storage_cost":
+                            ratio = w.get("StorageCost", 0.0) / max_vals["storage_cost"] if max_vals["storage_cost"] > 0.0 else 0.0
+                        elif var_key == "dynamic_capacity":
+                            ratio = w.get("DynamicCapacity", 0.0) / max_vals["dynamic_capacity"] if max_vals["dynamic_capacity"] > 0.0 else 0.0
+                        elif var_key == "turnover":
+                            ratio = w.get("TurnoverRatio", 0.0) / max_vals["turnover"] if max_vals["turnover"] > 0.0 else 0.0
+                        
+                        ratio = min(max(ratio, 0.0), 1.0)
+                        open_ratios.append(ratio)
+                        open_sizes.append(8 + 16 * np.sqrt(ratio))
+                    else:
+                        closed_lats.append(coords["Latitude"])
+                        closed_lons.append(coords["Longitude"])
+                        closed_texts.append(tooltip_text)
+                        closed_sizes.append(6)
+
+            if closed_lats:
                 fig.add_trace(go.Scattermapbox(
                     mode="markers",
-                    lon=lons,
-                    lat=lats,
+                    lon=closed_lons,
+                    lat=closed_lats,
                     marker=dict(
-                        size=12,
-                        color=colors_list,
+                        size=closed_sizes,
+                        color="#6C757D",
                         opacity=0.9
                     ),
-                    text=texts,
+                    text=closed_texts,
                     hoverinfo="text",
                     showlegend=False
                 ))
-            
+
+            if open_lats:
+                if scen_name == "otimista":
+                    colorbar_config = dict(
+                        thickness=15,
+                        len=0.9,
+                        x=1.02,
+                        y=0.5,
+                        yanchor="middle",
+                        tickvals=[0.0, 0.5, 1.0],
+                        ticktext=[val_min, val_mid, val_max],
+                        tickfont=dict(size=10, family="Roboto, sans-serif"),
+                        title=dict(
+                            text=metric_name,
+                            font=dict(size=11, family="Roboto, sans-serif", weight="bold"),
+                            side="top"
+                        )
+                    )
+                else:
+                    colorbar_config = None
+
+                fig.add_trace(go.Scattermapbox(
+                    mode="markers",
+                    lon=open_lons,
+                    lat=open_lats,
+                    marker=dict(
+                        size=open_sizes,
+                        color=open_ratios,
+                        colorscale=[
+                            [0.0, "rgb(0,102,51)"],
+                            [0.5, "rgb(153,122,0)"],
+                            [1.0, "rgb(200,16,46)"]
+                        ],
+                        cmin=0.0,
+                        cmax=1.0,
+                        showscale=True if (scen_name == "otimista") else False,
+                        colorbar=colorbar_config,
+                        opacity=0.9
+                    ),
+                    text=open_texts,
+                    hoverinfo="text",
+                    showlegend=False
+                ))
+
             fig.update_layout(
                 mapbox_style="open-street-map",
                 mapbox_zoom=map_zoom,
@@ -5554,13 +5741,15 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
 
 @app.callback(
     [Output("graph-results-wh-map", "figure"),
-     Output("warehouse-details-container", "children")],
+     Output("warehouse-details-container", "children"),
+     Output("graph-results-wh-inventory", "figure"),
+     Output("warehouse-inventory-chart-row", "style")],
     [Input("table-results-warehouses", "active_cell"),
      Input("wh-route-type-filter", "value"),
      Input("store-model-results", "data"),
-     Input("main-tabs", "active_tab")],
-    [State("radio-results-scenario-select", "value"),
-     State("table-results-warehouses", "derived_viewport_data"),
+     Input("main-tabs", "active_tab"),
+     Input("radio-results-scenario-select", "value")],
+    [State("table-results-warehouses", "derived_viewport_data"),
      State("stored-data", "data"),
      State("store-warehouses", "data"),
      State("stored-demand-data", "data"),
@@ -5578,13 +5767,13 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
     )
 
     if active_tab != 'tab-results':
-        return default_fig, html.P(translate("Resultados indisponíveis.", lang), className="text-muted small")
+        return default_fig, html.P(translate("Resultados indisponíveis.", lang), className="text-muted small"), go.Figure(), {"display": "none"}
 
     if not results_data or results_data.get("status") != "optimal":
-        return default_fig, html.P(translate("Resultados indisponíveis.", lang), className="text-muted small")
+        return default_fig, html.P(translate("Resultados indisponíveis.", lang), className="text-muted small"), go.Figure(), {"display": "none"}
 
     if not stored_data or not stored_warehouses:
-        return default_fig, html.P(translate("Faltam dados base para renderizar o mapa.", lang), className="text-muted small")
+        return default_fig, html.P(translate("Faltam dados base para renderizar o mapa.", lang), className="text-muted small"), go.Figure(), {"display": "none"}
 
     # Resolve active routes list and warehouse decisions based on selected scenario if stochastic
     selected_scenario = scenario_map_select or "esperado"
@@ -5750,11 +5939,11 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
         placeholder = html.Div([
             html.P(translate("Selecione um armazém na tabela acima para ver os detalhes, indicadores e custos aqui.", lang), className="text-muted small mt-2")
         ])
-        return fig, placeholder
+        return fig, placeholder, go.Figure(), {"display": "none"}
 
     row_idx = active_cell['row']
     if row_idx >= len(table_data):
-        return default_fig, html.P(translate("Erro: Linha selecionada inválida.", lang), className="text-muted small")
+        return default_fig, html.P(translate("Erro: Linha selecionada inválida.", lang), className="text-muted small"), go.Figure(), {"display": "none"}
         
     selected_wh_info = table_data[row_idx]
     selected_wh_name = selected_wh_info.get('Name', '')
@@ -5767,7 +5956,7 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
             break
 
     if not selected_wh_dec:
-        return default_fig, html.P(translate("Detalhes do armazém não encontrados.", lang), className="text-muted small")
+        return default_fig, html.P(translate("Detalhes do armazém não encontrados.", lang), className="text-muted small"), go.Figure(), {"display": "none"}
 
     coords_key = None
     if selected_wh_name in dest_mapping:
@@ -5778,7 +5967,7 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
         coords_key = selected_wh_name.split(" - ")[0].strip()
 
     if not coords_key:
-        return default_fig, html.P(translate("Coordenadas do armazém não encontradas.", lang), className="text-muted small")
+        return default_fig, html.P(translate("Coordenadas do armazém não encontradas.", lang), className="text-muted small"), go.Figure(), {"display": "none"}
 
     wh_coords = dest_mapping[coords_key]
     wh_lat, wh_lon = wh_coords['Latitude'], wh_coords['Longitude']
@@ -6037,7 +6226,58 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
         ], className="bg-light")
     ], className="shadow-sm border-0 h-100 d-flex flex-column")
 
-    return fig, details_html
+    # Generate selected warehouse inventory chart
+    fig_inv = go.Figure()
+    fig_inv.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    chart_style = {"display": "none"}
+    
+    try:
+        model_type = results_data.get("model_type", "deterministic")
+        selected_scenario = scenario_map_select or "esperado"
+        
+        if model_type == "stochastic":
+            inv_data = results_data.get("scenario_inventory", {}).get(selected_scenario, [])
+        else:
+            inv_data = results_data.get("inventory", [])
+        
+        bar_color = "#003366"
+            
+        wh_inv = [
+            r for r in inv_data
+            if (selected_wh_cda and r.get("CDA") == selected_wh_cda) or (r.get("Name") == selected_wh_name)
+        ]
+        
+        if wh_inv:
+            df_inv = pd.DataFrame(wh_inv)
+            if not df_inv.empty:
+                df_grouped = df_inv.groupby("Período")["Quantidade (ton)"].sum().reset_index()
+                
+                fig_inv.add_trace(go.Bar(
+                    x=df_grouped["Período"],
+                    y=df_grouped["Quantidade (ton)"],
+                    marker=dict(color=bar_color),
+                    showlegend=False,
+                    hovertemplate=f"<b>{selected_wh_name}</b><br>{translate('Período', lang)}: %{{x}}<br>{translate('Quantidade', lang)}: %{{y:,.2f}} t<extra></extra>"
+                ))
+                
+                fig_inv.update_layout(
+                    barmode='stack',
+                    height=350,
+                    margin=dict(l=40, r=40, t=40, b=40),
+                    font=dict(family="Roboto, sans-serif", size=14),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)'
+                )
+                fig_inv.update_xaxes(tickfont=dict(size=14))
+                fig_inv.update_yaxes(gridcolor='#E5E7EB', zeroline=False, tickfont=dict(size=14))
+                chart_style = {"display": "block"}
+    except Exception as chart_err:
+        print(f"Error drawing selected warehouse inventory chart: {chart_err}")
+
+    return fig, details_html, fig_inv, chart_style
 
 @app.callback(
     Output("btn-download-log", "disabled"),
@@ -7839,15 +8079,13 @@ def toggle_stochastic_results_container(results_data):
      Output("dropdown-warehouse-utilization-warehouses", "options"),
      Output("dropdown-scenario-inventory-warehouses", "value"),
      Output("dropdown-warehouse-utilization-warehouses", "value"),
-     Output("table-warehouse-diff", "data"),
-     Output("table-warehouse-diff", "style_data_conditional"),
      Output("stochastic-warnings-container", "children")],
     [Input("store-model-results", "data")],
     [State("store-lang", "data")]
 )
 def populate_stochastic_results(results_data, lang="pt"):
     if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
-        return [], go.Figure(), [], [], None, None, [], [], ""
+        return [], go.Figure(), [], [], None, None, ""
 
     # BR format helpers
     def fmt_curr(val):
@@ -8032,64 +8270,7 @@ def populate_stochastic_results(results_data, lang="pt"):
     wh_names_list = sorted(list(set(w["Name"] for w in esp_whs)))
     dropdown_options = [{"label": name, "value": name} for name in wh_names_list]
 
-    # 5. Warehouse Decision Differences Table
-    diff_table_data = []
-    cda_names = {}
-    cda_types = {}
-    for w in esp_whs:
-        cda_names[w["CDA"]] = w["Name"]
-        cda_types[w["CDA"]] = translate("Candidato", lang) if w["IsCandidate"] else translate("Existente", lang)
-        
-    for cda, name in wh_names:
-        decisions_by_scen = {}
-        for s in ["pessimista", "esperado", "otimista"]:
-            s_whs = wh_metrics_scen.get(s, [])
-            w = next((x for x in s_whs if x["CDA"] == cda), None)
-            if w:
-                status = translate("Aberto", lang) if w.get("IsOpen") else translate("Fechado", lang)
-                exp_lbl = ""
-                if w.get("IsExpanded"):
-                    exp_vol = fmt_num(w.get("ExpandedVolume", 0.0))
-                    exp_lbl = f" + {translate('Exp.', lang)} ({exp_vol} t)"
-                bulk_lbl = ""
-                if w.get("IsBulkified"):
-                    bulk_cap = fmt_num(w.get("BulkCapacityAdded", 0.0))
-                    bulk_lbl = f" + {translate('Granel', lang)} ({bulk_cap} t)"
-                dec_str = f"{status}{exp_lbl}{bulk_lbl}"
-            else:
-                dec_str = "-"
-            decisions_by_scen[s] = dec_str
-            
-        if len(set(decisions_by_scen.values())) > 1:
-            diff_table_data.append({
-                "Armazém": cda_names[cda],
-                "Tipo": cda_types[cda],
-                "Pessimista": decisions_by_scen["pessimista"],
-                "Esperado": decisions_by_scen["esperado"],
-                "Otimista": decisions_by_scen["otimista"]
-            })
-            
-    style_wh_diff = [
-        {
-            'if': {'row_index': 'odd'},
-            'backgroundColor': '#f8f9fa'
-        }
-    ]
-    for idx, row in enumerate(diff_table_data):
-        esp_val = row["Esperado"]
-        for s_col in ["Pessimista", "Otimista"]:
-            if row[s_col] != esp_val:
-                style_wh_diff.append({
-                    'if': {
-                        'row_index': idx,
-                        'column_id': s_col
-                    },
-                    'backgroundColor': '#FFF3CD',
-                    'color': '#856404',
-                    'fontWeight': 'bold'
-                })
-
-    # 6. Feasibility Warnings
+    # 5. Feasibility Warnings
     warnings = results_data.get("warnings", [])
     warnings_div = []
     if warnings:
@@ -8101,7 +8282,7 @@ def populate_stochastic_results(results_data, lang="pt"):
             html.Ul(warnings_list, className="mb-0")
         ], className="alert-warning-custom shadow-sm mb-3")]
 
-    return (card_cols, fig_costs, dropdown_options, dropdown_options, None, None, diff_table_data, style_wh_diff, warnings_div)
+    return (card_cols, fig_costs, dropdown_options, dropdown_options, None, None, warnings_div)
 
 
 @app.callback(
