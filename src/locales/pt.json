@@ -508,6 +508,10 @@
     "Otimiza a alocação de produtos para os armazéns disponíveis baseando-se na distância, capacidades, expansão e granelização.": "Otimiza a alocação de produtos para os armazéns disponíveis baseando-se na distância, capacidades, expansão e granelização.",
     "Otimizando alocação...": "Otimizando alocação...",
     "Otimização de Alocação de Produtos": "Otimização de Alocação de Produtos",
+    "Otimização de Localização de Instalações": "Otimização de Localização de Instalações",
+    "Bem-vindo ao SiloDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 10 nas abas para obter os resultados da operação:": "Bem-vindo ao SiloDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 10 nas abas para obter os resultados da operação:",
+    "Utilize modelos de inteligência artificial ou séries temporais estatísticas (como Prophet, SARIMA, XGBoost e LSTM) para prever a oferta e a demanda futura com base nos dados históricos fornecidos, gerando um panorama preditivo completo.": "Utilize modelos de inteligência artificial ou séries temporais estatísticas (como Prophet, SARIMA, XGBoost e LSTM) para prever a oferta e a demanda futura com base nos dados históricos fornecidos, gerando um panorama preditivo completo.",
+    "Compare o desempenho físico e financeiro da rede sob diferentes cenários de incerteza (otimista, esperado, pessimista) e avalie a viabilidade de decisões robustas (como EVPI e VSS) geradas pelo modelo estocástico.": "Compare o desempenho físico e financeiro da rede sob diferentes cenários de incerteza (otimista, esperado, pessimista) e avalie a viabilidade de decisões robustas (como EVPI e VSS) geradas pelo modelo estocástico.",
     "Padrão de Preenchimento": "Padrão de Preenchimento",
     "Para armazéns Candidatos, a Capacidade Estática Máxima deve ser um número maior ou igual a 0.": "Para armazéns Candidatos, a Capacidade Estática Máxima deve ser um número maior ou igual a 0.",
     "Para armazéns Candidatos, o Custo de Abertura deve ser um número maior ou igual a 0.": "Para armazéns Candidatos, o Custo de Abertura deve ser um número maior ou igual a 0.",
@@ -941,5 +945,8 @@
     "Custo Armazenagem": "Custo Armazenagem",
     "Custo Abertura": "Custo Abertura",
     "Custo Expansão": "Custo Expansão",
-    "Custo Granelização": "Custo Granelização"
+    "Custo Granelização": "Custo Granelização",
+    "Você precisa preencher as abas 'Oferta' e 'Demanda' antes de acessar a aba 'Previsão'.": "Você precisa preencher as abas 'Oferta' e 'Demanda' antes de acessar a aba 'Previsão'.",
+    "Você precisa preencher a aba 'Oferta' antes de acessar a aba 'Previsão'.": "Você precisa preencher a aba 'Oferta' antes de acessar a aba 'Previsão'.",
+    "Você precisa preencher a aba 'Demanda' antes de acessar a aba 'Previsão'.": "Você precisa preencher a aba 'Demanda' antes de acessar a aba 'Previsão'."
 }

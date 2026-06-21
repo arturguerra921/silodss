@@ -157,7 +157,7 @@ def serve_layout(lang="pt"):
                             dbc.Col(
                                 [
                                     html.H5(translate("SiloDSS", lang), className="navbar-brand-text mb-0"),
-                                    html.Small(translate("Otimização de Alocação de Produtos", lang), className="navbar-subtext", style={"whiteSpace": "nowrap"}),
+                                    html.Small(translate("Otimização de Localização de Instalações", lang), className="navbar-subtext", style={"whiteSpace": "nowrap"}),
                                     html.Br(),
                                     html.Small(translate("Universidade de Brasília", lang), className="navbar-subtext", style={"whiteSpace": "nowrap"})
                                 ],
@@ -205,7 +205,7 @@ def serve_layout(lang="pt"):
             dbc.ModalHeader(dbc.ModalTitle([html.I(className="bi bi-info-circle-fill me-2 text-info-custom"), translate("Guia de Uso do SiloDSS", lang)]), close_button=True),
             dbc.ModalBody(
                 [
-                    html.P(translate("Bem-vindo ao SiloDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 8 nas abas para obter os resultados da operação:", lang), className="mb-4 text-muted"),
+                    html.P(translate("Bem-vindo ao SiloDSS! Este aplicativo foi desenvolvido para otimizar a alocação de produtos em armazéns, minimizando os custos de frete e armazenagem. Siga o fluxo de 1 a 10 nas abas para obter os resultados da operação:", lang), className="mb-4 text-muted"),
 
                     dbc.ListGroup([
                         dbc.ListGroupItem([
@@ -219,33 +219,43 @@ def serve_layout(lang="pt"):
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("3.", className="badge bg-info-custom rounded-pill me-2"), translate("Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("3.", className="badge bg-info-custom rounded-pill me-2"), translate("Previsão", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.P(translate("Utilize modelos de inteligência artificial ou séries temporais estatísticas (como Prophet, SARIMA, XGBoost e LSTM) para prever a oferta e a demanda futura com base nos dados históricos fornecidos, gerando um panorama preditivo completo.", lang), className="mb-0 text-muted")
+                        ], className="border-0 border-bottom py-3"),
+
+                        dbc.ListGroupItem([
+                            html.H5([html.Span("4.", className="badge bg-info-custom rounded-pill me-2"), translate("Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Gerencie os armazéns que receberão os produtos. Defina-os como existentes (informando capacidade, tipo, etc.) ou possíveis candidatos de abertura. Carregue uma planilha ou adicione os dados manualmente e confira a localização no mapa interativo.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("4.", className="badge bg-info-custom rounded-pill me-2"), translate("Produto e Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("5.", className="badge bg-info-custom rounded-pill me-2"), translate("Produto e Armazéns", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Defina a compatibilidade. Indique quais tipos de armazéns podem estocar cada tipo de produto marcando ou desmarcando as caixas na tabela.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("5.", className="badge bg-info-custom rounded-pill me-2"), translate("Custos", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("6.", className="badge bg-info-custom rounded-pill me-2"), translate("Custos", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Configure as tarifas de armazenamento (público e privado) para cada produto e o valor do frete (tonelada/km) para cada estado. Você pode usar os valores padrão ou inserir novos, e as alterações nas tabelas são salvas automaticamente.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("6.", className="badge bg-info-custom rounded-pill me-2"), translate("Matriz de Distâncias", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("7.", className="badge bg-info-custom rounded-pill me-2"), translate("Matriz de Distâncias", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("O sistema calcula todas as rotas possíveis entre as cidades de origem e os armazéns disponíveis. Clique em 'Calcular Matriz de Distâncias' para iniciar e aguarde a conclusão. Em seguida, você também pode visualizar qualquer rota diretamente no mapa interativo abaixo da tabela.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("7.", className="badge bg-info-custom rounded-pill me-2"), translate("Configuração do Modelo", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("8.", className="badge bg-info-custom rounded-pill me-2"), translate("Configuração do Modelo", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Configure as restrições da operação (como limites de recepção, regras de frete e uso do Princípio de Pareto) e rode o modelo de otimização matemática.", lang), className="mb-0 text-muted")
                         ], className="border-0 border-bottom py-3"),
 
                         dbc.ListGroupItem([
-                            html.H5([html.Span("8.", className="badge bg-info-custom rounded-pill me-2"), translate("Resultados", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.H5([html.Span("9.", className="badge bg-info-custom rounded-pill me-2"), translate("Resultados", lang)], className="mb-1 fw-bold d-flex align-items-center"),
                             html.P(translate("Visualize as métricas globais da operação, explore as rotas sugeridas no mapa interativo e baixe o relatório final completo (Excel).", lang), className="mb-0 text-muted")
+                        ], className="border-0 border-bottom py-3"),
+
+                        dbc.ListGroupItem([
+                            html.H5([html.Span("10.", className="badge bg-info-custom rounded-pill me-2"), translate("Comparação de Cenários", lang)], className="mb-1 fw-bold d-flex align-items-center"),
+                            html.P(translate("Compare o desempenho físico e financeiro da rede sob diferentes cenários de incerteza (otimista, esperado, pessimista) e avalie a viabilidade de decisões robustas (como EVPI e VSS) geradas pelo modelo estocástico.", lang), className="mb-0 text-muted")
                         ], className="border-0 py-3"),
                     ], flush=True),
                 ]
@@ -255,7 +265,7 @@ def serve_layout(lang="pt"):
             ),
         ],
         id="modal-help",
-        size="lg",
+        size="xl",
         is_open=False,
         centered=True,
         scrollable=True
@@ -1322,7 +1332,8 @@ def serve_layout(lang="pt"):
 initial_df = pd.DataFrame(columns=['Produto', 'Cidade', 'Latitude', 'Longitude', 'Data', 'Peso (ton)'])
 
 app.layout = html.Div([
-    dcc.Store(id='store-lang', storage_type='memory', data='pt'),
+    dcc.Location(id='url', refresh=True),
+    dcc.Store(id='store-lang', storage_type='local', data='pt'),
     dcc.Store(id='store-pending-lang', storage_type='memory', data=None),
 
     dcc.Download(id='download-warehouses-xlsx'),
@@ -1362,7 +1373,8 @@ app.layout = html.Div([
      Output('modal-lang-switch-body', 'children'),
      Output('btn-cancel-lang-switch', 'children'),
      Output('btn-confirm-lang-switch', 'children'),
-     Output('store-pending-lang', 'data')],
+     Output('store-pending-lang', 'data'),
+     Output('url', 'href')],
     [Input('lang-pt', 'n_clicks'),
      Input('lang-en', 'n_clicks'),
      Input('btn-confirm-lang-switch', 'n_clicks'),
@@ -1376,17 +1388,21 @@ app.layout = html.Div([
 def update_language(pt_clicks, en_clicks, confirm_clicks, cancel_clicks, current_lang, stored_data, stored_demand_data, pending_lang):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, False, no_update, no_update, no_update, no_update, no_update
+        return no_update, False, no_update, no_update, no_update, no_update, no_update, no_update
 
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     # Handle language selector click
     if trigger_id in ('lang-pt', 'lang-en'):
+        clicks = pt_clicks if trigger_id == 'lang-pt' else en_clicks
+        if not clicks:
+            return no_update, False, no_update, no_update, no_update, no_update, no_update, no_update
+            
         target_lang = 'pt' if trigger_id == 'lang-pt' else 'en'
         
         # If the clicked language is the same as the current language, do nothing
         if target_lang == current_lang:
-            return no_update, False, no_update, no_update, no_update, no_update, None
+            return no_update, False, no_update, no_update, no_update, no_update, None, no_update
 
         # Check if there is data in the stores
         has_data = False
@@ -1421,22 +1437,26 @@ def update_language(pt_clicks, en_clicks, confirm_clicks, cancel_clicks, current
             en_confirm = translate("Confirmar", "en")
             confirm_label = f"{pt_confirm} / {en_confirm}"
 
-            return no_update, True, title, body, cancel_label, confirm_label, target_lang
+            return no_update, True, title, body, cancel_label, confirm_label, target_lang, no_update
         else:
             # Switch language immediately since there is no data to lose
-            return target_lang, False, no_update, no_update, no_update, no_update, None
+            return target_lang, False, no_update, no_update, no_update, no_update, None, '/'
 
     # Handle modal confirmation
     if trigger_id == 'btn-confirm-lang-switch':
+        if not confirm_clicks:
+            return no_update, False, no_update, no_update, no_update, no_update, no_update, no_update
         if pending_lang:
-            return pending_lang, False, no_update, no_update, no_update, no_update, None
-        return no_update, False, no_update, no_update, no_update, no_update, None
+            return pending_lang, False, no_update, no_update, no_update, no_update, None, '/'
+        return no_update, False, no_update, no_update, no_update, no_update, None, no_update
 
     # Handle modal cancellation or closing
     if trigger_id == 'btn-cancel-lang-switch':
-        return no_update, False, no_update, no_update, no_update, no_update, None
+        if not cancel_clicks:
+            return no_update, False, no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, False, no_update, no_update, no_update, no_update, None, no_update
 
-    return no_update, False, no_update, no_update, no_update, no_update, no_update
+    return no_update, False, no_update, no_update, no_update, no_update, no_update, no_update
 
 @app.callback(
     Output('page-content', 'children'),
@@ -6559,6 +6579,77 @@ def redirect_to_supply_tab(n_clicks):
   if n_clicks:
     return 'tab-input'
   return no_update
+
+
+@app.callback(
+    [Output('modal-missing-prediction-data', 'is_open'),
+     Output('modal-missing-prediction-data-body', 'children')],
+    Input('main-tabs', 'active_tab'),
+    [State('stored-data', 'data'),
+     State('stored-demand-data', 'data'),
+     State('store-lang', 'data')]
+)
+def validate_prediction_tab_access(active_tab, stored_supply_data, stored_demand_data, lang='pt'):
+    if active_tab != 'tab-prediction':
+        return False, dash.no_update
+
+    # Check supply
+    has_supply = False
+    if stored_supply_data:
+        try:
+            df_sup = pd.read_json(io.StringIO(stored_supply_data), orient='split')
+            if not df_sup.empty:
+                has_supply = True
+        except:
+            pass
+
+    # Check demand
+    has_demand = False
+    if stored_demand_data:
+        try:
+            df_dem = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+            if not df_dem.empty:
+                has_demand = True
+        except:
+            pass
+
+    if not has_supply and not has_demand:
+        msg = translate("Você precisa preencher as abas 'Oferta' e 'Demanda' antes de acessar a aba 'Previsão'.", lang)
+        return True, msg
+    elif not has_supply:
+        msg = translate("Você precisa preencher a aba 'Oferta' antes de acessar a aba 'Previsão'.", lang)
+        return True, msg
+    elif not has_demand:
+        msg = translate("Você precisa preencher a aba 'Demanda' antes de acessar a aba 'Previsão'.", lang)
+        return True, msg
+
+    return False, dash.no_update
+
+
+@app.callback(
+    Output('main-tabs', 'active_tab', allow_duplicate=True),
+    Input('btn-confirm-missing-prediction', 'n_clicks'),
+    [State('stored-data', 'data'),
+     State('stored-demand-data', 'data')],
+    prevent_initial_call=True
+)
+def redirect_from_prediction_tab(n_clicks, stored_supply_data, stored_demand_data):
+    if not n_clicks:
+        return dash.no_update
+
+    has_supply = False
+    if stored_supply_data:
+        try:
+            df_sup = pd.read_json(io.StringIO(stored_supply_data), orient='split')
+            if not df_sup.empty:
+                has_supply = True
+        except:
+            pass
+
+    if not has_supply:
+        return 'tab-input'
+    
+    return 'tab-demand'
 
 
 @app.callback(

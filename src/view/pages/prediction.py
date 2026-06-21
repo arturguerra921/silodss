@@ -309,6 +309,21 @@ def get_tab_prediction_layout(lang='pt'):
   # Status display div
   status_output = html.Div(id="prediction-output-text", className="mt-3 text-center")
 
+  # Modal to redirect if no supply or demand data exists
+  missing_prediction_data_modal = dbc.Modal(
+      [
+          dbc.ModalHeader(dbc.ModalTitle(translate("Atenção", lang)), close_button=False),
+          dbc.ModalBody(id="modal-missing-prediction-data-body", children=translate("Faltam dados.", lang)),
+          dbc.ModalFooter(
+              dbc.Button(translate("Entendi", lang), id="btn-confirm-missing-prediction", color="none", className="btn-primary-custom ms-auto", n_clicks=0)
+          ),
+      ],
+      id="modal-missing-prediction-data",
+      is_open=False,
+      backdrop="static",
+      keyboard=False
+  )
+
   # Main layout row
   return html.Div([
     dbc.Row(
@@ -322,5 +337,6 @@ def get_tab_prediction_layout(lang='pt'):
           status_output
         ], width=12, lg=9, className="mb-24")
       ]
-    )
+    ),
+    missing_prediction_data_modal
   ])
