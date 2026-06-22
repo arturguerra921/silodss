@@ -43,6 +43,7 @@ The stochastic model extends the deterministic sets, parameters, and variables b
 * $\pi_s$: Probability of scenario $s \in S$ (where $\pi_s \ge 0, \sum_{s \in S} \pi_s = 1.0$).
 * $S^s_{opt}$: Available supply of product $p$ at origin $o$ in period $t$ under scenario $s$ (in t).
 * $\text{Dem}^{\text{dom},s}_{cpt}$: Hard demand of product $p$ required exactly at domestic customer $c \in C_{\text{dom}}$ in period $t$ under scenario $s$ (in t).
+* $\text{Days}$: Active operational days within each period $t \in T$ (in days). Inherited from the deterministic model's parameter set.
 
 ### First-Stage Decision Variables (Scenario-Independent)
 * $h_d \in \{0, 1\}$: Binary decision to open candidate warehouse $d \in D_{\text{cand}}$ ($h_d$ is fixed to $1$ for $d \in D_{\text{exist}}$).
@@ -75,7 +76,7 @@ $$
 \begin{aligned}
 \text{FirstStageCapitalCost} = & \sum_{d \in D_{\text{cand}}} \text{OpenCost}_d \cdot h_d \\
 & + \sum_{d \in D} \left( \text{FixExpandCost}_d \cdot y^{\text{exp}}_d + \text{VarExpandCost}_d \cdot g_d \right) \\
-& + \sum_{d \in D} \left( \text{FixBulkCost}_d \cdot y^{\text{bulk}}_d + \text{VarBulkCost}_d \cdot q^{\text{bulk}}_d \right)
+& + \sum_{d \in D_{\text{bulk\_eligible}}} \left( \text{FixBulkCost}_d \cdot y^{\text{bulk}}_d + \text{VarBulkCost}_d \cdot q^{\text{bulk}}_d \right)
 \end{aligned}
 $$
 
@@ -119,25 +120,25 @@ $$
 $$
 
 #### 4. Warehouse Throughput Handling Constraints:
-Total inflow and outflow at warehouse $d$ during period $t$ are bounded by its receiving and shipping capacities (converted to monthly capacity based on 30 operational days):
+Total inflow and outflow at warehouse $d$ during period $t$ are bounded by its receiving and shipping capacities, scaled across the simulation window ($\text{Days}$):
 * **Receiving/Inflow Bound:**
   * For existing warehouses ($d \in D_{\text{exist}}$):
 $$
-\text{Inflow}_{dpts} \le 30 \times \left( \text{ReceptionCap}_d + \beta^{\text{rec}} \cdot g_d + q^{\text{bulk}}_d \right) \quad \forall p \in P,\ t \in T,\ s \in S
+\sum_{p \in P} \text{Inflow}_{dpts} \le \left(\text{ReceptionCap}_d + \beta^{\text{rec}} \cdot g_d + q^{\text{bulk}}_d \right) \cdot \text{Days} \quad \forall d \in D_{\text{exist}},\ t \in T,\ s \in S
 $$
   * For candidate warehouses ($d \in D_{\text{cand}}$):
 $$
-\text{Inflow}_{dpts} \le 30 \times \left( \beta^{\text{rec}} \cdot \kappa_d + \beta^{\text{rec}} \cdot g_d + q^{\text{bulk}}_d \right) \quad \forall p \in P,\ t \in T,\ s \in S
+\sum_{p \in P} \text{Inflow}_{dpts} \le \left(\beta^{\text{rec}} \cdot \kappa_d + \beta^{\text{rec}} \cdot g_d + q^{\text{bulk}}_d \right) \cdot \text{Days} \quad \forall d \in D_{\text{cand}},\ t \in T,\ s \in S
 $$
 
 * **Shipping/Outflow Bound:**
   * For existing warehouses ($d \in D_{\text{exist}}$):
 $$
-\text{Outflow}_{dpts} \le 30 \times \left( \text{ShippingCap}_d + \beta^{\text{ship}} \cdot g_d + q^{\text{bulk}}_d \right) \quad \forall p \in P,\ t \in T,\ s \in S
+\sum_{p \in P} \text{Outflow}_{dpts} \le \left(\text{ShippingCap}_d + \beta^{\text{ship}} \cdot g_d + q^{\text{bulk}}_d \right) \cdot \text{Days} \quad \forall d \in D_{\text{exist}},\ t \in T,\ s \in S
 $$
   * For candidate warehouses ($d \in D_{\text{cand}}$):
 $$
-\text{Outflow}_{dpts} \le 30 \times \left( \beta^{\text{ship}} \cdot \kappa_d + \beta^{\text{ship}} \cdot g_d + q^{\text{bulk}}_d \right) \quad \forall p \in P,\ t \in T,\ s \in S
+\sum_{p \in P} \text{Outflow}_{dpts} \le \left(\beta^{\text{ship}} \cdot \kappa_d + \beta^{\text{ship}} \cdot g_d + q^{\text{bulk}}_d \right) \cdot \text{Days} \quad \forall d \in D_{\text{cand}},\ t \in T,\ s \in S
 $$
 
 #### 5. Customer Demand Fulfillment:
@@ -170,7 +171,7 @@ $$
 $$
 * **Bulkification Quantity Limit:**
 $$
-q^{\text{bulk}}_d \le y^{\text{bulk}}_d \cdot \text{MaxBulk}_d \quad \forall d \in D
+q^{\text{bulk}}_d \le y^{\text{bulk}}_d \cdot \text{MaxBulk}_d \quad \forall d \in D_{\text{bulk\_eligible}}
 $$
 * **Continuous Expansion Sizing Limit:**
 $$
