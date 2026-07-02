@@ -1253,6 +1253,18 @@ def build_stochastic_pyomo_model(
     supply_dict_scenarios[(o, p, t, "pessimista")] = val * (1.0 - wmape)
     supply_dict_scenarios[(o, p, t, "otimista")] = val * (1.0 + wmape)
 
+  # Compute per-scenario total supply for export clearing sinks
+  total_supply_pt_scenarios = {}
+  for (o, p, t, s), val in supply_dict_scenarios.items():
+    total_supply_pt_scenarios[(p, t, s)] = total_supply_pt_scenarios.get((p, t, s), 0.0) + val
+
+  demand_max_scenarios = {}
+  for c in Customers_exp:
+    for p in all_products:
+      for t in periods:
+        for s in ['pessimista', 'esperado', 'otimista']:
+          demand_max_scenarios[(c, p, t, s)] = total_supply_pt_scenarios.get((p, t, s), 0.0)
+
   demand_min_scenarios = {}
   for (c, p, t), val in demand_min.items():
     wmape = wmapes_demand.get((p, c), 0.15)
@@ -1435,9 +1447,9 @@ def build_stochastic_pyomo_model(
     return demand_min_scenarios.get((c, p, t, s), 0.0)
   model.DemandMin = pyo.Param(model.Customers_dom, model.Products, model.TimePeriods, model.Scenarios, initialize=demand_min_init)
 
-  def demand_max_init(m, c, p, t):
-    return demand_max.get((c, p, t), 0.0)
-  model.DemandMax = pyo.Param(model.Customers_exp, model.Products, model.TimePeriods, initialize=demand_max_init)
+  def demand_max_init(m, c, p, t, s):
+    return demand_max_scenarios.get((c, p, t, s), 0.0)
+  model.DemandMax = pyo.Param(model.Customers_exp, model.Products, model.TimePeriods, model.Scenarios, initialize=demand_max_init)
 
   def static_cap_init(m, d):
     return static_capacity.get(d, 0.0)
@@ -1619,7 +1631,7 @@ def build_stochastic_pyomo_model(
     valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
     if not valid_dests:
       return pyo.Constraint.Skip
-    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) <= m.DemandMax[c, p, t]
+    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) <= m.DemandMax[c, p, t, s]
   model.ExportDemandConstraint = pyo.Constraint(model.Customers_exp, model.Products, model.TimePeriods, model.Scenarios, rule=export_demand_rule)
 
   # First-Stage constraints
@@ -2180,8 +2192,6 @@ def compute_evpi_vss(
       if combo_res and combo_res.get('status') == 'success':
         wmapes_demand[(prod, city)] = float(combo_res.get('wmape', 15.0)) / 100.0
 
-  expected_wh_decisions = []
-
   for s in ['pessimista', 'esperado', 'otimista']:
     # Perturb supply DataFrame
     df_supply_s = df_supply.copy()
@@ -2241,12 +2251,69 @@ def compute_evpi_vss(
     ws_value += prob * det_res["objective"]
     scenario_objectives[s] = det_res["objective"]
 
-    if s == 'esperado':
-      expected_wh_decisions = det_res["warehouse_decisions"]
-
   evpi_value = stochastic_objective - ws_value
 
-  # 2. VSS Calculations: Solve EEV problem by fixing first stage variables in stochastic model
+  # 2. VSS Calculations
+  # 2a. Solve EV problem with true expected-value parameters ξ̄ = E(ξ)
+  # E[supply] = S_opt * [π_pess*(1-ε) + π_esp*1 + π_opt*(1+ε)] = S_opt * [1 + ε*(π_opt - π_pess)]
+  # E[demand] = Dem * [π_pess*(1+ε) + π_esp*1 + π_opt*(1-ε)] = Dem * [1 + ε*(π_pess - π_opt)]
+  p_pess = scenario_probabilities['pessimista']
+  p_opt = scenario_probabilities['otimista']
+
+  df_supply_ev = df_supply.copy()
+  def ev_perturb_supply(row):
+    p = row['Produto']
+    o = row['Cidade']
+    wmape = wmapes_supply.get((p, o), 0.15)
+    factor = 1.0 + wmape * (p_opt - p_pess)
+    return row['Peso (ton)'] * factor
+  df_supply_ev['Peso (ton)'] = df_supply_ev.apply(ev_perturb_supply, axis=1)
+
+  df_demand_ev = df_demand.copy()
+  def ev_perturb_demand(row):
+    p = row['Produto']
+    c = row['Cidade']
+    if pd.isna(row['Peso (ton)']):
+      return row['Peso (ton)']
+    wmape = wmapes_demand.get((p, c), 0.15)
+    factor = 1.0 + wmape * (p_pess - p_opt)
+    return row['Peso (ton)'] * factor
+  df_demand_ev['Peso (ton)'] = df_demand_ev.apply(ev_perturb_demand, axis=1)
+
+  _, ev_res = run_deterministic_model(
+    df_supply=df_supply_ev,
+    df_warehouses=df_warehouses,
+    df_compat=df_compat,
+    df_dist_supply_wh=df_dist_supply_wh,
+    df_dist_wh_demand=df_dist_wh_demand,
+    df_dist_wh_wh=df_dist_wh_wh,
+    df_demand=df_demand_ev,
+    df_freight=df_freight,
+    df_storage=df_storage,
+    detailed_log=False,
+    toggle_pareto=toggle_pareto,
+    input_allocation_days=input_allocation_days,
+    transshipment_discount=transshipment_discount,
+    solver_gap=solver_gap,
+    solver_time_limit=solver_time_limit,
+    ratio_expand_rec=ratio_expand_rec,
+    ratio_expand_ship=ratio_expand_ship,
+    max_expand_capacity=max_expand_capacity,
+    expand_fixed_cost=expand_fixed_cost,
+    expand_var_cost=expand_var_cost,
+    max_bulk_capacity=max_bulk_capacity,
+    bulk_fixed_cost=bulk_fixed_cost,
+    bulk_var_cost=bulk_var_cost,
+    bulk_eligible_types=bulk_eligible_types,
+    lang=lang
+  )
+
+  if ev_res["status"] != "optimal":
+    raise ValueError("Solver failed to find optimal solution for expected-value problem")
+
+  ev_wh_decisions = ev_res["warehouse_decisions"]
+
+  # 2b. Fix EV first-stage decisions into stochastic model and re-solve
   (model, cda_to_name, periods, prev_period_map, all_products, all_warehouses_list, 
    candidate_warehouses_list, bulk_eligible_list, static_capacity, demand_min, 
    wmapes_supply, wmapes_demand) = build_stochastic_pyomo_model(
@@ -2279,9 +2346,9 @@ def compute_evpi_vss(
      lang=lang
    )
 
-  # Fix first-stage variables to expected deterministic choices
+  # Fix first-stage variables to expected-value (EV) deterministic choices
   for d in model.Destinations_cand:
-    expected_dec = next((w for w in expected_wh_decisions if w["CDA"] == d), None)
+    expected_dec = next((w for w in ev_wh_decisions if w["CDA"] == d), None)
     if expected_dec:
       model.WarehouseOpen[d].fix(1 if expected_dec["IsOpen"] else 0)
       model.CandStaticCapacity[d].fix(expected_dec["DecidedStaticCapacity"])
@@ -2290,7 +2357,7 @@ def compute_evpi_vss(
       model.CandStaticCapacity[d].fix(0.0)
 
   for d in model.Destinations:
-    expected_dec = next((w for w in expected_wh_decisions if w["CDA"] == d), None)
+    expected_dec = next((w for w in ev_wh_decisions if w["CDA"] == d), None)
     if expected_dec:
       model.IsExpanded[d].fix(1 if expected_dec["IsExpanded"] else 0)
       model.ExpandedCapacity[d].fix(expected_dec["ExpandedVolume"])
