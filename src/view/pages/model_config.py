@@ -179,11 +179,11 @@ def get_tab_model_config_layout(lang='pt'):
                         ], width=6),
                         dbc.Col([
                             html.Div([
-                                dbc.Label(translate("Desconto interhub (α)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
-                                html.I(className="bi bi-question-circle-fill text-muted", id="help-interhub-discount", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                                dbc.Tooltip(translate("Fator de desconto aplicado aos custos de frete no transporte entre armazéns (interhub).", lang), target="help-interhub-discount")
+                                dbc.Label(translate("Fator interhub (α)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-interhub-factor", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Fator aplicado aos custos de frete no transporte entre armazéns (interhub). Se menor que 1, representa um desconto; se maior que 1, uma penalidade.", lang), target="help-interhub-factor")
                             ], className="d-flex align-items-center mb-1"),
-                            dbc.Input(id="input-interhub-discount", type="number", min=0, max=1, step=0.01, placeholder=translate("Ex: 0.85", lang), className="mb-4")
+                            dbc.Input(id="input-interhub-factor", type="number", min=0, step=0.01, placeholder=translate("Ex: 1.00", lang), className="mb-4")
                         ], width=6)
                     ]),
                     dbc.Row([
