@@ -33,7 +33,7 @@ def run_deterministic_model(
     detailed_log=False,
     toggle_pareto=False,
     input_allocation_days=None,
-    transshipment_discount=None,
+    interhub_discount=None,
     solver_gap=None,
     solver_time_limit=None,
     ratio_expand_rec=None,
@@ -96,6 +96,8 @@ def run_deterministic_model(
     mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
     armaz_col = next((c for c in df_warehouses.columns if 'armaz' in str(c).lower() or 'nome' in str(c).lower()), None)
 
+    transshipment_cost_dict = {}
+
     for _, row in df_warehouses.iterrows():
         cda = str(row['CDA']).strip()
         status = str(row['Status']).strip()
@@ -113,6 +115,12 @@ def run_deterministic_model(
             parts.append(str(row[mun_col]).strip())
             
         cda_to_name[cda] = " - ".join(parts) if parts else cda
+
+        trans_cost_col = 'Custo de Transbordo ($/t)'
+        if trans_cost_col in row and pd.notna(row[trans_cost_col]):
+            transshipment_cost_dict[cda] = safe_parse_numeric(row[trans_cost_col])
+        else:
+            transshipment_cost_dict[cda] = 0.0
 
         if status == 'Existente':
             existing_warehouses_list.append(cda)
@@ -432,7 +440,10 @@ def run_deterministic_model(
         return distance_dd.get((d1, d2), 999999.0)
     model.DistanceDD = pyo.Param(model.Destinations, model.Destinations, initialize=dist_dd_init)
 
-    model.TransshipmentDiscount = pyo.Param(initialize=float(transshipment_discount))
+    model.InterhubDiscount = pyo.Param(initialize=float(interhub_discount))
+    def transshipment_cost_init(m, d):
+        return transshipment_cost_dict.get(d, 0.0)
+    model.TransshipmentCost = pyo.Param(model.Destinations, initialize=transshipment_cost_init)
     model.Days = pyo.Param(initialize=float(input_allocation_days))
     
     # Upgrade parameters
@@ -512,13 +523,24 @@ def run_deterministic_model(
         for t in model.TimePeriods
     )
     
-    # 4.3 Freight cost of transshipments between warehouses (DD) with discount factor alpha
+    # 4.3 Freight cost of interhub transfers between warehouses (DD) with discount factor alpha
     freight_dd_expr = sum(
-        model.FlowDD[d1, d2, p, t] * (model.TransshipmentDiscount * model.DistanceDD[d1, d2] * model.FreightDest[d1])
+        model.FlowDD[d1, d2, p, t] * (model.InterhubDiscount * model.DistanceDD[d1, d2] * model.FreightDest[d1])
         for (d1, d2, p) in model.ValidRoutesDD
         for t in model.TimePeriods
     )
     
+    # 4.3b Transshipment cost charged every time a product enters a warehouse (from origins and other hubs)
+    transshipment_cost_expr = sum(
+        model.FlowOD[o, d, p, t] * model.TransshipmentCost[d]
+        for (o, d, p) in model.ValidRoutesOD
+        for t in model.TimePeriods
+    ) + sum(
+        model.FlowDD[d1, d2, p, t] * model.TransshipmentCost[d2]
+        for (d1, d2, p) in model.ValidRoutesDD
+        for t in model.TimePeriods
+    )
+
     # 4.4 Cumulative storage holding tariffs per product per warehouse per period
     storage_cost_expr = sum(
         model.Inventory[d, p, t] * model.StorageTariff[d, p]
@@ -546,7 +568,7 @@ def run_deterministic_model(
     )
     
     def obj_rule(m):
-        return freight_od_expr + freight_dc_expr + freight_dd_expr + storage_cost_expr + opening_cost_expr + expand_cost_expr + bulk_cost_expr
+        return freight_od_expr + freight_dc_expr + freight_dd_expr + transshipment_cost_expr + storage_cost_expr + opening_cost_expr + expand_cost_expr + bulk_cost_expr
         
     model.Objective = pyo.Objective(rule=obj_rule, sense=pyo.minimize, doc="Total Supply Chain Minimization Objective")
 
@@ -795,7 +817,15 @@ def run_deterministic_model(
             pyo.value(model.FlowDC[d, c, p, t]) * (model.DistanceDC[d, c] * model.FreightDest[d])
             for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods
         ) + sum(
-            pyo.value(model.FlowDD[d1, d2, p, t]) * (model.TransshipmentDiscount * model.DistanceDD[d1, d2] * model.FreightDest[d1])
+            pyo.value(model.FlowDD[d1, d2, p, t]) * (pyo.value(model.InterhubDiscount) * model.DistanceDD[d1, d2] * model.FreightDest[d1])
+            for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+        )
+        
+        total_transshipment_cost = sum(
+            pyo.value(model.FlowOD[o, d, p, t]) * model.TransshipmentCost[d]
+            for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowDD[d1, d2, p, t]) * model.TransshipmentCost[d2]
             for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
         )
         
@@ -840,6 +870,7 @@ def run_deterministic_model(
             "total_km": total_km,
             "total_freight_cost": total_freight_cost,
             "total_storage_cost": total_storage_cost,
+            "total_transshipment_cost": total_transshipment_cost,
             "total_opening_cost": total_opening_cost,
             "total_expand_cost": total_expand_cost,
             "total_bulk_cost": total_bulk_cost,
@@ -895,14 +926,14 @@ def run_deterministic_model(
                 val = pyo.value(model.FlowDD[d1, d2, p, t])
                 if val > 1e-4:
                     dist = pyo.value(model.DistanceDD[d1, d2])
-                    freight = val * pyo.value(model.TransshipmentDiscount) * dist * pyo.value(model.FreightDest[d1])
+                    freight = val * pyo.value(model.InterhubDiscount) * dist * pyo.value(model.FreightDest[d1])
                     routes_list.append({
                         "Origem": cda_to_name.get(d1, d1),
                         "Destino": cda_to_name.get(d2, d2),
                         "Produto": p,
                         "Quantidade (ton)": val,
                         "Período": t,
-                        "Tipo de Rota": "Transbordo",
+                        "Tipo de Rota": "Interhub",
                         "Distancia (km)": dist,
                         "Custo Frete (R$)": freight,
                         "Custo Armazenagem (R$)": 0.0,
@@ -1025,7 +1056,7 @@ def build_stochastic_pyomo_model(
   prediction_results,
   toggle_pareto=False,
   input_allocation_days=None,
-  transshipment_discount=None,
+  interhub_discount=None,
   ratio_expand_rec=None,
   ratio_expand_ship=None,
   max_expand_capacity=None,
@@ -1075,6 +1106,7 @@ def build_stochastic_pyomo_model(
   warehouse_uf = {}
   
   cda_to_name = {}
+  transshipment_cost_dict = {}
 
   cols_wh = list(df_warehouses.columns)
   mun_col = next((c for c in df_warehouses.columns if 'munic' in str(c).lower()), None)
@@ -1091,6 +1123,7 @@ def build_stochastic_pyomo_model(
     cap_exp_idx = cols_wh.index('Cap. Expedição (t)')
     cust_ab_idx = cols_wh.index('Custo de Abertura ($)')
     cap_max_idx = cols_wh.index('Cap. Estática Máxima (t)')
+    cap_transb_idx = cols_wh.index('Custo de Transbordo ($/t)')
     tipo_idx = cols_wh.index('Tipo')
     uf_idx = cols_wh.index('UF')
     
@@ -1107,6 +1140,8 @@ def build_stochastic_pyomo_model(
       if mun_idx is not None and pd.notna(row[mun_idx]):
         parts.append(str(row[mun_idx]).strip())
       cda_to_name[cda] = " - ".join(parts) if len(parts) > 1 else cda
+
+      transshipment_cost_dict[cda] = safe_parse_numeric(row[cap_transb_idx])
 
       if status == 'Existente':
         existing_warehouses_list.append(cda)
@@ -1134,6 +1169,9 @@ def build_stochastic_pyomo_model(
       if mun_col and mun_col in row and pd.notna(row[mun_col]):
         parts.append(str(row[mun_col]).strip())
       cda_to_name[cda] = " - ".join(parts) if parts else cda
+
+      trans_val = row.get('Custo de Transbordo ($/t)', 0.0)
+      transshipment_cost_dict[cda] = safe_parse_numeric(trans_val) if pd.notna(trans_val) else 0.0
 
       if status == 'Existente':
         existing_warehouses_list.append(cda)
@@ -1495,7 +1533,10 @@ def build_stochastic_pyomo_model(
     return distance_dd.get((d1, d2), 999999.0)
   model.DistanceDD = pyo.Param(model.Destinations, model.Destinations, initialize=dist_dd_init)
 
-  model.TransshipmentDiscount = pyo.Param(initialize=float(transshipment_discount))
+  model.InterhubDiscount = pyo.Param(initialize=float(interhub_discount))
+  def transshipment_cost_init(m, d):
+    return transshipment_cost_dict.get(d, 0.0)
+  model.TransshipmentCost = pyo.Param(model.Destinations, initialize=transshipment_cost_init)
   model.Days = pyo.Param(initialize=float(input_allocation_days))
   
   # Upgrade parameters
@@ -1685,14 +1726,21 @@ def build_stochastic_pyomo_model(
       for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods
     )
     freight_dd_expr = sum(
-      model.FlowDD[d1, d2, p, t, s] * (model.TransshipmentDiscount * model.DistanceDD[d1, d2] * model.FreightDest[d1])
+      model.FlowDD[d1, d2, p, t, s] * (model.InterhubDiscount * model.DistanceDD[d1, d2] * model.FreightDest[d1])
+      for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+    )
+    transshipment_cost_expr = sum(
+      model.FlowOD[o, d, p, t, s] * model.TransshipmentCost[d]
+      for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+    ) + sum(
+      model.FlowDD[d1, d2, p, t, s] * model.TransshipmentCost[d2]
       for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
     )
     storage_cost_expr = sum(
       model.Inventory[d, p, t, s] * model.StorageTariff[d, p]
       for d in model.Destinations for p in model.Products for t in model.TimePeriods
     )
-    return freight_od_expr + freight_dc_expr + freight_dd_expr + storage_cost_expr
+    return freight_od_expr + freight_dc_expr + freight_dd_expr + transshipment_cost_expr + storage_cost_expr
 
   def obj_rule(m):
     return first_stage_cost + sum(m.ScenarioProb[s] * get_second_stage_cost_expr(s) for s in m.Scenarios)
@@ -1721,7 +1769,7 @@ def run_stochastic_model(
   detailed_log=False,
   toggle_pareto=False,
   input_allocation_days=None,
-  transshipment_discount=None,
+  interhub_discount=None,
   solver_gap=None,
   solver_time_limit=None,
   ratio_expand_rec=None,
@@ -1771,7 +1819,7 @@ def run_stochastic_model(
        prediction_results=prediction_results,
        toggle_pareto=toggle_pareto,
        input_allocation_days=input_allocation_days,
-       transshipment_discount=transshipment_discount,
+       interhub_discount=interhub_discount,
        ratio_expand_rec=ratio_expand_rec,
        ratio_expand_ship=ratio_expand_ship,
        max_expand_capacity=max_expand_capacity,
@@ -1899,10 +1947,18 @@ def run_stochastic_model(
         for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods
       )
       freight_dd_s = sum(
-        pyo.value(model.FlowDD[d1, d2, p, t, s]) * (pyo.value(model.TransshipmentDiscount) * model.DistanceDD[d1, d2] * pyo.value(model.FreightDest[d1]))
+        pyo.value(model.FlowDD[d1, d2, p, t, s]) * (pyo.value(model.InterhubDiscount) * model.DistanceDD[d1, d2] * pyo.value(model.FreightDest[d1]))
         for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
       )
       total_freight_s = freight_od_s + freight_dc_s + freight_dd_s
+      
+      total_transshipment_s = sum(
+        pyo.value(model.FlowOD[o, d, p, t, s]) * pyo.value(model.TransshipmentCost[d])
+        for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+      ) + sum(
+        pyo.value(model.FlowDD[d1, d2, p, t, s]) * pyo.value(model.TransshipmentCost[d2])
+        for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+      )
       
       storage_s = sum(
         pyo.value(model.Inventory[d, p, t, s]) * pyo.value(model.StorageTariff[d, p])
@@ -1925,7 +1981,7 @@ def run_stochastic_model(
         for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
       )
 
-      scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s
+      scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s + total_transshipment_s
       scenario_objectives[s] = scenario_obj
 
       scenario_kpis[s] = {
@@ -1934,6 +1990,7 @@ def run_stochastic_model(
         "total_km": total_km_s,
         "total_freight_cost": total_freight_s,
         "total_storage_cost": storage_s,
+        "total_transshipment_cost": total_transshipment_s,
         "total_opening_cost": total_opening_cost,
         "total_expand_cost": total_expand_cost,
         "total_bulk_cost": total_bulk_cost,
@@ -1983,14 +2040,14 @@ def run_stochastic_model(
           val = pyo.value(model.FlowDD[d1, d2, p, t, s])
           if val > 1e-4:
             dist = pyo.value(model.DistanceDD[d1, d2])
-            freight = val * pyo.value(model.TransshipmentDiscount) * dist * pyo.value(model.FreightDest[d1])
+            freight = val * pyo.value(model.InterhubDiscount) * dist * pyo.value(model.FreightDest[d1])
             routes_list.append({
               "Origem": cda_to_name.get(d1, d1),
               "Destino": cda_to_name.get(d2, d2),
               "Produto": p,
               "Quantidade (ton)": val,
               "Período": t,
-              "Tipo de Rota": "Transbordo",
+              "Tipo de Rota": "Interhub",
               "Distancia (km)": dist,
               "Custo Frete (R$)": freight,
               "Custo Armazenagem (R$)": 0.0,
@@ -2150,7 +2207,7 @@ def compute_evpi_vss(
   detailed_log=False,
   toggle_pareto=False,
   input_allocation_days=None,
-  transshipment_discount=None,
+  interhub_discount=None,
   solver_gap=None,
   solver_time_limit=None,
   ratio_expand_rec=None,
@@ -2229,7 +2286,7 @@ def compute_evpi_vss(
       detailed_log=False,
       toggle_pareto=toggle_pareto,
       input_allocation_days=input_allocation_days,
-      transshipment_discount=transshipment_discount,
+      interhub_discount=interhub_discount,
       solver_gap=solver_gap,
       solver_time_limit=solver_time_limit,
       ratio_expand_rec=ratio_expand_rec,
@@ -2293,7 +2350,7 @@ def compute_evpi_vss(
     detailed_log=False,
     toggle_pareto=toggle_pareto,
     input_allocation_days=input_allocation_days,
-    transshipment_discount=transshipment_discount,
+    interhub_discount=interhub_discount,
     solver_gap=solver_gap,
     solver_time_limit=solver_time_limit,
     ratio_expand_rec=ratio_expand_rec,
@@ -2333,7 +2390,7 @@ def compute_evpi_vss(
      prediction_results=prediction_results,
      toggle_pareto=toggle_pareto,
      input_allocation_days=input_allocation_days,
-     transshipment_discount=transshipment_discount,
+     interhub_discount=interhub_discount,
      ratio_expand_rec=ratio_expand_rec,
      ratio_expand_ship=ratio_expand_ship,
      max_expand_capacity=max_expand_capacity,

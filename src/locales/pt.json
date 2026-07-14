@@ -230,7 +230,7 @@
     "Demanda Infinita (Porto)": "Demanda Infinita",
     "Demanda Infinita (Porto) - Assumida infinita para sempre.": "Demanda Infinita (Porto) - Assumida infinita para sempre.",
     "Demanda Infinita (∞)": "Demanda Infinita (∞)",
-    "Desconto de transbordo (α)": "Desconto de transbordo (α)",
+    "Desconto interhub (α)": "Desconto interhub (α)",
     "Desenhar todas essas rotas no mapa simultaneamente pode demorar consideravelmente ou até causar travamentos no seu navegador.": "Desenhar todas essas rotas no mapa simultaneamente pode demorar consideravelmente ou até causar travamentos no seu navegador.",
     "Dest": "Dest",
     "Destino": "Destino",
@@ -948,5 +948,17 @@
     "Custo Granelização": "Custo Granelização",
     "Você precisa preencher as abas 'Oferta' e 'Demanda' antes de acessar a aba 'Previsão'.": "Você precisa preencher as abas 'Oferta' e 'Demanda' antes de acessar a aba 'Previsão'.",
     "Você precisa preencher a aba 'Oferta' antes de acessar a aba 'Previsão'.": "Você precisa preencher a aba 'Oferta' antes de acessar a aba 'Previsão'.",
-    "Você precisa preencher a aba 'Demanda' antes de acessar a aba 'Previsão'.": "Você precisa preencher a aba 'Demanda' antes de acessar a aba 'Previsão'."
+    "Você precisa preencher a aba 'Demanda' antes de acessar a aba 'Previsão'.": "Você precisa preencher a aba 'Demanda' antes de acessar a aba 'Previsão'.",
+    "Custo de Transbordo ($/t)": "Custo de Transbordo ($/t)",
+    "Custo de Transbordo (R$)": "Custo de Transbordo (R$)",
+    "Custo Total de Transbordo (R$)": "Custo Total de Transbordo (R$)",
+    "Custo Transbordo": "Custo Transbordo",
+    "Custo cobrado pelo armazém por tonelada para transbordo ($/t).": "Custo cobrado pelo armazém por tonelada para transbordo ($/t).",
+    "O Custo de Transbordo deve ser um número maior ou igual a 0.": "O Custo de Transbordo deve ser um número maior ou igual a 0.",
+    "Desconto interhub (α)": "Desconto interhub (α)",
+    "Fator de desconto aplicado aos custos de frete no transporte entre armazéns (interhub).": "Fator de desconto aplicado aos custos de frete no transporte entre armazéns (interhub).",
+    "Sem fluxo de entrada/saída ou interhub.": "Sem fluxo de entrada/saída ou interhub.",
+    "Armazém Interhub": "Armazém Interhub",
+    "Interhub": "Interhub",
+    "Inter-hub": "Interhub"
 }

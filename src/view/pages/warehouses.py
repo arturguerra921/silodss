@@ -265,6 +265,19 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                             )
                         ], width=12),
 
+                        # Transshipment Cost field (General Field)
+                        dbc.Col([
+                            html.Div([
+                                dbc.Label(translate("Custo de Transbordo ($/t)", lang), className="fw-bold small mb-0 me-2"),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-wh-transshipment-cost", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Custo cobrado pelo armazém por tonelada para transbordo ($/t).", lang),
+                                    target="help-wh-transshipment-cost",
+                                    placement="right"
+                                ),
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Input(id="wh-input-transshipment-cost", type="number", placeholder=translate("Ex: 5.00", lang), className="mb-16")
+                        ], width=12),
+
                         # Add button
                         dbc.Col([
                             dbc.Button(
@@ -314,8 +327,9 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
     # Right Panel — 1. DataTable Card
     # Initial empty dataframe matching expected columns
     initial_cols = [
-        "Status", "Município", "UF", "Latitude", "Longitude", 
-        "Armazenador", "Tipo", "Cap. Estática (t)", "Cap. Recepção (t)", "Cap. Expedição (t)", "Cap. Estática Máxima (t)", "Custo de Abertura ($)"
+        "CDA", "Status", "Município", "UF", "Latitude", "Longitude", 
+        "Armazenador", "Tipo", "Cap. Estática (t)", "Cap. Recepção (t)", "Cap. Expedição (t)", 
+        "Cap. Estática Máxima (t)", "Custo de Abertura ($)", "Custo de Transbordo ($/t)"
     ]
     initial_df = pd.DataFrame(columns=initial_cols)
 

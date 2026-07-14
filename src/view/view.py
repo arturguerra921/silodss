@@ -2272,6 +2272,8 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
       cols_map['Cap. Expedição (t)'] = col
     elif ('custo' in col_lower and ('abert' in col_lower or 'open' in col_lower)) or 'opening' in col_lower:
       cols_map['Custo de Abertura ($)'] = col
+    elif 'transb' in col_lower or 'transship' in col_lower:
+      cols_map['Custo de Transbordo ($/t)'] = col
 
   new_df = pd.DataFrame()
   
@@ -2316,7 +2318,8 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
                               ('Cap. Estática Máxima (t)', 'Cap. Estática Máxima (t)'),
                               ('Cap. Recepção (t)', 'Cap. Recepção (t)'),
                               ('Cap. Expedição (t)', 'Cap. Expedição (t)'),
-                              ('Custo de Abertura ($)', 'Custo de Abertura ($)')]:
+                              ('Custo de Abertura ($)', 'Custo de Abertura ($)'),
+                              ('Custo de Transbordo ($/t)', 'Custo de Transbordo ($/t)')]:
     if col_key in cols_map:
       new_df[col_target] = df[cols_map[col_key]].apply(parse_brazilian_number)
     else:
@@ -2444,10 +2447,24 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
       except ValueError:
         raise ValueError(translate("Erro no arquivo: Para armazéns Candidatos, o Custo de Abertura deve ser um número maior ou igual a 0.", lang))
 
+    # Transshipment cost validation (for both existing and candidate)
+    val_transb = row.get('Custo de Transbordo ($/t)')
+    if pd.isna(val_transb) or val_transb is None or str(val_transb).strip() == '':
+      num_transb = 0.0
+    else:
+      try:
+        num_transb = float(val_transb)
+        if num_transb < 0:
+          raise ValueError()
+      except ValueError:
+        raise ValueError(translate("Erro no arquivo: O Custo de Transbordo deve ser um número maior ou igual a 0.", lang))
+    new_df.at[idx, 'Custo de Transbordo ($/t)'] = num_transb
+
   # Reorder columns to ensure CDA is always first, matching the strict pattern
   cols_order = [
     'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-    'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
+    'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)',
+    'Cap. Estática Máxima (t)', 'Custo de Abertura ($)', 'Custo de Transbordo ($/t)'
   ]
   for col in cols_order:
     if col not in new_df.columns:
@@ -2480,6 +2497,7 @@ def process_uploaded_warehouses(contents, filename, lang='pt'):
    State('wh-input-reception-cap', 'value'),
    State('wh-input-expedition-cap', 'value'),
    State('wh-input-opening-cost', 'value'),
+   State('wh-input-transshipment-cost', 'value'),
    State('store-lang', 'data')],
   prevent_initial_call=True
 )
@@ -2487,7 +2505,7 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
                             store_data, table_data, upload_filename, status_val, city_val,
                             lat_val, lon_val, provider_val, type_val, static_cap_val,
                             max_static_cap_val, reception_cap_val,
-                            expedition_cap_val, opening_cost_val, lang):
+                            expedition_cap_val, opening_cost_val, transshipment_cost_val, lang):
   ctx = dash.callback_context
   if not ctx.triggered:
     return no_update, no_update, no_update, no_update
@@ -2505,7 +2523,8 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
   if trigger_id == 'btn-confirm-clear-warehouses':
     empty_df = pd.DataFrame(columns=[
       'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)',
+      'Cap. Estática Máxima (t)', 'Custo de Abertura ($)', 'Custo de Transbordo ($/t)'
     ])
     return empty_df.to_json(date_format='iso', orient='split'), None, no_update, no_update
 
@@ -2608,6 +2627,16 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       max_static_cap = 0.0
       opening_cost = 0.0
 
+    if transshipment_cost_val is None or str(transshipment_cost_val).strip() == '':
+      transshipment_cost = 0.0
+    else:
+      try:
+        transshipment_cost = float(transshipment_cost_val)
+        if transshipment_cost < 0:
+          raise ValueError()
+      except ValueError:
+        return no_update, no_update, True, translate("O Custo de Transbordo deve ser um número maior ou igual a 0.", lang)
+
     new_row = {
       'CDA': new_cda,
       'Status': status_val,
@@ -2621,7 +2650,8 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
       'Cap. Estática Máxima (t)': max_static_cap,
       'Cap. Recepção (t)': reception_cap,
       'Cap. Expedição (t)': expedition_cap,
-      'Custo de Abertura ($)': opening_cost
+      'Custo de Abertura ($)': opening_cost,
+      'Custo de Transbordo ($/t)': transshipment_cost
     }
 
     if df.empty:
@@ -2709,6 +2739,19 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
             raise ValueError()
         except ValueError:
           return no_update, no_update, True, translate("Para armazéns Candidatos, o Custo de Abertura deve ser um número maior ou igual a 0.", lang)
+
+      # Transshipment cost validation
+      val_transb = row.get('Custo de Transbordo ($/t)')
+      if pd.isna(val_transb) or val_transb is None or str(val_transb).strip() == '':
+        num_transb = 0.0
+      else:
+        try:
+          num_transb = float(val_transb)
+          if num_transb < 0:
+            raise ValueError()
+        except ValueError:
+          return no_update, no_update, True, translate("O Custo de Transbordo deve ser um número maior ou igual a 0.", lang)
+      table_df.at[idx, 'Custo de Transbordo ($/t)'] = num_transb
     
     if 'CDA' not in table_df.columns:
       table_df['CDA'] = [f"WH-{i+1:03d}" for i in range(len(table_df))]
@@ -2720,7 +2763,8 @@ def update_warehouses_store(upload_contents, btn_add_clicks, data_timestamp, btn
     
     cols = [
       'CDA', 'Status', 'Município', 'UF', 'Latitude', 'Longitude',
-      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)', 'Cap. Estática Máxima (t)', 'Custo de Abertura ($)'
+      'Armazenador', 'Tipo', 'Cap. Estática (t)', 'Cap. Recepção (t)', 'Cap. Expedição (t)',
+      'Cap. Estática Máxima (t)', 'Custo de Abertura ($)', 'Custo de Transbordo ($/t)'
     ]
     for col in cols:
       if col not in table_df.columns:
@@ -3034,7 +3078,8 @@ def download_warehouses_template(n_clicks, lang):
     'Cap. Recepção (t)': [1000.0, 0.0],
     'Cap. Expedição (t)': [800.0, 0.0],
     'Cap. Estática Máxima (t)': [0.0, 20000.0],
-    'Custo de Abertura ($)': [0.0, 50000.0]
+    'Custo de Abertura ($)': [0.0, 50000.0],
+    'Custo de Transbordo ($/t)': [5.0, 10.0]
   }
 
   translated_data = {}
@@ -4087,7 +4132,7 @@ def toggle_bulk_collapse(is_enabled):
         State('toggle-detailed-log', 'value'),
         State('toggle-pareto-routes', 'value'),
         State('input-allocation-days', 'value'),
-        State('input-transshipment-discount', 'value'),
+        State('input-interhub-discount', 'value'),
         State('input-solver-gap', 'value'),
         State('input-solver-time-limit', 'value'),
         State('toggle-expansion-enabled', 'value'),
@@ -4120,7 +4165,7 @@ def toggle_bulk_collapse(is_enabled):
     prevent_initial_call=True
 )
 def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
-                  toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
+                  toggle_pareto, input_allocation_days, interhub_discount, solver_gap, solver_time_limit,
                   expansion_enabled, bulk_enabled,
                   ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
                   max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
@@ -4135,7 +4180,7 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
     # Parameters required verification (no defaults allowed, must highlight missing fields)
     required_params = {
         translate("Dias operacionais por período", lang): input_allocation_days,
-        translate("Desconto de transbordo (α)", lang): transshipment_discount,
+        translate("Desconto interhub (α)", lang): interhub_discount,
         translate("Gap do solver (%)", lang): solver_gap,
         translate("Tempo limite do solver (s)", lang): solver_time_limit,
         translate("Razão de Capacidade de Recepção", lang): ratio_expand_rec,
@@ -4312,7 +4357,7 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 detailed_log=detailed_log,
                 toggle_pareto=toggle_pareto,
                 input_allocation_days=input_allocation_days,
-                transshipment_discount=transshipment_discount,
+                interhub_discount=interhub_discount,
                 solver_gap=solver_gap,
                 solver_time_limit=solver_time_limit,
                 ratio_expand_rec=ratio_expand_rec,
@@ -4340,7 +4385,7 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 detailed_log=detailed_log,
                 toggle_pareto=toggle_pareto,
                 input_allocation_days=input_allocation_days,
-                transshipment_discount=transshipment_discount,
+                interhub_discount=interhub_discount,
                 solver_gap=solver_gap,
                 solver_time_limit=solver_time_limit,
                 ratio_expand_rec=ratio_expand_rec,
@@ -4441,6 +4486,7 @@ def make_warehouse_row(w, lang):
      Output("res-kpi-km", "children"),
      Output("res-kpi-freight", "children"),
      Output("res-kpi-storage", "children"),
+     Output("res-kpi-transshipment", "children"),
      Output("res-kpi-opening", "children"),
      Output("res-kpi-expand", "children"),
      Output("res-kpi-bulk", "children"),
@@ -4504,11 +4550,11 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, selected_sc
             
         return (dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update,
                 dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update,
-                dash.no_update, dash.no_update, wh_table_data, dash.no_update, dash.no_update,
+                dash.no_update, dash.no_update, dash.no_update, wh_table_data, dash.no_update, dash.no_update,
                 dash.no_update, dash.no_update, selector_style)
 
     if not results_data or results_data.get("status") != "optimal":
-        return ("R$ 0,00", "0,00", "0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00",
+        return ("R$ 0,00", "0,00", "0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00", "R$ 0,00",
                 "0", "0", "0", "R$ 0,00", [], dash.no_update, [], dash.no_update, [], selector_style)
 
     # Fetch data depending on stochastic vs deterministic
@@ -4531,6 +4577,7 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, selected_sc
     kms = fmt_num(kpis.get('total_km', 0))
     freight = fmt_curr(kpis.get('total_freight_cost', 0))
     storage = fmt_curr(kpis.get('total_storage_cost', 0))
+    transshipment = fmt_curr(kpis.get('total_transshipment_cost', 0))
     opening = fmt_curr(kpis.get('total_opening_cost', 0))
     expand = fmt_curr(kpis.get('total_expand_cost', 0))
     bulk = fmt_curr(kpis.get('total_bulk_cost', 0))
@@ -4710,7 +4757,7 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, selected_sc
             ], className="alert-info-custom shadow-sm mb-3"))
 
     return (
-        obj_str, tons, kms, freight, storage,
+        obj_str, tons, kms, freight, storage, transshipment,
         opening, expand, bulk, opened_count, expanded_count,
         bulkified_count, investment_str, wh_table_data, wh_columns,
         table_data, columns, warnings_html, selector_style
@@ -4755,6 +4802,7 @@ def download_results(n_clicks, results_data, lang='pt'):
             ("total_km", translate("Distância Total Percorrida (km)", lang)),
             ("total_freight_cost", translate("Custo Total de Frete (R$)", lang)),
             ("total_storage_cost", translate("Custo Total de Armazenagem (R$)", lang)),
+            ("total_transshipment_cost", translate("Custo Total de Transbordo (R$)", lang)),
             ("total_opening_cost", translate("Custo Total de Abertura (R$)", lang)),
             ("total_expand_cost", translate("Custo Total de Expansão (R$)", lang)),
             ("total_bulk_cost", translate("Custo Total de Granelização (R$)", lang))
@@ -4877,6 +4925,7 @@ def download_results(n_clicks, results_data, lang='pt'):
         {"Métrica" if lang == "pt" else "Metric": translate("Distância Total Percorrida (km)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_km", 0.0)},
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Frete (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_freight_cost", 0.0)},
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Armazenagem (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_storage_cost", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Transbordo (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_transshipment_cost", 0.0)},
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Abertura (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_opening_cost", 0.0)},
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Expansão (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_expand_cost", 0.0)},
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Granelização (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_bulk_cost", 0.0)},
@@ -6010,7 +6059,7 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
                 wh_routes.append(r)
             elif filter_value == "outflow" and r["Tipo de Rota"] == "Armazém -> Cliente":
                 wh_routes.append(r)
-            elif filter_value == "transbordo" and r["Tipo de Rota"] == "Transbordo":
+            elif filter_value == "interhub" and r["Tipo de Rota"] == "Interhub":
                 wh_routes.append(r)
 
     grouped_flows = {}
@@ -6038,12 +6087,12 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
             all_lons.extend([orig_coords[1], dest_coords[1]])
 
             if orig == selected_wh_name:
-                if route_type == "Transbordo":
+                if route_type == "Interhub":
                     nodes_to_draw[dest] = {"coords": dest_coords, "type": "transshipment_wh", "name": dest}
                 else:
                     nodes_to_draw[dest] = {"coords": dest_coords, "type": "customer", "name": dest}
             elif dest == selected_wh_name:
-                if route_type == "Transbordo":
+                if route_type == "Interhub":
                     nodes_to_draw[orig] = {"coords": orig_coords, "type": "transshipment_wh", "name": orig}
                 else:
                     nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
@@ -6056,7 +6105,7 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
                 line_name = translate("Armazém -> Cliente", lang)
             else:
                 line_color = UNB_THEME['UNB_YELLOW_DARK']
-                line_name = translate("Transbordo", lang)
+                line_name = translate("Interhub", lang)
 
             route_data = client.get_route(orig_coords, dest_coords)
             if route_data:
@@ -8199,6 +8248,7 @@ def populate_stochastic_results(results_data, lang="pt"):
         {"key": "total_km", "label": "Distância Total", "is_curr": False, "is_cost": True},
         {"key": "total_freight_cost", "label": "Custo Frete", "is_curr": True, "is_cost": True},
         {"key": "total_storage_cost", "label": "Custo Armazenagem", "is_curr": True, "is_cost": True},
+        {"key": "total_transshipment_cost", "label": "Custo Transbordo", "is_curr": True, "is_cost": True},
         {"key": "total_opening_cost", "label": "Custo Abertura", "is_curr": True, "is_cost": True},
         {"key": "total_expand_cost", "label": "Custo Expansão", "is_curr": True, "is_cost": True},
         {"key": "total_bulk_cost", "label": "Custo Granelização", "is_curr": True, "is_cost": True},
@@ -8274,6 +8324,7 @@ def populate_stochastic_results(results_data, lang="pt"):
     cost_cats = [
         translate("Frete", lang),
         translate("Armazenagem", lang),
+        translate("Transbordo", lang),
         translate("Abertura", lang),
         translate("Expansão", lang),
         translate("Granelização", lang)
@@ -8296,7 +8347,8 @@ def populate_stochastic_results(results_data, lang="pt"):
         bulk = sk.get("total_bulk_cost", 0.0)
         freight = sk.get("total_freight_cost", 0.0)
         storage = sk.get("total_storage_cost", 0.0)
-        vals = [freight, storage, opening, expand, bulk]
+        transshipment = sk.get("total_transshipment_cost", 0.0)
+        vals = [freight, storage, transshipment, opening, expand, bulk]
         all_y_vals.extend(vals)
         scenario_y_vals[s] = vals
         
@@ -8606,7 +8658,7 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
     State('toggle-detailed-log', 'value'),
     State('toggle-pareto-routes', 'value'),
     State('input-allocation-days', 'value'),
-    State('input-transshipment-discount', 'value'),
+    State('input-interhub-discount', 'value'),
     State('input-solver-gap', 'value'),
     State('input-solver-time-limit', 'value'),
     State('toggle-expansion-enabled', 'value'),
@@ -8634,7 +8686,7 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
 )
 def run_evpi_vss(results_data,
                  stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
-                 toggle_pareto, input_allocation_days, transshipment_discount, solver_gap, solver_time_limit,
+                 toggle_pareto, input_allocation_days, interhub_discount, solver_gap, solver_time_limit,
                  expansion_enabled, bulk_enabled,
                  ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
                  max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
@@ -8704,7 +8756,7 @@ def run_evpi_vss(results_data,
       detailed_log=detailed_log,
       toggle_pareto=toggle_pareto,
       input_allocation_days=input_allocation_days,
-      transshipment_discount=transshipment_discount,
+      interhub_discount=interhub_discount,
       solver_gap=solver_gap,
       solver_time_limit=solver_time_limit,
       ratio_expand_rec=ratio_expand_rec,

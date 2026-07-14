@@ -16,7 +16,7 @@ def get_tab_results_layout(lang='pt'):
             ),
             dbc.CardBody(
                 [
-                    # Row 1 of KPIs
+                    # Row 1 of KPIs (3 columns)
                     dbc.Row([
                         dbc.Col(
                             dbc.Card(
@@ -27,7 +27,7 @@ def get_tab_results_layout(lang='pt'):
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=4
                         ),
                         dbc.Col(
                             dbc.Card(
@@ -38,7 +38,7 @@ def get_tab_results_layout(lang='pt'):
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=4
                         ),
                         dbc.Col(
                             dbc.Card(
@@ -49,8 +49,11 @@ def get_tab_results_layout(lang='pt'):
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=4
                         ),
+                    ], className="g-3 mb-3"),
+                    # Row 2 of KPIs (6 columns)
+                    dbc.Row([
                         dbc.Col(
                             dbc.Card(
                                 dbc.CardBody([
@@ -60,11 +63,8 @@ def get_tab_results_layout(lang='pt'):
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=2
                         ),
-                    ], className="g-3 mb-3"),
-                    # Row 2 of KPIs
-                    dbc.Row([
                         dbc.Col(
                             dbc.Card(
                                 dbc.CardBody([
@@ -74,18 +74,29 @@ def get_tab_results_layout(lang='pt'):
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=2
+                        ),
+                        dbc.Col(
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H6(translate("Custo de Transbordo (R$)", lang), className="text-muted small text-uppercase fw-bold mb-1"),
+                                    html.H4(id="res-kpi-transshipment", children="R$ 0,00", className="mb-0 text-info-custom")
+                                ]),
+                                className="shadow-sm border-0 h-100 text-center",
+                                style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
+                            ),
+                            width=12, lg=2
                         ),
                         dbc.Col(
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H6(translate("Custo de Abertura (R$)", lang), className="text-muted small text-uppercase fw-bold mb-1"),
-                                    html.H4(id="res-kpi-opening", children="R$ 0,00", className="mb-0 text-info-custom")
+                                    html.H4(id="res-kpi-opening", children="R$ 0,00", className="mb-0 text-primary-custom")
                                 ]),
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=2
                         ),
                         dbc.Col(
                             dbc.Card(
@@ -96,18 +107,18 @@ def get_tab_results_layout(lang='pt'):
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=2
                         ),
                         dbc.Col(
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H6(translate("Custo de Granelização (R$)", lang), className="text-muted small text-uppercase fw-bold mb-1"),
-                                    html.H4(id="res-kpi-bulk", children="R$ 0,00", className="mb-0 text-primary-custom")
+                                    html.H4(id="res-kpi-bulk", children="R$ 0,00", className="mb-0 text-success-custom")
                                 ]),
                                 className="shadow-sm border-0 h-100 text-center",
                                 style={"backgroundColor": "#f8f9fa", "borderRadius": "12px"}
                             ),
-                            width=12, lg=3
+                            width=12, lg=2
                         ),
                     ], className="g-3")
                 ],

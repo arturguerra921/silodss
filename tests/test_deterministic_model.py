@@ -106,7 +106,7 @@ class TestDeterministicModel(unittest.TestCase):
       detailed_log=False,
       toggle_pareto=False,
       input_allocation_days=30,
-      transshipment_discount=0.85,
+      interhub_discount=0.85,
       solver_gap=1.0,
       solver_time_limit=30,
       ratio_expand_rec=0.10,
