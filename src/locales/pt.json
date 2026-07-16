@@ -961,5 +961,14 @@
     "Sem fluxo de entrada/saída ou interhub.": "Sem fluxo de entrada/saída ou interhub.",
     "Armazém Interhub": "Armazém Interhub",
     "Interhub": "Interhub",
-    "Inter-hub": "Interhub"
+    "Inter-hub": "Interhub",
+    "De: Oferta | Para: Demanda": "De: Oferta | Para: Demanda",
+    "Oferta para Demanda": "Oferta para Demanda",
+    "Origem -> Cliente": "Origem -> Cliente",
+    "Ativar Arcos Diretos (Oferta -> Demanda)": "Ativar Arcos Diretos (Oferta -> Demanda)",
+    "Ajuda - Arcos Diretos (Origem -> Demanda)": "Ajuda - Arcos Diretos (Origem -> Demanda)",
+    "Esta opção permite habilitar fluxos diretos entre as origens de Oferta e os destinos de Demanda no modelo matemático.": "Esta opção permite habilitar fluxos diretos entre as origens de Oferta e os destinos de Demanda no modelo matemático.",
+    "Ao ativar esta opção, o sistema considerará rotas diretas (bypasando os armazéns/hubs), o que pode ser útil para otimizar fluxos onde o transbordo não é economicamente ou logisticamente viável.": "Ao ativar esta opção, o sistema considerará rotas diretas (bypasando os armazéns/hubs), o que pode ser útil para otimizar fluxos onde o transbordo não é economicamente ou logisticamente viável.",
+    "Após ativar esta opção, você DEVE clicar novamente no botão 'Calcular Matriz' para calcular as distâncias do novo trecho 'De: Oferta | Para: Demanda'. Caso contrário, o modelo não terá acesso a essas distâncias e não poderá usar os arcos diretos.": "Após ativar esta opção, você DEVE clicar novamente no botão 'Calcular Matriz' para calcular as distâncias do novo trecho 'De: Oferta | Para: Demanda'. Caso contrário, o modelo não terá acesso a essas distâncias e não poderá usar os arcos diretos.",
+    "Erro: A opção de arcos diretos (Origem -> Destino) está ativa, mas a matriz correspondente não foi calculada. Por favor, calcule a matriz na aba 'Matriz de Distâncias' primeiro.": "Erro: A opção de arcos diretos (Origem -> Destino) está ativa, mas a matriz correspondente não foi calculada. Por favor, calcule a matriz na aba 'Matriz de Distâncias' primeiro."
 }

@@ -446,8 +446,9 @@ def get_tab_results_layout(lang='pt'):
                                         options=[
                                             {"label": translate("Ver Todos", lang), "value": "all"},
                                             {"label": translate("Origem -> Armazém", lang), "value": "inflow"},
-                                            {"label": translate("Transbordo", lang), "value": "transbordo"},
+                                            {"label": translate("Interhub", lang), "value": "interhub"},
                                             {"label": translate("Armazém -> Cliente", lang), "value": "outflow"},
+                                            {"label": translate("Origem -> Cliente", lang), "value": "direct"},
                                         ],
                                         value="all",
                                     )

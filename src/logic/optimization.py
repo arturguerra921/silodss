@@ -30,6 +30,7 @@ def run_deterministic_model(
     df_demand,
     df_freight,
     df_storage,
+    df_dist_supply_demand=None,
     detailed_log=False,
     toggle_pareto=False,
     input_allocation_days=None,
@@ -264,6 +265,16 @@ def run_deterministic_model(
                 if pd.notna(val) and str(val).strip().upper() != 'N/A':
                     distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
 
+    distance_oc = {}
+    if df_dist_supply_demand is not None and not df_dist_supply_demand.empty:
+        for _, row in df_dist_supply_demand.iterrows():
+            orig = row['Origem']
+            for col in df_dist_supply_demand.columns:
+                if col != 'Origem':
+                    val = row[col]
+                    if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                        distance_oc[(orig, col)] = safe_parse_numeric(val)
+
     # 1.8 Parse Freight Rates (Valor_Tonelada_km)
     try:
         df_freight['Frete_Num'] = df_freight['Frete Tonelada Km'].apply(safe_parse_numeric)
@@ -362,6 +373,21 @@ def run_deterministic_model(
                     for d2, _ in d2s:
                         valid_routes_dd.append((d1, d2, p))
 
+    valid_routes_oc = []
+    for o in df_supply['Cidade'].unique():
+        for p in all_products:
+            custs = []
+            for c in Customers:
+                if (o, c) in distance_oc:
+                    custs.append((c, distance_oc[(o, c)]))
+            if custs:
+                if toggle_pareto:
+                    custs.sort(key=lambda x: x[1])
+                    limit = max(1, math.ceil(len(custs) * 0.20))
+                    custs = custs[:limit]
+                for c, _ in custs:
+                    valid_routes_oc.append((o, c, p))
+
     # =========================================================================
     # 3. PYOMO CONCRETE MODEL CONSTRUCTION
     # =========================================================================
@@ -382,6 +408,7 @@ def run_deterministic_model(
     model.ValidRoutesOD = pyo.Set(initialize=valid_routes_od, dimen=3)
     model.ValidRoutesDC = pyo.Set(initialize=valid_routes_dc, dimen=3)
     model.ValidRoutesDD = pyo.Set(initialize=valid_routes_dd, dimen=3)
+    model.ValidRoutesOC = pyo.Set(initialize=valid_routes_oc, dimen=3)
 
     # Define Parameters
     def supply_init(m, o, p, t):
@@ -440,6 +467,10 @@ def run_deterministic_model(
         return distance_dd.get((d1, d2), 999999.0)
     model.DistanceDD = pyo.Param(model.Destinations, model.Destinations, initialize=dist_dd_init)
 
+    def dist_oc_init(m, o, c):
+        return distance_oc.get((o, c), 999999.0)
+    model.DistanceOC = pyo.Param(model.Origins, model.Customers, initialize=dist_oc_init)
+
     model.InterhubFactor = pyo.Param(initialize=float(interhub_factor))
     def transshipment_cost_init(m, d):
         return transshipment_cost_dict.get(d, 0.0)
@@ -478,6 +509,7 @@ def run_deterministic_model(
     model.FlowOD = pyo.Var(model.ValidRoutesOD, model.TimePeriods, within=pyo.NonNegativeReals)
     model.FlowDC = pyo.Var(model.ValidRoutesDC, model.TimePeriods, within=pyo.NonNegativeReals)
     model.FlowDD = pyo.Var(model.ValidRoutesDD, model.TimePeriods, within=pyo.NonNegativeReals)
+    model.FlowOC = pyo.Var(model.ValidRoutesOC, model.TimePeriods, within=pyo.NonNegativeReals)
     model.Inventory = pyo.Var(model.Destinations, model.Products, model.TimePeriods, within=pyo.NonNegativeReals)
     model.CandStaticCapacity = pyo.Var(model.Destinations_cand, within=pyo.NonNegativeReals)
     model.ExpandedCapacity = pyo.Var(model.Destinations, within=pyo.NonNegativeReals)
@@ -529,6 +561,13 @@ def run_deterministic_model(
         for (d1, d2, p) in model.ValidRoutesDD
         for t in model.TimePeriods
     )
+
+    # 4.3a Freight cost from supply origins directly to demand customers (OC)
+    freight_oc_expr = sum(
+        model.FlowOC[o, c, p, t] * (model.DistanceOC[o, c] * model.FreightOrigin[o])
+        for (o, c, p) in model.ValidRoutesOC
+        for t in model.TimePeriods
+    )
     
     # 4.3b Transshipment cost charged every time a product enters a warehouse (from origins and other hubs)
     transshipment_cost_expr = sum(
@@ -568,7 +607,7 @@ def run_deterministic_model(
     )
     
     def obj_rule(m):
-        return freight_od_expr + freight_dc_expr + freight_dd_expr + transshipment_cost_expr + storage_cost_expr + opening_cost_expr + expand_cost_expr + bulk_cost_expr
+        return freight_od_expr + freight_dc_expr + freight_dd_expr + freight_oc_expr + transshipment_cost_expr + storage_cost_expr + opening_cost_expr + expand_cost_expr + bulk_cost_expr
         
     model.Objective = pyo.Objective(rule=obj_rule, sense=pyo.minimize, doc="Total Supply Chain Minimization Objective")
 
@@ -579,9 +618,10 @@ def run_deterministic_model(
     # 5.1 Supply Allocation Bound (Hard Equality constraint: all supply must be dispatched)
     def supply_allocation_rule(m, o, p, t):
         valid_dests = [d for d in m.Destinations if (o, d, p) in m.ValidRoutesOD]
-        if not valid_dests:
+        valid_custs = [c for c in m.Customers if (o, c, p) in m.ValidRoutesOC]
+        if not valid_dests and not valid_custs:
             return pyo.Constraint.Skip
-        return sum(m.FlowOD[o, d, p, t] for d in valid_dests) == m.Supply[o, p, t]
+        return sum(m.FlowOD[o, d, p, t] for d in valid_dests) + sum(m.FlowOC[o, c, p, t] for c in valid_custs) == m.Supply[o, p, t]
         
     model.SupplyAllocationConstraint = pyo.Constraint(model.Origins, model.Products, model.TimePeriods, rule=supply_allocation_rule, doc="Restrição de Limite de Oferta (Dispatch)")
 
@@ -702,15 +742,17 @@ def run_deterministic_model(
     # 5.10 Customer Demand Satisfaction (Domestic Strict Equality vs Export Max upper bound)
     def domestic_demand_rule(m, c, p, t):
         valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
-        if not valid_dests:
+        valid_origins = [o for o in m.Origins if (o, c, p) in m.ValidRoutesOC]
+        if not valid_dests and not valid_origins:
             return pyo.Constraint.Skip
-        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) == m.DemandMin[c, p, t]
+        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) + sum(m.FlowOC[o, c, p, t] for o in valid_origins) == m.DemandMin[c, p, t]
 
     def export_demand_rule(m, c, p, t):
         valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
-        if not valid_dests:
+        valid_origins = [o for o in m.Origins if (o, c, p) in m.ValidRoutesOC]
+        if not valid_dests and not valid_origins:
             return pyo.Constraint.Skip
-        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) <= m.DemandMax[c, p, t]
+        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) + sum(m.FlowOC[o, c, p, t] for o in valid_origins) <= m.DemandMax[c, p, t]
         
     model.DomesticDemandConstraint = pyo.Constraint(model.Customers_dom, model.Products, model.TimePeriods, rule=domestic_demand_rule, doc="Restrição de Atendimento da Demanda Interna")
     model.ExportDemandConstraint = pyo.Constraint(model.Customers_exp, model.Products, model.TimePeriods, rule=export_demand_rule, doc="Restrição Quota Máxima de Exportação (Sink)")
@@ -819,6 +861,9 @@ def run_deterministic_model(
         ) + sum(
             pyo.value(model.FlowDD[d1, d2, p, t]) * (pyo.value(model.InterhubFactor) * model.DistanceDD[d1, d2] * model.FreightDest[d1])
             for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowOC[o, c, p, t]) * (model.DistanceOC[o, c] * model.FreightOrigin[o])
+            for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
         )
         
         total_transshipment_cost = sum(
@@ -852,6 +897,9 @@ def run_deterministic_model(
         total_tons = sum(
             pyo.value(model.FlowOD[o, d, p, t])
             for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowOC[o, c, p, t])
+            for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
         )
         
         total_km = sum(
@@ -863,6 +911,9 @@ def run_deterministic_model(
         ) + sum(
             pyo.value(model.FlowDD[d1, d2, p, t]) * model.DistanceDD[d1, d2]
             for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+        ) + sum(
+            pyo.value(model.FlowOC[o, c, p, t]) * model.DistanceOC[o, c]
+            for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
         )
 
         results_dict["kpis"] = {
@@ -934,6 +985,26 @@ def run_deterministic_model(
                         "Quantidade (ton)": val,
                         "Período": t,
                         "Tipo de Rota": "Interhub",
+                        "Distancia (km)": dist,
+                        "Custo Frete (R$)": freight,
+                        "Custo Armazenagem (R$)": 0.0,
+                        "Custo Total (R$)": freight
+                    })
+
+        # OC flows
+        for (o, c, p) in model.ValidRoutesOC:
+            for t in model.TimePeriods:
+                val = pyo.value(model.FlowOC[o, c, p, t])
+                if val > 1e-4:
+                    dist = pyo.value(model.DistanceOC[o, c])
+                    freight = val * dist * pyo.value(model.FreightOrigin[o])
+                    routes_list.append({
+                        "Origem": o,
+                        "Destino": c,
+                        "Produto": p,
+                        "Quantidade (ton)": val,
+                        "Período": t,
+                        "Tipo de Rota": "Origem -> Cliente",
                         "Distancia (km)": dist,
                         "Custo Frete (R$)": freight,
                         "Custo Armazenagem (R$)": 0.0,
@@ -1054,6 +1125,7 @@ def build_stochastic_pyomo_model(
   supply_error_pct,
   demand_error_pct,
   prediction_results,
+  df_dist_supply_demand=None,
   toggle_pareto=False,
   input_allocation_days=None,
   interhub_factor=None,
@@ -1359,6 +1431,16 @@ def build_stochastic_pyomo_model(
         if pd.notna(val) and str(val).strip().upper() != 'N/A':
           distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
 
+  distance_oc = {}
+  if df_dist_supply_demand is not None and not df_dist_supply_demand.empty:
+    for _, row in df_dist_supply_demand.iterrows():
+      orig = row['Origem']
+      for col in df_dist_supply_demand.columns:
+        if col != 'Origem':
+          val = row[col]
+          if pd.notna(val) and str(val).strip().upper() != 'N/A':
+            distance_oc[(orig, col)] = safe_parse_numeric(val)
+
   # Freight
   try:
     df_freight['Frete_Num'] = df_freight['Frete Tonelada Km'].apply(safe_parse_numeric)
@@ -1453,6 +1535,21 @@ def build_stochastic_pyomo_model(
           for d2, _ in d2s:
             valid_routes_dd.append((d1, d2, p))
 
+  valid_routes_oc = []
+  for o in df_supply['Cidade'].unique():
+    for p in all_products:
+      custs = []
+      for c in Customers:
+        if (o, c) in distance_oc:
+          custs.append((c, distance_oc[(o, c)]))
+      if custs:
+        if toggle_pareto:
+          custs.sort(key=lambda x: x[1])
+          limit = max(1, math.ceil(len(custs) * 0.20))
+          custs = custs[:limit]
+        for c, _ in custs:
+          valid_routes_oc.append((o, c, p))
+
   # Pyomo Model
   model = pyo.ConcreteModel()
   
@@ -1471,6 +1568,7 @@ def build_stochastic_pyomo_model(
   model.ValidRoutesOD = pyo.Set(initialize=valid_routes_od, dimen=3)
   model.ValidRoutesDC = pyo.Set(initialize=valid_routes_dc, dimen=3)
   model.ValidRoutesDD = pyo.Set(initialize=valid_routes_dd, dimen=3)
+  model.ValidRoutesOC = pyo.Set(initialize=valid_routes_oc, dimen=3)
 
   model.Scenarios = pyo.Set(initialize=['pessimista', 'esperado', 'otimista'])
 
@@ -1533,6 +1631,10 @@ def build_stochastic_pyomo_model(
     return distance_dd.get((d1, d2), 999999.0)
   model.DistanceDD = pyo.Param(model.Destinations, model.Destinations, initialize=dist_dd_init)
 
+  def dist_oc_init(m, o, c):
+    return distance_oc.get((o, c), 999999.0)
+  model.DistanceOC = pyo.Param(model.Origins, model.Customers, initialize=dist_oc_init)
+
   model.InterhubFactor = pyo.Param(initialize=float(interhub_factor))
   def transshipment_cost_init(m, d):
     return transshipment_cost_dict.get(d, 0.0)
@@ -1580,6 +1682,7 @@ def build_stochastic_pyomo_model(
   model.FlowOD = pyo.Var(model.ValidRoutesOD, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
   model.FlowDC = pyo.Var(model.ValidRoutesDC, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
   model.FlowDD = pyo.Var(model.ValidRoutesDD, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
+  model.FlowOC = pyo.Var(model.ValidRoutesOC, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
   model.Inventory = pyo.Var(model.Destinations, model.Products, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
 
   # Lock upgrade vars if disabled
@@ -1601,9 +1704,10 @@ def build_stochastic_pyomo_model(
   # Constraints (replicated per scenario)
   def supply_allocation_rule(m, o, p, t, s):
     valid_dests = [d for d in m.Destinations if (o, d, p) in m.ValidRoutesOD]
-    if not valid_dests:
+    valid_custs = [c for c in m.Customers if (o, c, p) in m.ValidRoutesOC]
+    if not valid_dests and not valid_custs:
       return pyo.Constraint.Skip
-    return sum(m.FlowOD[o, d, p, t, s] for d in valid_dests) == m.Supply[o, p, t, s]
+    return sum(m.FlowOD[o, d, p, t, s] for d in valid_dests) + sum(m.FlowOC[o, c, p, t, s] for c in valid_custs) == m.Supply[o, p, t, s]
   model.SupplyAllocationConstraint = pyo.Constraint(model.Origins, model.Products, model.TimePeriods, model.Scenarios, rule=supply_allocation_rule)
 
   def inventory_balance_rule(m, d, p, t, s):
@@ -1663,16 +1767,18 @@ def build_stochastic_pyomo_model(
 
   def domestic_demand_rule(m, c, p, t, s):
     valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
-    if not valid_dests:
+    valid_origins = [o for o in m.Origins if (o, c, p) in m.ValidRoutesOC]
+    if not valid_dests and not valid_origins:
       return pyo.Constraint.Skip
-    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) == m.DemandMin[c, p, t, s]
+    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) + sum(m.FlowOC[o, c, p, t, s] for o in valid_origins) == m.DemandMin[c, p, t, s]
   model.DomesticDemandConstraint = pyo.Constraint(model.Customers_dom, model.Products, model.TimePeriods, model.Scenarios, rule=domestic_demand_rule)
 
   def export_demand_rule(m, c, p, t, s):
     valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
-    if not valid_dests:
+    valid_origins = [o for o in m.Origins if (o, c, p) in m.ValidRoutesOC]
+    if not valid_dests and not valid_origins:
       return pyo.Constraint.Skip
-    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) <= m.DemandMax[c, p, t, s]
+    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) + sum(m.FlowOC[o, c, p, t, s] for o in valid_origins) <= m.DemandMax[c, p, t, s]
   model.ExportDemandConstraint = pyo.Constraint(model.Customers_exp, model.Products, model.TimePeriods, model.Scenarios, rule=export_demand_rule)
 
   # First-Stage constraints
@@ -1729,6 +1835,10 @@ def build_stochastic_pyomo_model(
       model.FlowDD[d1, d2, p, t, s] * (model.InterhubFactor * model.DistanceDD[d1, d2] * model.FreightDest[d1])
       for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
     )
+    freight_oc_expr = sum(
+      model.FlowOC[o, c, p, t, s] * (model.DistanceOC[o, c] * model.FreightOrigin[o])
+      for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
+    )
     transshipment_cost_expr = sum(
       model.FlowOD[o, d, p, t, s] * model.TransshipmentCost[d]
       for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
@@ -1740,7 +1850,7 @@ def build_stochastic_pyomo_model(
       model.Inventory[d, p, t, s] * model.StorageTariff[d, p]
       for d in model.Destinations for p in model.Products for t in model.TimePeriods
     )
-    return freight_od_expr + freight_dc_expr + freight_dd_expr + transshipment_cost_expr + storage_cost_expr
+    return freight_od_expr + freight_dc_expr + freight_dd_expr + freight_oc_expr + transshipment_cost_expr + storage_cost_expr
 
   def obj_rule(m):
     return first_stage_cost + sum(m.ScenarioProb[s] * get_second_stage_cost_expr(s) for s in m.Scenarios)
@@ -1766,6 +1876,7 @@ def run_stochastic_model(
   supply_error_pct,
   demand_error_pct,
   prediction_results,
+  df_dist_supply_demand=None,
   detailed_log=False,
   toggle_pareto=False,
   input_allocation_days=None,
@@ -1817,6 +1928,7 @@ def run_stochastic_model(
        supply_error_pct=supply_error_pct,
        demand_error_pct=demand_error_pct,
        prediction_results=prediction_results,
+       df_dist_supply_demand=df_dist_supply_demand,
        toggle_pareto=toggle_pareto,
        input_allocation_days=input_allocation_days,
        interhub_factor=interhub_factor,
@@ -1950,7 +2062,11 @@ def run_stochastic_model(
         pyo.value(model.FlowDD[d1, d2, p, t, s]) * (pyo.value(model.InterhubFactor) * model.DistanceDD[d1, d2] * pyo.value(model.FreightDest[d1]))
         for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
       )
-      total_freight_s = freight_od_s + freight_dc_s + freight_dd_s
+      freight_oc_s = sum(
+        pyo.value(model.FlowOC[o, c, p, t, s]) * (model.DistanceOC[o, c] * pyo.value(model.FreightOrigin[o]))
+        for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
+      )
+      total_freight_s = freight_od_s + freight_dc_s + freight_dd_s + freight_oc_s
       
       total_transshipment_s = sum(
         pyo.value(model.FlowOD[o, d, p, t, s]) * pyo.value(model.TransshipmentCost[d])
@@ -1968,6 +2084,9 @@ def run_stochastic_model(
       total_tons_s = sum(
         pyo.value(model.FlowOD[o, d, p, t, s])
         for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
+      ) + sum(
+        pyo.value(model.FlowOC[o, c, p, t, s])
+        for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
       )
       
       total_km_s = sum(
@@ -1979,6 +2098,9 @@ def run_stochastic_model(
       ) + sum(
         pyo.value(model.FlowDD[d1, d2, p, t, s]) * model.DistanceDD[d1, d2]
         for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
+      ) + sum(
+        pyo.value(model.FlowOC[o, c, p, t, s]) * model.DistanceOC[o, c]
+        for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
       )
 
       scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s + total_transshipment_s
@@ -2048,6 +2170,25 @@ def run_stochastic_model(
               "Quantidade (ton)": val,
               "Período": t,
               "Tipo de Rota": "Interhub",
+              "Distancia (km)": dist,
+              "Custo Frete (R$)": freight,
+              "Custo Armazenagem (R$)": 0.0,
+              "Custo Total (R$)": freight
+            })
+
+      for (o, c, p) in model.ValidRoutesOC:
+        for t in model.TimePeriods:
+          val = pyo.value(model.FlowOC[o, c, p, t, s])
+          if val > 1e-4:
+            dist = pyo.value(model.DistanceOC[o, c])
+            freight = val * dist * pyo.value(model.FreightOrigin[o])
+            routes_list.append({
+              "Origem": o,
+              "Destino": c,
+              "Produto": p,
+              "Quantidade (ton)": val,
+              "Período": t,
+              "Tipo de Rota": "Origem -> Cliente",
               "Distancia (km)": dist,
               "Custo Frete (R$)": freight,
               "Custo Armazenagem (R$)": 0.0,

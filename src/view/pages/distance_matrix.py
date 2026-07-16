@@ -21,6 +21,18 @@ def get_tab_distance_matrix_layout(lang='pt'):
             dbc.CardBody(
                 [
                     html.P(translate("Clique no botão abaixo para iniciar o cálculo. Isso pode levar alguns segundos dependendo da quantidade de dados.", lang), className="text-muted small mb-3"),
+                    html.Div([
+                        dbc.Switch(
+                            id="toggle-direct-arcs",
+                            value=False,
+                            className="custom-switch mb-0 small"
+                        ),
+                        html.Label(translate("Ativar Arcos Diretos (Oferta -> Demanda)", lang),
+                            htmlFor="toggle-direct-arcs",
+                            className="mb-0 mx-2 fw-bold small text-primary-custom cursor-pointer"
+                        ),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="help-direct-arcs-icon", style={"cursor": "pointer", "fontSize": "var(--font-size-small)"}),
+                    ], className="mb-3 d-flex align-items-center"),
                     dbc.Button(translate("Calcular Matriz", lang), id="btn-calc-matrix", color="none", className="btn-primary-custom w-100 mb-2"),
                     html.Div(id="calc-status-message", className="text-center small mt-2")
                 ],
@@ -175,6 +187,22 @@ def get_tab_distance_matrix_layout(lang='pt'):
         className="card-custom mb-3"
     )
 
+    help_modal_direct_arcs = dbc.Modal(
+        [
+            dbc.ModalHeader(dbc.ModalTitle(translate("Ajuda - Arcos Diretos (Origem -> Demanda)", lang)), close_button=True),
+            dbc.ModalBody([
+                html.P(translate("Esta opção permite habilitar fluxos diretos entre as origens de Oferta e os destinos de Demanda no modelo matemático.", lang)),
+                html.P(translate("Ao ativar esta opção, o sistema considerará rotas diretas (bypasando os armazéns/hubs), o que pode ser útil para otimizar fluxos onde o transbordo não é economicamente ou logisticamente viável.", lang)),
+                html.P(html.Strong(translate("Importante:", lang) + " " + translate("Após ativar esta opção, você DEVE clicar novamente no botão 'Calcular Matriz' para calcular as distâncias do novo trecho 'De: Oferta | Para: Demanda'. Caso contrário, o modelo não terá acesso a essas distâncias e não poderá usar os arcos diretos.", lang))),
+            ]),
+            dbc.ModalFooter(
+                dbc.Button(translate("Fechar", lang), id="close-help-direct-arcs", className="btn-primary-custom", n_clicks=0)
+            )
+        ],
+        id="modal-help-direct-arcs",
+        is_open=False,
+    )
+
     return html.Div([
         dbc.Row(
             [
@@ -189,4 +217,5 @@ def get_tab_distance_matrix_layout(lang='pt'):
                 ], width=12, lg=9, className="mb-24"),
             ]
         ),
+        help_modal_direct_arcs
     ])

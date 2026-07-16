@@ -476,12 +476,16 @@ small, .small {
     background-color: #006633;
 }
 
-.wh-filter-group input[value="transbordo"] + .btn::before {
+.wh-filter-group input[value="interhub"] + .btn::before {
     background-color: #997A00;
 }
 
 .wh-filter-group input[value="outflow"] + .btn::before {
     background-color: #D9534F;
+}
+
+.wh-filter-group input[value="direct"] + .btn::before {
+    background-color: #00A0A7;
 }
 
 .wh-filter-group .btn-check:checked + .btn {
@@ -492,6 +496,19 @@ small, .small {
 
 .wh-filter-group .btn-check:checked + .btn::before {
     border: 1.5px solid #FFFFFF;
+}
+
+.wh-filter-group .btn-check:disabled + .btn {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: not-allowed;
+    background-color: #e9ecef !important;
+    color: #6c757d !important;
+    border-color: #dee2e6 !important;
+}
+
+.wh-filter-group .btn-check:disabled + .btn::before {
+    background-color: #6c757d !important;
 }
 
 /* Scenario selector color-coded buttons */

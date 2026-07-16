@@ -960,5 +960,14 @@
     "Sem fluxo de entrada/saída ou interhub.": "No inflow/outflow or interhub flow.",
     "Armazém Interhub": "Interhub Warehouse",
     "Interhub": "Interhub",
-    "Inter-hub": "Interhub"
+    "Inter-hub": "Interhub",
+    "De: Oferta | Para: Demanda": "From: Supply | To: Demand",
+    "Oferta para Demanda": "Supply to Demand",
+    "Origem -> Cliente": "Origin -> Customer",
+    "Ativar Arcos Diretos (Oferta -> Demanda)": "Enable Direct Arcs (Supply -> Demand)",
+    "Ajuda - Arcos Diretos (Origem -> Demanda)": "Help - Direct Arcs (Origin -> Demand)",
+    "Esta opção permite habilitar fluxos diretos entre as origens de Oferta e os destinos de Demanda no modelo matemático.": "This option enables direct flows between Supply origins and Demand destinations in the mathematical model.",
+    "Ao ativar esta opção, o sistema considerará rotas diretas (bypasando os armazéns/hubs), o que pode ser útil para otimizar fluxos onde o transbordo não é economicamente ou logisticamente viável.": "When enabled, the system will consider direct routes (bypassing warehouses/hubs), which can be useful to optimize flows where transshipment is not economically or logistically viable.",
+    "Após ativar esta opção, você DEVE clicar novamente no botão 'Calcular Matriz' para calcular as distâncias do novo trecho 'De: Oferta | Para: Demanda'. Caso contrário, o modelo não terá acesso a essas distâncias e não poderá usar os arcos diretos.": "After enabling this option, you MUST click the 'Calculate Matrix' button again to calculate the distances for the new segment 'From: Supply | To: Demand'. Otherwise, the model will not have access to these distances and cannot use direct arcs.",
+    "Erro: A opção de arcos diretos (Origem -> Destino) está ativa, mas a matriz correspondente não foi calculada. Por favor, calcule a matriz na aba 'Matriz de Distâncias' primeiro.": "Error: Direct arcs (Origin -> Destination) option is active, but the corresponding matrix was not calculated. Please calculate the matrix in the 'Distance Matrix' tab first."
 }

@@ -3678,10 +3678,11 @@ def _find_warehouse_coords_by_label(df_warehouses, target_label, lang='pt'):
     [State('stored-data', 'data'),
      State('store-warehouses', 'data'),
      State('stored-demand-data', 'data'),
+     State('toggle-direct-arcs', 'value'),
      State('store-lang', 'data')],
     prevent_initial_call=True
 )
-def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
+def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, stored_demand_data, toggle_direct_arcs, lang='pt'):
     if not n_clicks:
         return no_update, no_update, True
 
@@ -3764,6 +3765,27 @@ def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, stored_d
         except Exception as e:
             return no_update, translate("Erro de conexão com OSRM (Trecho Armazéns -> Armazéns):", lang) + f" {str(e)}", True
 
+        # Segment 4: Supply -> Demand (Direct)
+        final_df_4 = None
+        if toggle_direct_arcs:
+            try:
+                matrix_4 = client.get_distance_matrix(origins, demand_coords)
+            except Exception as e:
+                return no_update, translate("Erro de conexão com OSRM (Trecho Oferta -> Demanda):", lang) + f" {str(e)}", True
+
+            # Format Result 4
+            final_data_4 = []
+            for i, row_vals in enumerate(matrix_4):
+                row_dict = {'Origem': origin_names[i]}
+                for j, val in enumerate(row_vals):
+                    col_name = demand_names[j]
+                    if val is not None:
+                        row_dict[col_name] = round(val / 1000, 2)
+                    else:
+                        row_dict[col_name] = "N/A"
+                final_data_4.append(row_dict)
+            final_df_4 = pd.DataFrame(final_data_4)
+
         # Format Result 1
         final_data_1 = []
         for i, row_vals in enumerate(matrix_1):
@@ -3811,6 +3833,8 @@ def calculate_distance_matrix(n_clicks, stored_data, stored_warehouses, stored_d
             'warehouses_to_demand': final_df_2.to_json(date_format='iso', orient='split'),
             'warehouses_to_warehouses': final_df_3.to_json(date_format='iso', orient='split')
         }
+        if final_df_4 is not None:
+            stored_dict['supply_to_demand'] = final_df_4.to_json(date_format='iso', orient='split')
 
         msg = translate("Cálculo concluído com sucesso! (Tempo de execução:", lang) + f" {time.time() - start_time:.2f} " + translate("segundos)", lang)
         return json.dumps(stored_dict), msg, False
@@ -3872,6 +3896,9 @@ def download_matrix(n_clicks, stored_matrix_json, lang='pt'):
         df_wh_to_wh = None
         if 'warehouses_to_warehouses' in stored_dict:
             df_wh_to_wh = pd.read_json(io.StringIO(stored_dict['warehouses_to_warehouses']), orient='split')
+        df_supply_to_demand = None
+        if 'supply_to_demand' in stored_dict:
+            df_supply_to_demand = pd.read_json(io.StringIO(stored_dict['supply_to_demand']), orient='split')
     except Exception as e:
         print(f"Error loading matrix for download: {e}")
         return no_update
@@ -3882,6 +3909,8 @@ def download_matrix(n_clicks, stored_matrix_json, lang='pt'):
         df_wh_to_demand.to_excel(writer, sheet_name=translate("Armazéns para Demanda", lang), index=False)
         if df_wh_to_wh is not None:
             df_wh_to_wh.to_excel(writer, sheet_name=translate("Armazéns para Armazéns", lang), index=False)
+        if df_supply_to_demand is not None:
+            df_supply_to_demand.to_excel(writer, sheet_name=translate("Oferta para Demanda", lang), index=False)
     
     return dcc.send_bytes(buffer.getvalue(), translate("Matriz_Distancias.xlsx", lang))
 
@@ -3994,6 +4023,51 @@ def update_route_map(active_cell, stored_data, stored_warehouses, stored_demand_
 
             # Destination: Warehouse
             dest_coords = _find_warehouse_coords_by_label(df_warehouses, dest_label, lang)
+
+        elif segment == 'supply_to_demand':
+            # Origin: Supply
+            if not stored_data:
+                return default_fig
+            df_input = pd.read_json(io.StringIO(stored_data), orient='split')
+            origins_df_map = df_input[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+            city_counts_map = origins_df_map['Cidade'].value_counts()
+            duplicates_map = city_counts_map[city_counts_map > 1].index
+
+            origins_df_map['Cidade_Display'] = origins_df_map.apply(
+                lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+                if row['Cidade'] in duplicates_map else row['Cidade'],
+                axis=1
+            )
+
+            origin_row = origins_df_map[origins_df_map['Cidade_Display'] == origin_name]
+            if origin_row.empty:
+                origin_row = df_input[df_input['Cidade'] == origin_name].iloc[0]
+            else:
+                origin_row = origin_row.iloc[0]
+
+            origin_coords = (origin_row['Latitude'], origin_row['Longitude'])
+
+            # Destination: Demand
+            if not stored_demand_data:
+                return default_fig
+            df_demand = pd.read_json(io.StringIO(stored_demand_data), orient='split')
+            demand_df_map = df_demand[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
+            demand_city_counts_map = demand_df_map['Cidade'].value_counts()
+            demand_duplicates_map = demand_city_counts_map[demand_city_counts_map > 1].index
+
+            demand_df_map['Cidade_Display'] = demand_df_map.apply(
+                lambda row: f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
+                if row['Cidade'] in demand_duplicates_map else row['Cidade'],
+                axis=1
+            )
+
+            dest_row = demand_df_map[demand_df_map['Cidade_Display'] == dest_label]
+            if dest_row.empty:
+                dest_row = df_demand[df_demand['Cidade'] == dest_label].iloc[0]
+            else:
+                dest_row = dest_row.iloc[0]
+
+            dest_coords = (dest_row['Latitude'], dest_row['Longitude'])
 
         if not origin_coords or not dest_coords:
             return default_fig
@@ -4131,6 +4205,7 @@ def toggle_bulk_collapse(is_enabled):
         State('stored-demand-data', 'data'),
         State('toggle-detailed-log', 'value'),
         State('toggle-pareto-routes', 'value'),
+        State('toggle-direct-arcs', 'value'),
         State('input-allocation-days', 'value'),
         State('input-interhub-factor', 'value'),
         State('input-solver-gap', 'value'),
@@ -4165,7 +4240,7 @@ def toggle_bulk_collapse(is_enabled):
     prevent_initial_call=True
 )
 def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
-                  toggle_pareto, input_allocation_days, interhub_factor, solver_gap, solver_time_limit,
+                  toggle_pareto, toggle_direct_arcs, input_allocation_days, interhub_factor, solver_gap, solver_time_limit,
                   expansion_enabled, bulk_enabled,
                   ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
                   max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
@@ -4216,16 +4291,26 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 df_dist_supply_wh = pd.read_json(io.StringIO(stored_dict['supply_to_warehouses']), orient='split')
                 df_dist_wh_demand = pd.read_json(io.StringIO(stored_dict['warehouses_to_demand']), orient='split')
                 df_dist_wh_wh = pd.read_json(io.StringIO(stored_dict['warehouses_to_warehouses']), orient='split')
+                
+                if toggle_direct_arcs:
+                    if 'supply_to_demand' in stored_dict:
+                        df_dist_supply_demand = pd.read_json(io.StringIO(stored_dict['supply_to_demand']), orient='split')
+                    else:
+                        return translate("Erro: A opção de arcos diretos (Origem -> Destino) está ativa, mas a matriz correspondente não foi calculada. Por favor, calcule a matriz na aba 'Matriz de Distâncias' primeiro.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+                else:
+                    df_dist_supply_demand = pd.DataFrame()
             else:
                 df_dist_supply_wh = pd.DataFrame()
                 df_dist_wh_demand = pd.DataFrame()
                 df_dist_wh_wh = pd.DataFrame()
+                df_dist_supply_demand = pd.DataFrame()
         except Exception:
             df_dist_supply_wh = pd.DataFrame()
             df_dist_wh_demand = pd.DataFrame()
             df_dist_wh_wh = pd.DataFrame()
+            df_dist_supply_demand = pd.DataFrame()
 
-        if df_dist_supply_wh.empty or df_dist_wh_demand.empty or df_dist_wh_wh.empty:
+        if df_dist_supply_wh.empty or df_dist_wh_demand.empty or df_dist_wh_wh.empty or (toggle_direct_arcs and df_dist_supply_demand.empty):
             return translate("Erro: Matrizes de distância incompletas. Certifique-se de calcular a Matriz de Distâncias na aba anterior antes de rodar o modelo.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
 
         # Load input DataFrames
@@ -4354,6 +4439,7 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
                 demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
                 prediction_results=preds,
+                df_dist_supply_demand=df_dist_supply_demand,
                 detailed_log=detailed_log,
                 toggle_pareto=toggle_pareto,
                 input_allocation_days=input_allocation_days,
@@ -4382,6 +4468,7 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 df_demand=df_demand,
                 df_freight=df_freight,
                 df_storage=df_storage,
+                df_dist_supply_demand=df_dist_supply_demand,
                 detailed_log=detailed_log,
                 toggle_pareto=toggle_pareto,
                 input_allocation_days=input_allocation_days,
@@ -5276,6 +5363,8 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
             type_color_class = "text-success-custom"
         elif r_type == "Armazém -> Cliente":
             type_color_class = "text-danger-custom"
+        elif r_type == "Origem -> Cliente":
+            type_color_class = "text-info-custom"
         else:
             type_color_class = "text-warning-custom"
 
@@ -5809,6 +5898,59 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
 
 
 @app.callback(
+    [Output("wh-route-type-filter", "options"),
+     Output("wh-route-type-filter", "value")],
+    [Input("store-model-results", "data"),
+     Input("toggle-direct-arcs", "value"),
+     Input("radio-results-scenario-select", "value"),
+     Input("store-lang", "data")],
+    [State("wh-route-type-filter", "value")],
+    prevent_initial_call=False
+)
+def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_select, lang, current_value):
+    lang = lang or 'pt'
+    
+    default_options = [
+        {"label": translate("Ver Todos", lang), "value": "all"},
+        {"label": translate("Origem -> Armazém", lang), "value": "inflow"},
+        {"label": translate("Interhub", lang), "value": "interhub"},
+        {"label": translate("Armazém -> Cliente", lang), "value": "outflow"},
+    ]
+    
+    if toggle_direct_arcs:
+        default_options.append({"label": translate("Origem -> Cliente", lang), "value": "direct"})
+        
+    if not results_data or results_data.get("status") != "optimal":
+        return default_options, "all"
+        
+    selected_scenario = scenario_select or "esperado"
+    if results_data.get("model_type") == "stochastic":
+        routes = results_data.get("scenario_routes", {}).get(selected_scenario, [])
+    else:
+        routes = results_data.get("routes", [])
+        
+    has_inflow = any(r.get("Tipo de Rota") == "Origem -> Armazém" for r in routes)
+    has_outflow = any(r.get("Tipo de Rota") == "Armazém -> Cliente" for r in routes)
+    has_transbordo = any(r.get("Tipo de Rota") == "Interhub" for r in routes)
+    has_direct = any(r.get("Tipo de Rota") == "Origem -> Cliente" for r in routes)
+    
+    options = [
+        {"label": translate("Ver Todos", lang), "value": "all"},
+        {"label": translate("Origem -> Armazém", lang), "value": "inflow", "disabled": not has_inflow},
+        {"label": translate("Interhub", lang), "value": "interhub", "disabled": not has_transbordo},
+        {"label": translate("Armazém -> Cliente", lang), "value": "outflow", "disabled": not has_outflow},
+    ]
+    
+    if toggle_direct_arcs:
+        options.append({"label": translate("Origem -> Cliente", lang), "value": "direct", "disabled": not has_direct})
+        
+    valid_values = {opt["value"] for opt in options if not opt.get("disabled", False)}
+    new_value = current_value if current_value in valid_values else "all"
+    
+    return options, new_value
+
+
+@app.callback(
     [Output("graph-results-wh-map", "figure"),
      Output("warehouse-details-container", "children"),
      Output("graph-results-wh-inventory", "figure"),
@@ -6052,7 +6194,11 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
         match_orig = (orig == selected_wh_name) or (selected_wh_cda and orig_cda == selected_wh_cda)
         match_dest = (dest == selected_wh_name) or (selected_wh_cda and dest_cda == selected_wh_cda)
         
-        if match_orig or match_dest:
+        is_direct = r.get("Tipo de Rota") == "Origem -> Cliente"
+        if is_direct:
+            if filter_value in ["all", "direct"]:
+                wh_routes.append(r)
+        elif match_orig or match_dest:
             if filter_value == "all":
                 wh_routes.append(r)
             elif filter_value == "inflow" and r["Tipo de Rota"] == "Origem -> Armazém":
@@ -6096,6 +6242,9 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
                     nodes_to_draw[orig] = {"coords": orig_coords, "type": "transshipment_wh", "name": orig}
                 else:
                     nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
+            else:
+                nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
+                nodes_to_draw[dest] = {"coords": dest_coords, "type": "customer", "name": dest}
 
             if route_type == "Origem -> Armazém":
                 line_color = UNB_THEME['UNB_GREEN']
@@ -6103,6 +6252,9 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
             elif route_type == "Armazém -> Cliente":
                 line_color = '#D9534F'
                 line_name = translate("Armazém -> Cliente", lang)
+            elif route_type == "Origem -> Cliente":
+                line_color = UNB_THEME['UNB_BLUE_GREEN']
+                line_name = translate("Origem -> Cliente", lang)
             else:
                 line_color = UNB_THEME['UNB_YELLOW_DARK']
                 line_name = translate("Interhub", lang)
@@ -6140,7 +6292,7 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
         else:
             color = UNB_THEME['UNB_YELLOW_DARK']
             size = 12
-            lbl = translate("Armazém de Transbordo", lang)
+            lbl = translate("Armazém Interhub", lang)
 
         fig.add_trace(go.Scattermapbox(
             mode="markers",
@@ -8787,6 +8939,41 @@ def run_evpi_vss(results_data,
   except Exception as e:
     print(f"Error computing EVPI/VSS: {e}")
     return "R$ -", "R$ -"
+
+
+# Callback to toggle help modal for direct arcs
+@app.callback(
+    Output("modal-help-direct-arcs", "is_open"),
+    [Input("help-direct-arcs-icon", "n_clicks"),
+     Input("close-help-direct-arcs", "n_clicks")],
+    State("modal-help-direct-arcs", "is_open")
+)
+def toggle_help_direct_arcs(n_open, n_close, is_open):
+    if n_open or n_close:
+        return not is_open
+    return is_open
+
+
+# Callback to dynamically update segment selector options
+@app.callback(
+    Output('distance-matrix-segment-selector', 'options'),
+    Input('store-distance-matrix', 'data'),
+    State('store-lang', 'data')
+)
+def update_segment_selector_options(stored_matrix_json, lang='pt'):
+    options = [
+        {"label": translate("De: Oferta | Para: Armazéns", lang), "value": "supply_to_warehouses"},
+        {"label": translate("De: Armazéns | Para: Demanda", lang), "value": "warehouses_to_demand"},
+        {"label": translate("De: Armazéns | Para: Armazéns", lang), "value": "warehouses_to_warehouses"},
+    ]
+    if stored_matrix_json:
+        try:
+            stored_dict = json.loads(stored_matrix_json)
+            if 'supply_to_demand' in stored_dict:
+                options.append({"label": translate("De: Oferta | Para: Demanda", lang), "value": "supply_to_demand"})
+        except Exception:
+            pass
+    return options
 
 
 def view():
