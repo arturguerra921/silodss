@@ -189,6 +189,45 @@ def get_tab_model_config_layout(lang='pt'):
                     dbc.Row([
                         dbc.Col([
                             html.Div([
+                                dbc.Label(translate("Solver", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                html.I(className="bi bi-question-circle-fill text-muted", id="help-solver-name", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                dbc.Tooltip(translate("Selecione o solver de otimização a ser utilizado.", lang), target="help-solver-name")
+                            ], className="d-flex align-items-center mb-1"),
+                            dbc.Select(
+                                id="dropdown-solver-name",
+                                options=[
+                                    {"label": "CBC (Default)", "value": "cbc"},
+                                    {"label": "Gurobi", "value": "gurobi"}
+                                ],
+                                value="cbc",
+                                className="mb-4"
+                            )
+                        ], width=6),
+                        dbc.Col([
+                            html.Div([
+                                html.Div([
+                                    dbc.Label(translate("Licença Gurobi (.lic)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
+                                    html.I(className="bi bi-question-circle-fill text-muted", id="help-gurobi-lic", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                                    dbc.Tooltip(translate("Faça o upload do arquivo de licença gurobi.lic para executar o Gurobi localmente.", lang), target="help-gurobi-lic")
+                                ], className="d-flex align-items-center mb-1"),
+                                dcc.Upload(
+                                    id="upload-gurobi-lic",
+                                    children=html.Button(
+                                        translate("Fazer upload da licença", lang),
+                                        id="btn-upload-gurobi-lic",
+                                        className="btn-none btn-outline-secondary btn-sm small w-100",
+                                        style={"border": "1px dashed #ced4da", "height": "38px", "borderRadius": "0.375rem"}
+                                    ),
+                                    multiple=False,
+                                    className="mb-1"
+                                ),
+                                html.Div(id="gurobi-lic-status", className="small")
+                            ], id="gurobi-lic-upload-container", style={"display": "none"})
+                        ], width=6)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
                                 dbc.Label(translate("Gap do solver (%)", lang), className="fw-bold small me-2 mb-0", style={"color": "#9ca3af"}),
                                 html.I(className="bi bi-question-circle-fill text-muted", id="help-solver-gap", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
                                 dbc.Tooltip(translate("Tolerância de gap de otimalidade para o solver de programação inteira mista.", lang), target="help-solver-gap")

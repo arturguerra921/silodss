@@ -56,7 +56,8 @@ def run_deterministic_model(
     bulk_var_cost=None,
     bulk_eligible_types=None,
     lang="pt",
-    log_path=None
+    log_path=None,
+    solver_name="cbc"
 ):
     """
     Executes the deterministic multi-period MILP optimization model.
@@ -931,22 +932,62 @@ def run_deterministic_model(
         if detailed_log:
             model.pprint()
             
-        print("\n" + translate("Chamando solver CBC...", lang))
-        solver = SolverFactory('cbc')
-        
-        if solver_time_limit is not None:
-            solver.options['sec'] = int(solver_time_limit)
-        else:
-            solver.options['sec'] = 1200
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        lic_path = os.environ.get("GRB_LICENSE_FILE")
+        if not lic_path or not os.path.exists(lic_path):
+            lic_path = os.path.join(root_dir, "secrets", "gurobi.lic")
+
+        if solver_name == 'gurobi':
+            if not os.path.exists(lic_path):
+                raise ValueError(translate("Licença do Gurobi não encontrada na sessão. Por favor, envie o arquivo de licença nas configurações do modelo.", lang))
             
-        if solver_gap is not None:
+            os.environ["GRB_LICENSE_FILE"] = lic_path
+            
+            print("\n" + translate("Chamando solver Gurobi...", lang))
             try:
-                gap_val = float(solver_gap)
-                if gap_val > 1.0:
-                    gap_val = gap_val / 100.0
-                solver.options['ratioGap'] = gap_val
-            except Exception:
-                solver.options['ratioGap'] = 0.01
+                solver = SolverFactory('gurobi_direct')
+                if not solver.available(exception_free=True):
+                    solver = SolverFactory('gurobi')
+                    if not solver.available():
+                        raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o Gurobi está instalado e no PATH do sistema.", lang))
+            except Exception as e:
+                try:
+                    solver = SolverFactory('gurobi')
+                    if not solver.available():
+                        raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o Gurobi está instalado e no PATH do sistema.", lang))
+                except Exception as e2:
+                    raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o pacote gurobipy está instalado no python ou o Gurobi está no PATH do sistema. Detalhes: {error}", lang).format(error=str(e2)))
+            
+            if solver_time_limit is not None:
+                solver.options['TimeLimit'] = int(solver_time_limit)
+            else:
+                solver.options['TimeLimit'] = 1200
+                
+            if solver_gap is not None:
+                try:
+                    gap_val = float(solver_gap)
+                    if gap_val > 1.0:
+                        gap_val = gap_val / 100.0
+                    solver.options['MIPGap'] = gap_val
+                except Exception:
+                    solver.options['MIPGap'] = 0.01
+        else:
+            print("\n" + translate("Chamando solver CBC...", lang))
+            solver = SolverFactory('cbc')
+            
+            if solver_time_limit is not None:
+                solver.options['sec'] = int(solver_time_limit)
+            else:
+                solver.options['sec'] = 1200
+                
+            if solver_gap is not None:
+                try:
+                    gap_val = float(solver_gap)
+                    if gap_val > 1.0:
+                        gap_val = gap_val / 100.0
+                    solver.options['ratioGap'] = gap_val
+                except Exception:
+                    solver.options['ratioGap'] = 0.01
 
         # Run solver
         results = solver.solve(model, tee=True)
@@ -991,7 +1032,9 @@ def run_deterministic_model(
         },
         "warnings": [],
         "warehouse_decisions": [],
-        "inventory": []
+        "inventory": [],
+        "Customers_exp": Customers_exp,
+        "Customers_dom": Customers_dom
     }
 
     if is_optimal:
@@ -1104,13 +1147,14 @@ def run_deterministic_model(
                 if val > 1e-4:
                     dist = pyo.value(model.DistanceDC[d, c])
                     freight = val * dist * pyo.value(model.FreightDest[d])
+                    r_type = "Armazém -> Cliente Exportação" if c in Customers_exp else "Armazém -> Cliente Doméstico"
                     routes_list.append({
                         "Origem": cda_to_name.get(d, d),
                         "Destino": c,
                         "Produto": p,
                         "Quantidade (ton)": val,
                         "Período": t,
-                        "Tipo de Rota": "Armazém -> Cliente",
+                        "Tipo de Rota": r_type,
                         "Distancia (km)": dist,
                         "Custo Frete (R$)": freight,
                         "Custo Armazenagem (R$)": 0.0,
@@ -1144,13 +1188,14 @@ def run_deterministic_model(
                 if val > 1e-4:
                     dist = pyo.value(model.DistanceOC[o, c])
                     freight = val * dist * pyo.value(model.FreightOrigin[o])
+                    r_type = "Origem -> Cliente Exportação" if c in Customers_exp else "Origem -> Cliente Doméstico"
                     routes_list.append({
                         "Origem": o,
                         "Destino": c,
                         "Produto": p,
                         "Quantidade (ton)": val,
                         "Período": t,
-                        "Tipo de Rota": "Origem -> Cliente",
+                        "Tipo de Rota": r_type,
                         "Distancia (km)": dist,
                         "Custo Frete (R$)": freight,
                         "Custo Armazenagem (R$)": 0.0,
@@ -1211,7 +1256,16 @@ def run_deterministic_model(
                 for p in all_products
                 for t in periods
             )
-            total_wh_cost = opening_cost_val + expand_cost_val + bulk_cost_val + storage_cost_val
+            transshipment_cost_val = sum(
+                pyo.value(model.FlowOD[o, d, p, t]) * pyo.value(model.TransshipmentCost[d])
+                for (o, d_, p) in model.ValidRoutesOD if d_ == d
+                for t in model.TimePeriods
+            ) + sum(
+                pyo.value(model.FlowDD[d1, d2, p, t]) * pyo.value(model.TransshipmentCost[d2])
+                for (d1, d2, p) in model.ValidRoutesDD if d2 == d
+                for t in model.TimePeriods
+            )
+            total_wh_cost = opening_cost_val + expand_cost_val + bulk_cost_val + storage_cost_val + transshipment_cost_val
 
             wh_decisions_list.append({
                 "CDA": d,
@@ -1233,6 +1287,7 @@ def run_deterministic_model(
                 "ExpandCost": expand_cost_val,
                 "BulkCost": bulk_cost_val,
                 "StorageCost": storage_cost_val,
+                "TransshipmentCost": transshipment_cost_val,
                 "TotalCost": total_wh_cost
             })
             
@@ -1244,12 +1299,16 @@ def run_deterministic_model(
             for p in all_products:
                 for t in periods:
                     val = pyo.value(model.Inventory[d, p, t])
+                    tariff = pyo.value(model.StorageTariff[d, p])
+                    cost = val * tariff
                     inventory_records.append({
                         "CDA": d,
                         "Name": cda_to_name.get(d, d),
                         "Produto": p,
                         "Período": t,
-                        "Quantidade (ton)": val
+                        "Quantidade (ton)": val,
+                        "StorageTariff": tariff,
+                        "StorageCost": cost
                     })
         results_dict["inventory"] = inventory_records
 
@@ -2124,7 +2183,8 @@ def run_stochastic_model(
   bulk_var_cost=None,
   bulk_eligible_types=None,
   lang="pt",
-  log_path=None
+  log_path=None,
+  solver_name="cbc"
 ):
   """
   Executes the two-stage stochastic programming optimization model.
@@ -2209,22 +2269,62 @@ def run_stochastic_model(
 
     log_memory("Modelo pronto. Chamando solver...", lang)
 
-    print("\n" + translate("Chamando solver CBC para alocação estocástica...", lang))
-    solver = SolverFactory('cbc')
-    
-    if solver_time_limit is not None:
-      solver.options['sec'] = int(solver_time_limit)
-    else:
-      solver.options['sec'] = 1200
-        
-    if solver_gap is not None:
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    lic_path = os.environ.get("GRB_LICENSE_FILE")
+    if not lic_path or not os.path.exists(lic_path):
+        lic_path = os.path.join(root_dir, "secrets", "gurobi.lic")
+
+    if solver_name == 'gurobi':
+      if not os.path.exists(lic_path):
+        raise ValueError(translate("Licença do Gurobi não encontrada na sessão. Por favor, envie o arquivo de licença nas configurações do modelo.", lang))
+      
+      os.environ["GRB_LICENSE_FILE"] = lic_path
+      
+      print("\n" + translate("Chamando solver Gurobi para alocação estocástica...", lang))
       try:
-        gap_val = float(solver_gap)
-        if gap_val > 1.0:
-          gap_val = gap_val / 100.0
-        solver.options['ratioGap'] = gap_val
-      except Exception:
-        solver.options['ratioGap'] = 0.01
+        solver = SolverFactory('gurobi_direct')
+        if not solver.available(exception_free=True):
+          solver = SolverFactory('gurobi')
+          if not solver.available():
+            raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o Gurobi está instalado e no PATH do sistema.", lang))
+      except Exception as e:
+        try:
+          solver = SolverFactory('gurobi')
+          if not solver.available():
+            raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o Gurobi está instalado e no PATH do sistema.", lang))
+        except Exception as e2:
+          raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o pacote gurobipy está instalado no python ou o Gurobi está no PATH do sistema. Detalhes: {error}", lang).format(error=str(e2)))
+      
+      if solver_time_limit is not None:
+        solver.options['TimeLimit'] = int(solver_time_limit)
+      else:
+        solver.options['TimeLimit'] = 1200
+        
+      if solver_gap is not None:
+        try:
+          gap_val = float(solver_gap)
+          if gap_val > 1.0:
+            gap_val = gap_val / 100.0
+          solver.options['MIPGap'] = gap_val
+        except Exception:
+          solver.options['MIPGap'] = 0.01
+    else:
+      print("\n" + translate("Chamando solver CBC para alocação estocástica...", lang))
+      solver = SolverFactory('cbc')
+      
+      if solver_time_limit is not None:
+        solver.options['sec'] = int(solver_time_limit)
+      else:
+        solver.options['sec'] = 1200
+        
+      if solver_gap is not None:
+        try:
+          gap_val = float(solver_gap)
+          if gap_val > 1.0:
+            gap_val = gap_val / 100.0
+          solver.options['ratioGap'] = gap_val
+        except Exception:
+          solver.options['ratioGap'] = 0.01
 
     results = solver.solve(model, tee=True)
     
@@ -2261,7 +2361,9 @@ def run_stochastic_model(
     "warehouse_decisions": [],
     "scenario_warehouse_metrics": {},
     "inventory": [],
-    "scenario_inventory": {}
+    "scenario_inventory": {},
+    "Customers_exp": Customers_exp,
+    "Customers_dom": Customers_dom
   }
 
   if is_optimal:
@@ -2385,13 +2487,14 @@ def run_stochastic_model(
           if val > 1e-4:
             dist = pyo.value(model.DistanceDC[d, c])
             freight = val * dist * pyo.value(model.FreightDest[d])
+            r_type = "Armazém -> Cliente Exportação" if c in Customers_exp else "Armazém -> Cliente Doméstico"
             routes_list.append({
               "Origem": cda_to_name.get(d, d),
               "Destino": c,
               "Produto": p,
               "Quantidade (ton)": val,
               "Período": t,
-              "Tipo de Rota": "Armazém -> Cliente",
+              "Tipo de Rota": r_type,
               "Distancia (km)": dist,
               "Custo Frete (R$)": freight,
               "Custo Armazenagem (R$)": 0.0,
@@ -2422,13 +2525,14 @@ def run_stochastic_model(
           if val > 1e-4:
             dist = pyo.value(model.DistanceOC[o, c])
             freight = val * dist * pyo.value(model.FreightOrigin[o])
+            r_type = "Origem -> Cliente Exportação" if c in Customers_exp else "Origem -> Cliente Doméstico"
             routes_list.append({
               "Origem": o,
               "Destino": c,
               "Produto": p,
               "Quantidade (ton)": val,
               "Período": t,
-              "Tipo de Rota": "Origem -> Cliente",
+              "Tipo de Rota": r_type,
               "Distancia (km)": dist,
               "Custo Frete (R$)": freight,
               "Custo Armazenagem (R$)": 0.0,
@@ -2442,12 +2546,16 @@ def run_stochastic_model(
         for p in all_products:
           for t in periods:
             val = pyo.value(model.Inventory[d, p, t, s])
+            tariff = pyo.value(model.StorageTariff[d, p])
+            cost = val * tariff
             inv_list.append({
               "CDA": d,
               "Name": cda_to_name.get(d, d),
               "Produto": p,
               "Período": t,
-              "Quantidade (ton)": val
+              "Quantidade (ton)": val,
+              "StorageTariff": tariff,
+              "StorageCost": cost
             })
       scenario_inventory[s] = inv_list
 
@@ -2462,6 +2570,7 @@ def run_stochastic_model(
         is_bulk = pyo.value(model.IsBulkified[d]) > 0.5 if d in bulk_eligible_list else False
         bulk_cap = pyo.value(model.BulkCapacity[d]) if d in bulk_eligible_list else 0.0
         
+        # Calculate inflow/outflow/stock per scenario
         total_outflow = sum(
           pyo.value(model.FlowDC[d_, c, p, t, s])
           for (d_, c, p) in model.ValidRoutesDC if d_ == d
@@ -2491,7 +2600,16 @@ def run_stochastic_model(
         expand_c = pyo.value(model.IsExpanded[d]) * pyo.value(model.ExpandFixedCost[d]) + pyo.value(model.ExpandedCapacity[d]) * pyo.value(model.ExpandVarCost[d])
         bulk_c = pyo.value(model.IsBulkified[d]) * pyo.value(model.BulkFixedCost[d]) + pyo.value(model.BulkCapacity[d]) * pyo.value(model.BulkVarCost[d]) if d in bulk_eligible_list else 0.0
         storage_c = sum(pyo.value(model.Inventory[d, p, t, s]) * pyo.value(model.StorageTariff[d, p]) for p in all_products for t in periods)
-        total_c = opening_c + expand_c + bulk_c + storage_c
+        transshipment_c = sum(
+          pyo.value(model.FlowOD[o, d_, p, t, s]) * pyo.value(model.TransshipmentCost[d_])
+          for (o, d_, p) in model.ValidRoutesOD if d_ == d
+          for t in model.TimePeriods
+        ) + sum(
+          pyo.value(model.FlowDD[d1, d2, p, t, s]) * pyo.value(model.TransshipmentCost[d2])
+          for (d1, d2, p) in model.ValidRoutesDD if d2 == d
+          for t in model.TimePeriods
+        )
+        total_c = opening_c + expand_c + bulk_c + storage_c + transshipment_c
 
         wh_metrics.append({
           "CDA": d,
@@ -2513,6 +2631,7 @@ def run_stochastic_model(
           "ExpandCost": expand_c,
           "BulkCost": bulk_c,
           "StorageCost": storage_c,
+          "TransshipmentCost": transshipment_c,
           "TotalCost": total_c
         })
       scenario_warehouse_metrics[s] = wh_metrics
@@ -2540,7 +2659,7 @@ def run_stochastic_model(
       bulk_cap = pyo.value(model.BulkCapacity[d]) if d in bulk_eligible_list else 0.0
 
       wh_dec = next(item for item in scenario_warehouse_metrics["esperado"] if item["CDA"] == d)
-      total_wh_cost = wh_dec["OpeningCost"] + wh_dec["ExpandCost"] + wh_dec["BulkCost"] + wh_dec["StorageCost"]
+      total_wh_cost = wh_dec["OpeningCost"] + wh_dec["ExpandCost"] + wh_dec["BulkCost"] + wh_dec["StorageCost"] + wh_dec["TransshipmentCost"]
 
       wh_decisions_list.append({
         "CDA": d,
@@ -2562,6 +2681,7 @@ def run_stochastic_model(
         "ExpandCost": wh_dec["ExpandCost"],
         "BulkCost": wh_dec["BulkCost"],
         "StorageCost": wh_dec["StorageCost"],
+        "TransshipmentCost": wh_dec["TransshipmentCost"],
         "TotalCost": total_wh_cost
       })
     results_dict["warehouse_decisions"] = wh_decisions_list
@@ -2600,7 +2720,8 @@ def compute_evpi_vss(
   bulk_fixed_cost=None,
   bulk_var_cost=None,
   bulk_eligible_types=None,
-  lang="pt"
+  lang="pt",
+  solver_name="cbc"
 ):
   """
   Computes EVPI and VSS by running deterministic solves and fixing variables.
@@ -2679,7 +2800,8 @@ def compute_evpi_vss(
       bulk_fixed_cost=bulk_fixed_cost,
       bulk_var_cost=bulk_var_cost,
       bulk_eligible_types=bulk_eligible_types,
-      lang=lang
+      lang=lang,
+      solver_name=solver_name
     )
 
     if det_res["status"] != "optimal":
@@ -2743,7 +2865,8 @@ def compute_evpi_vss(
     bulk_fixed_cost=bulk_fixed_cost,
     bulk_var_cost=bulk_var_cost,
     bulk_eligible_types=bulk_eligible_types,
-    lang=lang
+    lang=lang,
+    solver_name=solver_name
   )
 
   if ev_res["status"] != "optimal":
@@ -2810,17 +2933,60 @@ def compute_evpi_vss(
         model.BulkCapacity[d].fix(0.0)
 
   # Run solver for fixed EEV stochastic model
-  solver = SolverFactory('cbc')
-  if solver_time_limit is not None:
-    solver.options['sec'] = int(solver_time_limit)
-  if solver_gap is not None:
+  root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+  lic_path = os.environ.get("GRB_LICENSE_FILE")
+  if not lic_path or not os.path.exists(lic_path):
+    lic_path = os.path.join(root_dir, "secrets", "gurobi.lic")
+
+  if solver_name == 'gurobi':
+    if not os.path.exists(lic_path):
+      raise ValueError(translate("Licença do Gurobi não encontrada na sessão. Por favor, envie o arquivo de licença nas configurações do modelo.", lang))
+    
+    os.environ["GRB_LICENSE_FILE"] = lic_path
+    
     try:
-      gap_val = float(solver_gap)
-      if gap_val > 1.0:
-        gap_val = gap_val / 100.0
-      solver.options['ratioGap'] = gap_val
-    except Exception:
-      solver.options['ratioGap'] = 0.01
+      solver = SolverFactory('gurobi_direct')
+      if not solver.available(exception_free=True):
+        solver = SolverFactory('gurobi')
+        if not solver.available():
+          raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o Gurobi está instalado e no PATH do sistema.", lang))
+    except Exception as e:
+      try:
+        solver = SolverFactory('gurobi')
+        if not solver.available():
+          raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o Gurobi está instalado e no PATH do sistema.", lang))
+      except Exception as e2:
+        raise ValueError(translate("O solver Gurobi não está disponível. Certifique-se de que o pacote gurobipy está instalado no python ou o Gurobi está no PATH do sistema. Detalhes: {error}", lang).format(error=str(e2)))
+    
+    if solver_time_limit is not None:
+      solver.options['TimeLimit'] = int(solver_time_limit)
+    else:
+      solver.options['TimeLimit'] = 1200
+      
+    if solver_gap is not None:
+      try:
+        gap_val = float(solver_gap)
+        if gap_val > 1.0:
+          gap_val = gap_val / 100.0
+        solver.options['MIPGap'] = gap_val
+      except Exception:
+        solver.options['MIPGap'] = 0.01
+  else:
+    solver = SolverFactory('cbc')
+    
+    if solver_time_limit is not None:
+      solver.options['sec'] = int(solver_time_limit)
+    else:
+      solver.options['sec'] = 1200
+      
+    if solver_gap is not None:
+      try:
+        gap_val = float(solver_gap)
+        if gap_val > 1.0:
+          gap_val = gap_val / 100.0
+        solver.options['ratioGap'] = gap_val
+      except Exception:
+        solver.options['ratioGap'] = 0.01
 
   results = solver.solve(model)
   if results.solver.termination_condition != pyo.TerminationCondition.optimal:

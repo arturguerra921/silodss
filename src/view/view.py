@@ -1309,6 +1309,7 @@ def serve_layout(lang="pt"):
             dcc.Store(id='store-prediction-results'),
             dcc.Store(id='store-forecast-residuals'),
             dcc.Store(id='store-historical-max-dates'),
+            dcc.Store(id='store-gurobi-lic', storage_type='session'),
             dcc.Store(id='store-help-seen', storage_type='local'),
 
             navbar,
@@ -4214,6 +4215,7 @@ def toggle_bulk_collapse(is_enabled):
         State('input-interhub-factor', 'value'),
         State('input-solver-gap', 'value'),
         State('input-solver-time-limit', 'value'),
+        State('dropdown-solver-name', 'value'),
         State('toggle-expansion-enabled', 'value'),
         State('toggle-bulk-enabled', 'value'),
         State('input-ratio-expand-rec', 'value'),
@@ -4233,6 +4235,7 @@ def toggle_bulk_collapse(is_enabled):
         State('input-supply-error-pct', 'value'),
         State('input-demand-error-pct', 'value'),
         State('store-prediction-results', 'data'),
+        State('store-gurobi-lic', 'data'),
         State('store-lang', 'data')
     ],
     background=True,
@@ -4249,12 +4252,12 @@ def toggle_bulk_collapse(is_enabled):
     prevent_initial_call=True
 )
 def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
-                  toggle_pareto, toggle_direct_arcs, input_allocation_days, interhub_factor, solver_gap, solver_time_limit,
+                  toggle_pareto, toggle_direct_arcs, input_allocation_days, interhub_factor, solver_gap, solver_time_limit, solver_name,
                   expansion_enabled, bulk_enabled,
                   ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
                   max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
                   model_type, prob_pessimista, prob_esperado, prob_otimista, error_source,
-                  supply_error_pct, demand_error_pct, prediction_results_json, lang='pt'):
+                  supply_error_pct, demand_error_pct, prediction_results_json, gurobi_lic_data, lang='pt'):
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -4419,96 +4422,172 @@ def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored
             print(f"Warning: Could not load Storage CSV: {e}")
             df_storage = pd.DataFrame()
 
-        # Run appropriate model
-        if model_type == "stochastic":
-            # Validate predictions
+        temp_lic_path = None
+        if solver_name == 'gurobi':
+            if not gurobi_lic_data:
+                return translate("Licença do Gurobi não encontrada na sessão. Por favor, envie o arquivo de licença nas configurações do modelo.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+            
             try:
-                if not prediction_results_json:
-                    raise ValueError()
-                preds = json.loads(prediction_results_json)
-                if not preds:
-                    raise ValueError()
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.lic', encoding='utf-8') as temp_lic:
+                    temp_lic.write(gurobi_lic_data)
+                    temp_lic_path = temp_lic.name
+                os.environ["GRB_LICENSE_FILE"] = temp_lic_path
+            except Exception as e:
+                return translate("Erro ao processar licença.", lang) + f" {str(e)}", "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+
+        try:
+            # Run appropriate model
+            if model_type == "stochastic":
+                # Validate predictions
+                try:
+                    if not prediction_results_json:
+                        raise ValueError()
+                    preds = json.loads(prediction_results_json)
+                    if not preds:
+                        raise ValueError()
+                except Exception:
+                    return translate("Erro: O modelo estocástico requer que as previsões na aba 'Previsão' tenham sido executadas primeiro.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+
+                # Validate scenario probabilities
+                p_pess = 0.33 if prob_pessimista is None else float(prob_pessimista)
+                p_esp = 0.34 if prob_esperado is None else float(prob_esperado)
+                p_otim = 0.33 if prob_otimista is None else float(prob_otimista)
+                tot_prob = p_pess + p_esp + p_otim
+                if abs(tot_prob - 1.0) > 1e-4:
+                    return translate("Erro: A soma das probabilidades dos cenários deve ser igual a 1.0 (atual: {val:.2f})", lang).format(val=tot_prob), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+
+                scenario_probabilities = {
+                    "pessimista": p_pess,
+                    "esperado": p_esp,
+                    "otimista": p_otim
+                }
+
+                log_filename, results_dict = run_stochastic_model(
+                    df_supply=df_supply,
+                    df_warehouses=df_warehouses,
+                    df_compat=df_compat,
+                    df_dist_supply_wh=df_dist_supply_wh,
+                    df_dist_wh_demand=df_dist_wh_demand,
+                    df_dist_wh_wh=df_dist_wh_wh,
+                    df_demand=df_demand,
+                    df_freight=df_freight,
+                    df_storage=df_storage,
+                    scenario_probabilities=scenario_probabilities,
+                    error_source=error_source or "prediction",
+                    supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
+                    demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
+                    prediction_results=preds,
+                    df_dist_supply_demand=df_dist_supply_demand,
+                    detailed_log=detailed_log,
+                    toggle_pareto=toggle_pareto,
+                    input_allocation_days=input_allocation_days,
+                    interhub_factor=interhub_factor,
+                    solver_gap=solver_gap,
+                    solver_time_limit=solver_time_limit,
+                    ratio_expand_rec=ratio_expand_rec,
+                    ratio_expand_ship=ratio_expand_ship,
+                    max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+                    expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+                    expand_var_cost=expand_var_cost if expansion_enabled else None,
+                    max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+                    bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+                    bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+                    bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+                    lang=lang,
+                    log_path=log_path,
+                    solver_name=solver_name
+                )
+            else:
+                log_filename, results_dict = run_deterministic_model(
+                    df_supply=df_supply,
+                    df_warehouses=df_warehouses,
+                    df_compat=df_compat,
+                    df_dist_supply_wh=df_dist_supply_wh,
+                    df_dist_wh_demand=df_dist_wh_demand,
+                    df_dist_wh_wh=df_dist_wh_wh,
+                    df_demand=df_demand,
+                    df_freight=df_freight,
+                    df_storage=df_storage,
+                    df_dist_supply_demand=df_dist_supply_demand,
+                    detailed_log=detailed_log,
+                    toggle_pareto=toggle_pareto,
+                    input_allocation_days=input_allocation_days,
+                    interhub_factor=interhub_factor,
+                    solver_gap=solver_gap,
+                    solver_time_limit=solver_time_limit,
+                    ratio_expand_rec=ratio_expand_rec,
+                    ratio_expand_ship=ratio_expand_ship,
+                    max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+                    expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+                    expand_var_cost=expand_var_cost if expansion_enabled else None,
+                    max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+                    bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+                    bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+                    bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+                    lang=lang,
+                    log_path=log_path,
+                    solver_name=solver_name
+                )
+        finally:
+            if temp_lic_path:
+                try:
+                    if os.path.exists(temp_lic_path):
+                        os.remove(temp_lic_path)
+                except Exception:
+                    pass
+                os.environ.pop("GRB_LICENSE_FILE", None)
+
+        # Store configuration options used to generate these results
+        pred_model_name = "N/A"
+        pred_test_size = "N/A"
+        pred_horizon = "N/A"
+        if prediction_results_json:
+            try:
+                preds_meta = json.loads(prediction_results_json)
+                if preds_meta:
+                    for combo_key, combo_val in preds_meta.items():
+                        if isinstance(combo_val, dict) and 'model' in combo_val:
+                            pred_model_name = combo_val.get('model', "N/A")
+                            pred_test_size = combo_val.get('test_size', "N/A")
+                            pred_horizon = combo_val.get('horizon', "N/A")
+                            break
             except Exception:
-                return translate("Erro: O modelo estocástico requer que as previsões na aba 'Previsão' tenham sido executadas primeiro.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
+                pass
 
-            # Validate scenario probabilities
-            p_pess = 0.33 if prob_pessimista is None else float(prob_pessimista)
-            p_esp = 0.34 if prob_esperado is None else float(prob_esperado)
-            p_otim = 0.33 if prob_otimista is None else float(prob_otimista)
-            tot_prob = p_pess + p_esp + p_otim
-            if abs(tot_prob - 1.0) > 1e-4:
-                return translate("Erro: A soma das probabilidades dos cenários deve ser igual a 1.0 (atual: {val:.2f})", lang).format(val=tot_prob), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
-
-            scenario_probabilities = {
-                "pessimista": p_pess,
-                "esperado": p_esp,
-                "otimista": p_otim
-            }
-
-            log_filename, results_dict = run_stochastic_model(
-                df_supply=df_supply,
-                df_warehouses=df_warehouses,
-                df_compat=df_compat,
-                df_dist_supply_wh=df_dist_supply_wh,
-                df_dist_wh_demand=df_dist_wh_demand,
-                df_dist_wh_wh=df_dist_wh_wh,
-                df_demand=df_demand,
-                df_freight=df_freight,
-                df_storage=df_storage,
-                scenario_probabilities=scenario_probabilities,
-                error_source=error_source or "prediction",
-                supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
-                demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
-                prediction_results=preds,
-                df_dist_supply_demand=df_dist_supply_demand,
-                detailed_log=detailed_log,
-                toggle_pareto=toggle_pareto,
-                input_allocation_days=input_allocation_days,
-                interhub_factor=interhub_factor,
-                solver_gap=solver_gap,
-                solver_time_limit=solver_time_limit,
-                ratio_expand_rec=ratio_expand_rec,
-                ratio_expand_ship=ratio_expand_ship,
-                max_expand_capacity=max_expand_capacity if expansion_enabled else None,
-                expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
-                expand_var_cost=expand_var_cost if expansion_enabled else None,
-                max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
-                bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
-                bulk_var_cost=bulk_var_cost if bulk_enabled else None,
-                bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-                lang=lang,
-                log_path=log_path
-            )
-        else:
-            log_filename, results_dict = run_deterministic_model(
-                df_supply=df_supply,
-                df_warehouses=df_warehouses,
-                df_compat=df_compat,
-                df_dist_supply_wh=df_dist_supply_wh,
-                df_dist_wh_demand=df_dist_wh_demand,
-                df_dist_wh_wh=df_dist_wh_wh,
-                df_demand=df_demand,
-                df_freight=df_freight,
-                df_storage=df_storage,
-                df_dist_supply_demand=df_dist_supply_demand,
-                detailed_log=detailed_log,
-                toggle_pareto=toggle_pareto,
-                input_allocation_days=input_allocation_days,
-                interhub_factor=interhub_factor,
-                solver_gap=solver_gap,
-                solver_time_limit=solver_time_limit,
-                ratio_expand_rec=ratio_expand_rec,
-                ratio_expand_ship=ratio_expand_ship,
-                max_expand_capacity=max_expand_capacity if expansion_enabled else None,
-                expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
-                expand_var_cost=expand_var_cost if expansion_enabled else None,
-                max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
-                bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
-                bulk_var_cost=bulk_var_cost if bulk_enabled else None,
-                bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-                lang=lang,
-                log_path=log_path
-            )
+        results_dict["configs"] = {
+            "model_type": model_type,
+            "input_allocation_days": input_allocation_days,
+            "interhub_factor": interhub_factor,
+            "solver_gap": solver_gap,
+            "solver_time_limit": solver_time_limit,
+            "solver_name": solver_name,
+            "expansion_enabled": expansion_enabled,
+            "bulk_enabled": bulk_enabled,
+            "ratio_expand_rec": ratio_expand_rec,
+            "ratio_expand_ship": ratio_expand_ship,
+            "max_expand_capacity": max_expand_capacity,
+            "expand_fixed_cost": expand_fixed_cost,
+            "expand_var_cost": expand_var_cost,
+            "max_bulk_capacity": max_bulk_capacity,
+            "bulk_fixed_cost": bulk_fixed_cost,
+            "bulk_var_cost": bulk_var_cost,
+            "bulk_eligible_types": bulk_eligible_types,
+            "detailed_log": detailed_log,
+            "toggle_pareto": toggle_pareto,
+            "toggle_direct_arcs": toggle_direct_arcs,
+            "prediction_model": pred_model_name,
+            "prediction_test_size": pred_test_size,
+            "prediction_horizon": pred_horizon
+        }
+        if model_type == "stochastic":
+            results_dict["configs"].update({
+                "prob_pessimista": prob_pessimista,
+                "prob_esperado": prob_esperado,
+                "prob_otimista": prob_otimista,
+                "error_source": error_source,
+                "supply_error_pct": supply_error_pct,
+                "demand_error_pct": demand_error_pct,
+            })
 
         # Get execution time
         exec_time = results_dict.get('kpis', {}).get('execution_time', 0.0)
@@ -4533,6 +4612,11 @@ def make_warehouse_row(w, lang):
     def fmt_num(v):
         if v is None:
             v = 0.0
+        if abs(v) >= 1e9:
+            s = f"{v:.2e}"
+            if lang != 'en':
+                s = s.replace(".", ",")
+            return s
         return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     is_cand = w.get("IsCandidate", False)
@@ -4623,11 +4707,21 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, selected_sc
     def fmt_curr(val):
         if val is None:
             val = 0.0
+        if abs(val) >= 1e9:
+            s = f"{val:.2e}"
+            if lang != 'en':
+                s = s.replace(".", ",")
+            return f"R$ {s}"
         return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     def fmt_num(val):
         if val is None:
             val = 0.0
+        if abs(val) >= 1e9:
+            s = f"{val:.2e}"
+            if lang != 'en':
+                s = s.replace(".", ",")
+            return s
         return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     show_all_warehouses_bool = bool(show_all_warehouses)
@@ -4744,7 +4838,7 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, selected_sc
             row_data["Período"] = r["Período"]
 
         if "Tipo de Rota" in r:
-            row_data["Tipo de Rota"] = r["Tipo de Rota"]
+            row_data["Tipo de Rota"] = translate(r["Tipo de Rota"], lang)
 
         table_data.append(row_data)
 
@@ -4894,6 +4988,171 @@ def download_results(n_clicks, results_data, lang='pt'):
         return dash.no_update
 
     model_stats = results_data.get("model_stats", {})
+    configs = results_data.get("configs", {})
+    
+    config_rows = []
+    
+    # 1. General Settings
+    model_type_val = configs.get("model_type", results_data.get("model_type", "deterministic"))
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Tipo de Modelo", lang),
+        translate("Valor", lang): translate("Estocástico", lang) if model_type_val == "stochastic" else translate("Determinístico", lang)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Solver", lang),
+        translate("Valor", lang): str(configs.get("solver_name", "cbc")).upper()
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Gap do solver (%)", lang),
+        translate("Valor", lang): configs.get("solver_gap", 0.0)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Tempo limite do solver (s)", lang),
+        translate("Valor", lang): configs.get("solver_time_limit", 0)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Dias operacionais por período", lang),
+        translate("Valor", lang): configs.get("input_allocation_days", 0)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Fator interhub (α)", lang),
+        translate("Valor", lang): configs.get("interhub_factor", 0.0)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Ativar Arcos Diretos (Origem -> Cliente)", lang),
+        translate("Valor", lang): translate("Sim", lang) if configs.get("toggle_direct_arcs") else translate("Não", lang)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Geral", lang),
+        translate("Parâmetro", lang): translate("Filtrar rotas pelo Pareto de distância", lang),
+        translate("Valor", lang): translate("Sim", lang) if configs.get("toggle_pareto") else translate("Não", lang)
+    })
+    
+    # 2. Expansion Settings
+    exp_enabled = configs.get("expansion_enabled", False)
+    config_rows.append({
+        translate("Categoria", lang): translate("Expansão Física", lang),
+        translate("Parâmetro", lang): translate("Habilitar Expansão", lang),
+        translate("Valor", lang): translate("Sim", lang) if exp_enabled else translate("Não", lang)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Expansão Física", lang),
+        translate("Parâmetro", lang): translate("Razão de Capacidade de Recepção", lang),
+        translate("Valor", lang): configs.get("ratio_expand_rec", 0.0)
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Expansão Física", lang),
+        translate("Parâmetro", lang): translate("Razão de Capacidade de Expedição", lang),
+        translate("Valor", lang): configs.get("ratio_expand_ship", 0.0)
+    })
+    if exp_enabled:
+        config_rows.append({
+            translate("Categoria", lang): translate("Expansão Física", lang),
+            translate("Parâmetro", lang): translate("Expansão máxima (t)", lang),
+            translate("Valor", lang): configs.get("max_expand_capacity", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Expansão Física", lang),
+            translate("Parâmetro", lang): translate("Custo fixo de expansão ($)", lang),
+            translate("Valor", lang): configs.get("expand_fixed_cost", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Expansão Física", lang),
+            translate("Parâmetro", lang): translate("Custo variável de expansão ($/t)", lang),
+            translate("Valor", lang): configs.get("expand_var_cost", 0.0)
+        })
+        
+    # 3. Bulkification Settings
+    bulk_enabled = configs.get("bulk_enabled", False)
+    config_rows.append({
+        translate("Categoria", lang): translate("Granelização", lang),
+        translate("Parâmetro", lang): translate("Habilitar Granelização", lang),
+        translate("Valor", lang): translate("Sim", lang) if bulk_enabled else translate("Não", lang)
+    })
+    if bulk_enabled:
+        config_rows.append({
+            translate("Categoria", lang): translate("Granelização", lang),
+            translate("Parâmetro", lang): translate("Granelização máxima (t/dia)", lang),
+            translate("Valor", lang): configs.get("max_bulk_capacity", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Granelização", lang),
+            translate("Parâmetro", lang): translate("Custo fixo de granelização ($)", lang),
+            translate("Valor", lang): configs.get("bulk_fixed_cost", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Granelização", lang),
+            translate("Parâmetro", lang): translate("Custo var. de granelização ($/(t · dia))", lang),
+            translate("Valor", lang): configs.get("bulk_var_cost", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Granelização", lang),
+            translate("Parâmetro", lang): translate("Tipos elegíveis para granelização", lang),
+            translate("Valor", lang): ", ".join(configs.get("bulk_eligible_types", []) or [])
+        })
+
+    # 4. Stochastic Settings (if stochastic)
+    if model_type_val == "stochastic":
+        config_rows.append({
+            translate("Categoria", lang): translate("Modelo Estocástico", lang),
+            translate("Parâmetro", lang): translate("Probabilidade Cenário Pessimista", lang),
+            translate("Valor", lang): configs.get("prob_pessimista", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Modelo Estocástico", lang),
+            translate("Parâmetro", lang): translate("Probabilidade Cenário Esperado", lang),
+            translate("Valor", lang): configs.get("prob_esperado", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Modelo Estocástico", lang),
+            translate("Parâmetro", lang): translate("Probabilidade Cenário Otimista", lang),
+            translate("Valor", lang): configs.get("prob_otimista", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Modelo Estocástico", lang),
+            translate("Parâmetro", lang): translate("Origem da incerteza", lang),
+            translate("Valor", lang): translate("Previsão de Demanda/Oferta", lang) if configs.get("error_source") == "prediction" else translate("Variação Percentual", lang)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Modelo Estocástico", lang),
+            translate("Parâmetro", lang): translate("Incerteza da Oferta (%)", lang),
+            translate("Valor", lang): configs.get("supply_error_pct", 0.0)
+        })
+        config_rows.append({
+            translate("Categoria", lang): translate("Modelo Estocástico", lang),
+            translate("Parâmetro", lang): translate("Incerteza da Demanda (%)", lang),
+            translate("Valor", lang): configs.get("demand_error_pct", 0.0)
+        })
+        
+    # 5. Prediction Settings (if predictions used)
+    pred_model = configs.get("prediction_model", "N/A")
+    pred_test_size = configs.get("prediction_test_size", "N/A")
+    pred_horizon = configs.get("prediction_horizon", "N/A")
+    
+    config_rows.append({
+        translate("Categoria", lang): translate("Previsão", lang),
+        translate("Parâmetro", lang): translate("Modelo de Previsão", lang),
+        translate("Valor", lang): pred_model
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Previsão", lang),
+        translate("Parâmetro", lang): translate("Período de Teste (meses)", lang),
+        translate("Valor", lang): pred_test_size
+    })
+    config_rows.append({
+        translate("Categoria", lang): translate("Previsão", lang),
+        translate("Parâmetro", lang): translate("Horizonte de Previsão (meses)", lang),
+        translate("Valor", lang): pred_horizon
+    })
+    
+    df_config = pd.DataFrame(config_rows)
 
     if results_data.get("model_type") == "stochastic":
         scenarios = ["pessimista", "esperado", "otimista"]
@@ -4939,7 +5198,6 @@ def download_results(n_clicks, results_data, lang='pt'):
                     translate("Tipo de Rota", lang): translate(r.get("Tipo de Rota", ""), lang),
                     translate("Distancia (km)", lang): r.get("Distancia (km)", 0.0),
                     translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0),
-                    translate("Custo Armazenagem (R$)", lang): r.get("Custo Armazenagem (R$)", 0.0),
                     translate("Custo Total (R$)", lang): r.get("Custo Total (R$)", 0.0)
                 }
                 if "Qtd. de Viagens" in r and r["Qtd. de Viagens"] is not None:
@@ -4978,7 +5236,13 @@ def download_results(n_clicks, results_data, lang='pt'):
                     translate("Saída Total (ton)", lang): w.get("TotalOutflow", 0.0),
                     translate("Estoque Final (ton)", lang): w.get("FinalStock", 0.0),
                     translate("Cap. Dinâmica Anual (ton/ano)", lang): w.get("DynamicCapacity", 0.0),
-                    translate("Giro Anual", lang): w.get("TurnoverRatio", 0.0)
+                    translate("Giro Anual", lang): w.get("TurnoverRatio", 0.0),
+                    translate("Custo Abertura (R$)", lang): w.get("OpeningCost", 0.0),
+                    translate("Custo Expansão (R$)", lang): w.get("ExpandCost", 0.0),
+                    translate("Custo Granelização (R$)", lang): w.get("BulkCost", 0.0),
+                    translate("Custo Armazenagem (R$)", lang): w.get("StorageCost", 0.0),
+                    translate("Custo Transbordo (R$)", lang): w.get("TransshipmentCost", 0.0),
+                    translate("Custo Total (R$)", lang): w.get("TotalCost", 0.0)
                 })
             df_wh_by_scen[s] = pd.DataFrame(wh_rows)
 
@@ -4992,7 +5256,9 @@ def download_results(n_clicks, results_data, lang='pt'):
                     translate("Nome", lang): i.get("Name", ""),
                     translate("Produto", lang): i.get("Produto", ""),
                     translate("Período", lang): i.get("Período", ""),
-                    translate("Estoque (ton)", lang): i.get("Quantidade (ton)", 0.0)
+                    translate("Estoque (ton)", lang): i.get("Quantidade (ton)", 0.0),
+                    translate("Tarifa Armazenagem (R$/ton)", lang): i.get("StorageTariff", 0.0),
+                    translate("Custo Armazenagem (R$)", lang): i.get("StorageCost", 0.0)
                 })
             df_inv_by_scen[s] = pd.DataFrame(inv_rows)
 
@@ -5015,6 +5281,7 @@ def download_results(n_clicks, results_data, lang='pt'):
                     df_wh_by_scen[s].to_excel(writer, sheet_name=f"{translate('Armazéns', lang)} ({s_label})", index=False)
                     df_routes_by_scen[s].to_excel(writer, sheet_name=f"{translate('Rotas', lang)} ({s_label})", index=False)
                     df_inv_by_scen[s].to_excel(writer, sheet_name=f"{translate('Estoque', lang)} ({s_label})", index=False)
+                df_config.to_excel(writer, sheet_name=translate("Configurações", lang), index=False)
                 df_stats.to_excel(writer, sheet_name=translate("Estatísticas do Modelo", lang), index=False)
 
         filename = translate("Optimization_Results.xlsx", lang)
@@ -5070,7 +5337,13 @@ def download_results(n_clicks, results_data, lang='pt'):
             translate("Saída Total (ton)", lang): w.get("TotalOutflow", 0.0),
             translate("Estoque Final (ton)", lang): w.get("FinalStock", 0.0),
             translate("Cap. Dinâmica Anual (ton/ano)", lang): w.get("DynamicCapacity", 0.0),
-            translate("Giro Anual", lang): w.get("TurnoverRatio", 0.0)
+            translate("Giro Anual", lang): w.get("TurnoverRatio", 0.0),
+            translate("Custo Abertura (R$)", lang): w.get("OpeningCost", 0.0),
+            translate("Custo Expansão (R$)", lang): w.get("ExpandCost", 0.0),
+            translate("Custo Granelização (R$)", lang): w.get("BulkCost", 0.0),
+            translate("Custo Armazenagem (R$)", lang): w.get("StorageCost", 0.0),
+            translate("Custo Transbordo (R$)", lang): w.get("TransshipmentCost", 0.0),
+            translate("Custo Total (R$)", lang): w.get("TotalCost", 0.0)
         })
     df_wh = pd.DataFrame(wh_rows)
 
@@ -5086,7 +5359,6 @@ def download_results(n_clicks, results_data, lang='pt'):
             translate("Tipo de Rota", lang): translate(r.get("Tipo de Rota", ""), lang),
             translate("Distancia (km)", lang): r.get("Distancia (km)", 0.0),
             translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0),
-            translate("Custo Armazenagem (R$)", lang): r.get("Custo Armazenagem (R$)", 0.0),
             translate("Custo Total (R$)", lang): r.get("Custo Total (R$)", 0.0)
         }
         if "Qtd. de Viagens" in r and r["Qtd. de Viagens"] is not None:
@@ -5102,7 +5374,9 @@ def download_results(n_clicks, results_data, lang='pt'):
             translate("Nome", lang): i.get("Name", ""),
             translate("Produto", lang): i.get("Produto", ""),
             translate("Período", lang): i.get("Período", ""),
-            translate("Estoque (ton)", lang): i.get("Quantidade (ton)", 0.0)
+            translate("Estoque (ton)", lang): i.get("Quantidade (ton)", 0.0),
+            translate("Tarifa Armazenagem (R$/ton)", lang): i.get("StorageTariff", 0.0),
+            translate("Custo Armazenagem (R$)", lang): i.get("StorageCost", 0.0)
         })
     df_inv = pd.DataFrame(inv_rows)
 
@@ -5124,6 +5398,7 @@ def download_results(n_clicks, results_data, lang='pt'):
             df_wh.to_excel(writer, sheet_name=translate("Decisões Armazéns", lang), index=False)
             df_routes.to_excel(writer, sheet_name=translate("Rotas", lang), index=False)
             df_inv.to_excel(writer, sheet_name=translate("Estoque por Período", lang), index=False)
+            df_config.to_excel(writer, sheet_name=translate("Configurações", lang), index=False)
             df_stats.to_excel(writer, sheet_name=translate("Estatísticas do Modelo", lang), index=False)
 
     filename = translate("Optimization_Results.xlsx", lang)
@@ -5707,16 +5982,31 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
         def fmt_curr(val):
             if val is None:
                 val = 0.0
+            if abs(val) >= 1e9:
+                s = f"{val:.2e}"
+                if lang != 'en':
+                    s = s.replace(".", ",")
+                return f"R$ {s}"
             return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
         def fmt_num(val):
             if val is None:
                 val = 0.0
+            if abs(val) >= 1e9:
+                s = f"{val:.2e}"
+                if lang != 'en':
+                    s = s.replace(".", ",")
+                return s
             return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             
         def fmt_num_integer(val):
             if val is None:
                 val = 0.0
+            if abs(val) >= 1e9:
+                s = f"{val:.2e}"
+                if lang != 'en':
+                    s = s.replace(".", ",")
+                return s
             return f"{val:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
         # Get translation of selected metric
@@ -5936,11 +6226,15 @@ def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_se
         {"label": translate("Ver Todos", lang), "value": "all"},
         {"label": translate("Origem -> Armazém", lang), "value": "inflow"},
         {"label": translate("Interhub", lang), "value": "interhub"},
-        {"label": translate("Armazém -> Cliente", lang), "value": "outflow"},
+        {"label": translate("Armazém -> Cliente Doméstico", lang), "value": "outflow_domestic"},
+        {"label": translate("Armazém -> Cliente Exportação", lang), "value": "outflow_export"},
     ]
     
     if toggle_direct_arcs:
-        default_options.append({"label": translate("Origem -> Cliente", lang), "value": "direct"})
+        default_options.extend([
+            {"label": translate("Origem -> Cliente Doméstico", lang), "value": "direct_domestic"},
+            {"label": translate("Origem -> Cliente Exportação", lang), "value": "direct_export"}
+        ])
         
     if not results_data or results_data.get("status") != "optimal":
         return default_options, "all"
@@ -5952,19 +6246,25 @@ def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_se
         routes = results_data.get("routes", [])
         
     has_inflow = any(r.get("Tipo de Rota") == "Origem -> Armazém" for r in routes)
-    has_outflow = any(r.get("Tipo de Rota") == "Armazém -> Cliente" for r in routes)
+    has_outflow_dom = any(r.get("Tipo de Rota") in ["Armazém -> Cliente Doméstico", "Armazém -> Cliente"] for r in routes)
+    has_outflow_exp = any(r.get("Tipo de Rota") == "Armazém -> Cliente Exportação" for r in routes)
     has_transbordo = any(r.get("Tipo de Rota") == "Interhub" for r in routes)
-    has_direct = any(r.get("Tipo de Rota") == "Origem -> Cliente" for r in routes)
+    has_direct_dom = any(r.get("Tipo de Rota") in ["Origem -> Cliente Doméstico", "Origem -> Cliente"] for r in routes)
+    has_direct_exp = any(r.get("Tipo de Rota") == "Origem -> Cliente Exportação" for r in routes)
     
     options = [
         {"label": translate("Ver Todos", lang), "value": "all"},
         {"label": translate("Origem -> Armazém", lang), "value": "inflow", "disabled": not has_inflow},
         {"label": translate("Interhub", lang), "value": "interhub", "disabled": not has_transbordo},
-        {"label": translate("Armazém -> Cliente", lang), "value": "outflow", "disabled": not has_outflow},
+        {"label": translate("Armazém -> Cliente Doméstico", lang), "value": "outflow_domestic", "disabled": not has_outflow_dom},
+        {"label": translate("Armazém -> Cliente Exportação", lang), "value": "outflow_export", "disabled": not has_outflow_exp},
     ]
     
     if toggle_direct_arcs:
-        options.append({"label": translate("Origem -> Cliente", lang), "value": "direct", "disabled": not has_direct})
+        options.extend([
+            {"label": translate("Origem -> Cliente Doméstico", lang), "value": "direct_domestic", "disabled": not has_direct_dom},
+            {"label": translate("Origem -> Cliente Exportação", lang), "value": "direct_export", "disabled": not has_direct_exp}
+        ])
         
     valid_values = {opt["value"] for opt in options if not opt.get("disabled", False)}
     new_value = current_value if current_value in valid_values else "all"
@@ -6216,18 +6516,33 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
         match_orig = (orig == selected_wh_name) or (selected_wh_cda and orig_cda == selected_wh_cda)
         match_dest = (dest == selected_wh_name) or (selected_wh_cda and dest_cda == selected_wh_cda)
         
-        is_direct = r.get("Tipo de Rota") == "Origem -> Cliente"
+        r_type = r.get("Tipo de Rota", "")
+        if r_type == "Armazém -> Cliente":
+            r_type = "Armazém -> Cliente Doméstico"
+        elif r_type == "Origem -> Cliente":
+            r_type = "Origem -> Cliente Doméstico"
+            
+        is_direct_dom = r_type == "Origem -> Cliente Doméstico"
+        is_direct_exp = r_type == "Origem -> Cliente Exportação"
+        is_direct = is_direct_dom or is_direct_exp
+        
         if is_direct:
-            if filter_value in ["all", "direct"]:
+            if filter_value == "all":
+                wh_routes.append(r)
+            elif filter_value == "direct_domestic" and is_direct_dom:
+                wh_routes.append(r)
+            elif filter_value == "direct_export" and is_direct_exp:
                 wh_routes.append(r)
         elif match_orig or match_dest:
             if filter_value == "all":
                 wh_routes.append(r)
-            elif filter_value == "inflow" and r["Tipo de Rota"] == "Origem -> Armazém":
+            elif filter_value == "inflow" and r_type == "Origem -> Armazém":
                 wh_routes.append(r)
-            elif filter_value == "outflow" and r["Tipo de Rota"] == "Armazém -> Cliente":
+            elif filter_value == "outflow_domestic" and r_type == "Armazém -> Cliente Doméstico":
                 wh_routes.append(r)
-            elif filter_value == "interhub" and r["Tipo de Rota"] == "Interhub":
+            elif filter_value == "outflow_export" and r_type == "Armazém -> Cliente Exportação":
+                wh_routes.append(r)
+            elif filter_value == "interhub" and r_type == "Interhub":
                 wh_routes.append(r)
 
     grouped_flows = {}
@@ -6268,15 +6583,21 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
                 nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
                 nodes_to_draw[dest] = {"coords": dest_coords, "type": "customer", "name": dest}
 
-            if route_type == "Origem -> Armazém":
+            route_type_lookup = route_type
+            if route_type_lookup == "Armazém -> Cliente":
+                route_type_lookup = "Armazém -> Cliente Doméstico"
+            elif route_type_lookup == "Origem -> Cliente":
+                route_type_lookup = "Origem -> Cliente Doméstico"
+                
+            if route_type_lookup == "Origem -> Armazém":
                 line_color = UNB_THEME['UNB_GREEN']
                 line_name = translate("Origem -> Armazém", lang)
-            elif route_type == "Armazém -> Cliente":
+            elif route_type_lookup in ["Armazém -> Cliente Doméstico", "Armazém -> Cliente Exportação"]:
                 line_color = '#D9534F'
-                line_name = translate("Armazém -> Cliente", lang)
-            elif route_type == "Origem -> Cliente":
+                line_name = translate(route_type_lookup, lang)
+            elif route_type_lookup in ["Origem -> Cliente Doméstico", "Origem -> Cliente Exportação"]:
                 line_color = UNB_THEME['UNB_BLUE_GREEN']
-                line_name = translate("Origem -> Cliente", lang)
+                line_name = translate(route_type_lookup, lang)
             else:
                 line_color = UNB_THEME['UNB_YELLOW_DARK']
                 line_name = translate("Interhub", lang)
@@ -6359,6 +6680,11 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
     def fmt_num_only(val, decimal_places=2):
         if val is None:
             val = 0.0
+        if abs(val) >= 1e9:
+            s = f"{val:.{decimal_places}e}"
+            if lang != 'en':
+                s = s.replace(".", ",")
+            return s
         fmt = f"{{:,.{decimal_places}f}}"
         s = fmt.format(val)
         if lang != 'en':
@@ -8449,11 +8775,21 @@ def populate_stochastic_results(results_data, lang="pt"):
     def fmt_curr(val):
         if val is None:
             val = 0.0
+        if abs(val) >= 1e9:
+            s = f"{val:.2e}"
+            if lang != 'en':
+                s = s.replace(".", ",")
+            return f"R$ {s}"
         return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     def fmt_num(val):
         if val is None:
             val = 0.0
+        if abs(val) >= 1e9:
+            s = f"{val:.2e}"
+            if lang != 'en':
+                s = s.replace(".", ",")
+            return s
         return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     # 1. Scenario KPI Side-by-Side Cards
@@ -8879,6 +9215,7 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
     State('input-interhub-factor', 'value'),
     State('input-solver-gap', 'value'),
     State('input-solver-time-limit', 'value'),
+    State('dropdown-solver-name', 'value'),
     State('toggle-expansion-enabled', 'value'),
     State('toggle-bulk-enabled', 'value'),
     State('input-ratio-expand-rec', 'value'),
@@ -8897,6 +9234,7 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
     State('input-supply-error-pct', 'value'),
     State('input-demand-error-pct', 'value'),
     State('store-prediction-results', 'data'),
+    State('store-gurobi-lic', 'data'),
     State('store-lang', 'data')
   ],
   background=True,
@@ -8904,12 +9242,12 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
 )
 def run_evpi_vss(results_data,
                  stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
-                 toggle_pareto, input_allocation_days, interhub_factor, solver_gap, solver_time_limit,
+                 toggle_pareto, input_allocation_days, interhub_factor, solver_gap, solver_time_limit, solver_name,
                  expansion_enabled, bulk_enabled,
                  ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
                  max_bulk_capacity, bulk_fixed_cost, bulk_var_cost, bulk_eligible_types,
                  prob_pessimista, prob_esperado, prob_otimista, error_source,
-                 supply_error_pct, demand_error_pct, prediction_results_json, lang='pt'):
+                 supply_error_pct, demand_error_pct, prediction_results_json, gurobi_lic_data, lang='pt'):
 
   if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
     return "R$ -", "R$ -"
@@ -8955,43 +9293,71 @@ def run_evpi_vss(results_data,
       "otimista": p_otim
     }
 
-    evpi_vss_results = compute_evpi_vss(
-      df_supply=df_supply,
-      df_warehouses=df_warehouses,
-      df_compat=df_compat,
-      df_dist_supply_wh=df_dist_supply_wh,
-      df_dist_wh_demand=df_dist_wh_demand,
-      df_dist_wh_wh=df_dist_wh_wh,
-      df_demand=df_demand,
-      df_freight=df_freight,
-      df_storage=df_storage,
-      scenario_probabilities=scenario_probabilities,
-      error_source=error_source or "prediction",
-      supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
-      demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
-      prediction_results=preds,
-      stochastic_objective=stochastic_objective,
-      detailed_log=detailed_log,
-      toggle_pareto=toggle_pareto,
-      input_allocation_days=input_allocation_days,
-      interhub_factor=interhub_factor,
-      solver_gap=solver_gap,
-      solver_time_limit=solver_time_limit,
-      ratio_expand_rec=ratio_expand_rec,
-      ratio_expand_ship=ratio_expand_ship,
-      max_expand_capacity=max_expand_capacity if expansion_enabled else None,
-      expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
-      expand_var_cost=expand_var_cost if expansion_enabled else None,
-      max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
-      bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
-      bulk_var_cost=bulk_var_cost if bulk_enabled else None,
-      bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-      lang=lang
-    )
+    temp_lic_path = None
+    if solver_name == 'gurobi':
+      if not gurobi_lic_data:
+        return "R$ -", "R$ -"
+      try:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.lic', encoding='utf-8') as temp_lic:
+          temp_lic.write(gurobi_lic_data)
+          temp_lic_path = temp_lic.name
+        os.environ["GRB_LICENSE_FILE"] = temp_lic_path
+      except Exception as e:
+        print(f"Error preparing Gurobi license in run_evpi_vss: {e}")
+        return "R$ -", "R$ -"
+
+    try:
+      evpi_vss_results = compute_evpi_vss(
+        df_supply=df_supply,
+        df_warehouses=df_warehouses,
+        df_compat=df_compat,
+        df_dist_supply_wh=df_dist_supply_wh,
+        df_dist_wh_demand=df_dist_wh_demand,
+        df_dist_wh_wh=df_dist_wh_wh,
+        df_demand=df_demand,
+        df_freight=df_freight,
+        df_storage=df_storage,
+        scenario_probabilities=scenario_probabilities,
+        error_source=error_source or "prediction",
+        supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
+        demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
+        prediction_results=preds,
+        stochastic_objective=stochastic_objective,
+        detailed_log=detailed_log,
+        toggle_pareto=toggle_pareto,
+        input_allocation_days=input_allocation_days,
+        interhub_factor=interhub_factor,
+        solver_gap=solver_gap,
+        solver_time_limit=solver_time_limit,
+        ratio_expand_rec=ratio_expand_rec,
+        ratio_expand_ship=ratio_expand_ship,
+        max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+        expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+        expand_var_cost=expand_var_cost if expansion_enabled else None,
+        max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+        bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+        bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+        bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+        lang=lang,
+        solver_name=solver_name
+      )
+    finally:
+      if temp_lic_path:
+        try:
+          if os.path.exists(temp_lic_path):
+            os.remove(temp_lic_path)
+        except Exception:
+          pass
+        os.environ.pop("GRB_LICENSE_FILE", None)
 
     def fmt_curr(val):
       if val is None:
         return "R$ 0,00"
+      if abs(val) >= 1e9:
+        s = f"{val:.2e}"
+        if lang != 'en':
+          s = s.replace(".", ",")
+        return f"R$ {s}"
       return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     evpi_val = evpi_vss_results.get("evpi", 0.0)
@@ -9040,6 +9406,69 @@ def update_segment_selector_options(stored_matrix_json, lang='pt'):
         except Exception:
             pass
     return options
+
+
+def check_and_ensure_gitignore():
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    gitignore_path = os.path.join(root_dir, ".gitignore")
+    if os.path.exists(gitignore_path):
+        with open(gitignore_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        lines = content.splitlines()
+        has_secrets = any(line.strip().startswith("secrets") for line in lines)
+        if not has_secrets:
+            with open(gitignore_path, "a", encoding="utf-8") as f:
+                f.write("\n# Gurobi Secrets\nsecrets/\nsecrets/*\n")
+
+
+@app.callback(
+    Output("gurobi-lic-upload-container", "style"),
+    Input("dropdown-solver-name", "value")
+)
+def toggle_gurobi_lic_container(solver_name):
+    if solver_name == "gurobi":
+        return {"display": "block"}
+    return {"display": "none"}
+
+
+@app.callback(
+    [
+        Output("gurobi-lic-status", "children"),
+        Output("store-gurobi-lic", "data")
+    ],
+    [
+        Input("upload-gurobi-lic", "contents")
+    ],
+    [
+        State("upload-gurobi-lic", "filename"),
+        State("store-gurobi-lic", "data"),
+        State("store-lang", "data")
+    ]
+)
+def handle_gurobi_lic_upload(contents, filename, current_lic_data, lang="pt"):
+    # Delete the persistent license file if it exists (stateless precaution)
+    try:
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        lic_path = os.path.join(root_dir, "secrets", "gurobi.lic")
+        if os.path.exists(lic_path):
+            os.remove(lic_path)
+    except Exception:
+        pass
+
+    if contents is not None:
+        try:
+            content_type, content_string = contents.split(',')
+            decoded = base64.b64decode(content_string)
+            decoded_str = decoded.decode('utf-8', errors='ignore')
+            
+            return html.Span(translate("Licença carregada na sessão com sucesso!", lang), className="text-success fw-bold"), decoded_str
+        except Exception as e:
+            return html.Span(f"{translate('Erro ao processar licença.', lang)} {str(e)}", className="text-danger fw-bold"), None
+            
+    if current_lic_data:
+        return html.Span(translate("Licença ativa na sessão!", lang), className="text-success fw-bold"), current_lic_data
+    
+    return html.Span(translate("Nenhuma licença enviada. Usando configurações padrão do sistema (se houver).", lang), className="text-muted"), None
 
 
 def view():

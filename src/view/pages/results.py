@@ -447,8 +447,10 @@ def get_tab_results_layout(lang='pt'):
                                             {"label": translate("Ver Todos", lang), "value": "all"},
                                             {"label": translate("Origem -> Armazém", lang), "value": "inflow"},
                                             {"label": translate("Interhub", lang), "value": "interhub"},
-                                            {"label": translate("Armazém -> Cliente", lang), "value": "outflow"},
-                                            {"label": translate("Origem -> Cliente", lang), "value": "direct"},
+                                            {"label": translate("Armazém -> Cliente Doméstico", lang), "value": "outflow_domestic"},
+                                            {"label": translate("Armazém -> Cliente Exportação", lang), "value": "outflow_export"},
+                                            {"label": translate("Origem -> Cliente Doméstico", lang), "value": "direct_domestic"},
+                                            {"label": translate("Origem -> Cliente Exportação", lang), "value": "direct_export"},
                                         ],
                                         value="all",
                                     )

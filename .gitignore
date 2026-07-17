@@ -221,3 +221,7 @@ examples/ofertas/*
 !examples/ofertas/.gitkeep
 
 !examples/README.md
+
+# Gurobi Secrets
+secrets/
+secrets/*
