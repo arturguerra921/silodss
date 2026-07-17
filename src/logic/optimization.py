@@ -2241,6 +2241,8 @@ def run_stochastic_model(
        bulk_eligible_types=bulk_eligible_types,
        lang=lang
      )
+    Customers_exp = list(model.Customers_exp)
+    Customers_dom = list(model.Customers_dom)
 
     # 3. Pre-solve feasibility checks
     pre_solve_warnings = []
