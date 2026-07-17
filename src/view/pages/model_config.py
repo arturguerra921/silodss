@@ -380,9 +380,45 @@ def get_tab_model_config_layout(lang='pt'):
                             dbc.Spinner(spinner_class_name="text-primary-custom", spinner_style={"width": "3rem", "height": "3rem"}),
                             html.H5(translate("Otimizando alocação...", lang), className="mt-4"),
                             html.P(translate("Isso pode levar alguns minutos. Por favor, aguarde.", lang), className="text-muted text-center mt-2"),
+                            
+                            # Real-time log viewer container
+                            html.Div(
+                                [
+                                    html.Pre(
+                                        id="model-running-log-text",
+                                        style={
+                                            "maxHeight": "240px",
+                                            "overflowY": "auto",
+                                            "backgroundColor": "#1e1e1e",
+                                            "color": "#d4d4d4",
+                                            "padding": "16px",
+                                            "borderRadius": "8px",
+                                            "fontSize": "12px",
+                                            "fontFamily": "Courier New, monospace",
+                                            "textAlign": "left",
+                                            "width": "100%",
+                                            "margin": "16px 0 0 0",
+                                            "whiteSpace": "pre-wrap",
+                                            "wordBreak": "break-all"
+                                        }
+                                    )
+                                ],
+                                className="w-100",
+                                id="model-running-log-container",
+                                style={"display": "none"}
+                            ),
+                            
+                            # Interval for polling log updates (polls every 3 seconds)
+                            dcc.Interval(
+                                id="interval-model-log",
+                                interval=3000,
+                                n_intervals=0,
+                                disabled=True
+                            ),
+                            
                             dbc.Button(translate("Interromper Modelo", lang), id="btn-cancel-model", color="none", className="btn-danger-custom mt-4 w-50", disabled=True)
                         ],
-                        className="d-flex flex-column align-items-center justify-content-center p-5"
+                        className="d-flex flex-column align-items-center justify-content-center p-4"
                     )
                 ]
             )
@@ -392,6 +428,7 @@ def get_tab_model_config_layout(lang='pt'):
         backdrop="static", # Prevent closing by clicking outside
         keyboard=False, # Prevent closing with ESC key
         centered=True,
+        size="lg"
     )
 
     return html.Div([

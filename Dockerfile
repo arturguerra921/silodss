@@ -22,4 +22,4 @@ EXPOSE 8050
 # Command to run the application directly from source
 # This ensures it uses the files in /app/src, not site-packages
 # In production, we use gunicorn and bind to the port expected by Render
-CMD gunicorn wsgi:server --bind 0.0.0.0:${PORT:-8050} --timeout 720 --workers 1
+CMD gunicorn wsgi:server --bind 0.0.0.0:${PORT:-8050} --timeout 18000 --workers 1 --threads 4 --worker-class gthread

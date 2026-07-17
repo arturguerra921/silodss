@@ -1,6 +1,9 @@
 import base64
 import io
 import os
+import uuid
+import tempfile
+import traceback
 import unicodedata
 import pandas as pd
 from dash import Dash, dcc, html, Input, Output, State, dash_table, no_update
@@ -1302,6 +1305,7 @@ def serve_layout(lang="pt"):
             dcc.Store(id='store-distance-matrix'),
             dcc.Store(id='store-model-results'),
             dcc.Store(id='store-model-log'),
+            dcc.Store(id='store-active-log-filename'),
             dcc.Store(id='store-prediction-results'),
             dcc.Store(id='store-forecast-residuals'),
             dcc.Store(id='store-historical-max-dates'),
@@ -4232,14 +4236,19 @@ def toggle_bulk_collapse(is_enabled):
         State('store-lang', 'data')
     ],
     background=True,
+    progress=[
+        Output("store-active-log-filename", "data"),
+    ],
     running=[
         (Output("btn-run-model", "disabled"), True, False),
         (Output("btn-cancel-model", "disabled"), False, True),
+        (Output("interval-model-log", "disabled"), False, True),
+        (Output("model-running-log-container", "style"), {"display": "block"}, {"display": "none"}),
     ],
     cancel=[Input("btn-cancel-model", "n_clicks")],
     prevent_initial_call=True
 )
-def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
+def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
                   toggle_pareto, toggle_direct_arcs, input_allocation_days, interhub_factor, solver_gap, solver_time_limit,
                   expansion_enabled, bulk_enabled,
                   ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
@@ -4248,6 +4257,19 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                   supply_error_pct, demand_error_pct, prediction_results_json, lang='pt'):
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
+    os.makedirs(log_dir, exist_ok=True)
+    prefix = 'stochastic_log_' if model_type == "stochastic" else 'optimization_log_'
+    log_filename = f"{prefix}{uuid.uuid4().hex}.txt"
+    log_path = os.path.join(log_dir, log_filename)
+
+    # Write initial header
+    with open(log_path, 'w', encoding='utf-8') as f:
+        f.write(translate("Carregando e preparando dados para o modelo...\n", lang))
+
+    # Send log filename to the store so the interval can poll it
+    set_progress((log_filename,))
 
     if not stored_data or not stored_warehouses or not stored_prod_warehouses or not stored_matrix or not stored_demand:
         return translate("Erro: Faltam dados. Certifique-se de preencher todas as abas anteriores (Oferta, Armazéns, Relação Produto x Armazém, Demanda, Matriz de Distâncias) antes de rodar o modelo.", lang), "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
@@ -4383,7 +4405,6 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 print(f"Error merging prediction results in execute_model: {e}")
 
         # Load local CSVs for Freight and Storage
-        import os
         data_dir = os.path.join(os.path.dirname(__file__), 'assets', 'data')
 
         try:
@@ -4455,7 +4476,8 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
                 bulk_var_cost=bulk_var_cost if bulk_enabled else None,
                 bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-                lang=lang
+                lang=lang,
+                log_path=log_path
             )
         else:
             log_filename, results_dict = run_deterministic_model(
@@ -4484,7 +4506,8 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
                 bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
                 bulk_var_cost=bulk_var_cost if bulk_enabled else None,
                 bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-                lang=lang
+                lang=lang,
+                log_path=log_path
             )
 
         # Get execution time
@@ -4500,7 +4523,6 @@ def execute_model(n_clicks, stored_data, stored_warehouses, stored_prod_warehous
         return status_msg, status_class, results_dict, log_filename, next_tab
 
     except Exception as e:
-        import traceback
         err_msg = translate("Erro fatal ao executar o modelo:", lang) + f"\n{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         return err_msg, "text-danger mt-3", dash.no_update, dash.no_update, dash.no_update
 
@@ -6570,6 +6592,50 @@ app.clientside_callback(
 )
 def close_model_modal(results_data, cancel_clicks, error_text):
     return False
+
+
+@app.callback(
+    Output("model-running-log-text", "children"),
+    Input("interval-model-log", "n_intervals"),
+    State("store-active-log-filename", "data"),
+    State("store-lang", "data"),
+    prevent_initial_call=True
+)
+def update_running_log(n_intervals, log_filename, lang):
+    if not log_filename:
+        return ""
+    
+    import tempfile
+    log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
+    log_path = os.path.join(log_dir, log_filename)
+    
+    if not os.path.exists(log_path):
+        return translate("Iniciando solver...", lang)
+        
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        
+        tail_lines = lines[-40:]
+        return "".join(tail_lines)
+    except Exception as e:
+        return f"Error reading log: {str(e)}"
+
+
+app.clientside_callback(
+    """
+    function(children) {
+        var el = document.getElementById("model-running-log-text");
+        if (el) {
+            el.scrollTop = el.scrollHeight;
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("model-running-log-text", "id"),
+    Input("model-running-log-text", "children"),
+    prevent_initial_call=True
+)
 
 
 @app.callback(

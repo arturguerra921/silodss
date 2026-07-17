@@ -8,6 +8,15 @@ import tempfile
 import os
 import math
 import time
+import psutil
+
+def log_memory(step_name, lang="pt"):
+    try:
+        process = psutil.Process()
+        mem_mb = process.memory_info().rss / 1024 / 1024
+        print(f"[MEMORY] {translate(step_name, lang)}: {mem_mb:.2f} MB", flush=True)
+    except Exception:
+        pass
 
 def safe_parse_numeric(val):
     if pd.isna(val):
@@ -46,7 +55,8 @@ def run_deterministic_model(
     bulk_fixed_cost=None,
     bulk_var_cost=None,
     bulk_eligible_types=None,
-    lang="pt"
+    lang="pt",
+    log_path=None
 ):
     """
     Executes the deterministic multi-period MILP optimization model.
@@ -54,6 +64,7 @@ def run_deterministic_model(
     and facility upgrades/locations.
     """
     start_time = time.time()
+    log_memory("Inicializando parsing de dados...", lang)
 
     # =========================================================================
     # 1. DATA PREPARATION & PARSING
@@ -99,48 +110,109 @@ def run_deterministic_model(
 
     transshipment_cost_dict = {}
 
-    for _, row in df_warehouses.iterrows():
-        cda = str(row['CDA']).strip()
-        status = str(row['Status']).strip()
-        all_warehouses_list.append(cda)
-        warehouse_type[cda] = str(row['Tipo']).strip()
-        warehouse_uf[cda] = str(row['UF']).strip()
+    # Faster iteration using itertuples with iterrows fallback
+    try:
+        cols_wh = list(df_warehouses.columns)
+        cda_idx = cols_wh.index('CDA')
+        status_idx = cols_wh.index('Status')
+        tipo_idx = cols_wh.index('Tipo')
+        uf_idx = cols_wh.index('UF')
         
-        # Format the CDA display name for results visualization
-        parts = []
-        if pd.notna(row['CDA']):
-            parts.append(str(row['CDA']).strip())
-        if armaz_col and armaz_col in row and pd.notna(row[armaz_col]):
-            parts.append(str(row[armaz_col]).strip())
-        if mun_col and mun_col in row and pd.notna(row[mun_col]):
-            parts.append(str(row[mun_col]).strip())
-            
-        cda_to_name[cda] = " - ".join(parts) if parts else cda
-
+        mun_col_idx = cols_wh.index(mun_col) if mun_col in cols_wh else None
+        armaz_col_idx = cols_wh.index(armaz_col) if armaz_col in cols_wh else None
+        
         trans_cost_col = 'Custo de Transbordo ($/t)'
-        if trans_cost_col in row and pd.notna(row[trans_cost_col]):
-            transshipment_cost_dict[cda] = safe_parse_numeric(row[trans_cost_col])
-        else:
-            transshipment_cost_dict[cda] = 0.0
+        trans_cost_idx = cols_wh.index(trans_cost_col) if trans_cost_col in cols_wh else None
+        
+        cap_est_idx = cols_wh.index('Cap. Estática (t)') if 'Cap. Estática (t)' in cols_wh else None
+        cap_rec_idx = cols_wh.index('Cap. Recepção (t)') if 'Cap. Recepção (t)' in cols_wh else None
+        cap_ship_idx = cols_wh.index('Cap. Expedição (t)') if 'Cap. Expedição (t)' in cols_wh else None
+        cust_ab_idx = cols_wh.index('Custo de Abertura ($)') if 'Custo de Abertura ($)' in cols_wh else None
+        cap_est_max_idx = cols_wh.index('Cap. Estática Máxima (t)') if 'Cap. Estática Máxima (t)' in cols_wh else None
 
-        if status == 'Existente':
-            existing_warehouses_list.append(cda)
-            static_capacity[cda] = safe_parse_numeric(row['Cap. Estática (t)'])
-            reception_capacity[cda] = safe_parse_numeric(row['Cap. Recepção (t)'])
-            shipping_capacity[cda] = safe_parse_numeric(row['Cap. Expedição (t)'])
-        else: # Candidate
-            candidate_warehouses_list.append(cda)
-            opening_cost[cda] = safe_parse_numeric(row['Custo de Abertura ($)'])
-            max_cand_static_capacity[cda] = safe_parse_numeric(row['Cap. Estática Máxima (t)'])
+        for row in df_warehouses.itertuples(index=False):
+            cda = str(row[cda_idx]).strip()
+            status = str(row[status_idx]).strip()
+            all_warehouses_list.append(cda)
+            warehouse_type[cda] = str(row[tipo_idx]).strip()
+            warehouse_uf[cda] = str(row[uf_idx]).strip()
+            
+            parts = []
+            if pd.notna(row[cda_idx]):
+                parts.append(str(row[cda_idx]).strip())
+            if armaz_col_idx is not None and pd.notna(row[armaz_col_idx]):
+                parts.append(str(row[armaz_col_idx]).strip())
+            if mun_col_idx is not None and pd.notna(row[mun_col_idx]):
+                parts.append(str(row[mun_col_idx]).strip())
+                
+            cda_to_name[cda] = " - ".join(parts) if parts else cda
+
+            if trans_cost_idx is not None and pd.notna(row[trans_cost_idx]):
+                transshipment_cost_dict[cda] = safe_parse_numeric(row[trans_cost_idx])
+            else:
+                transshipment_cost_dict[cda] = 0.0
+
+            if status == 'Existente':
+                existing_warehouses_list.append(cda)
+                static_capacity[cda] = safe_parse_numeric(row[cap_est_idx]) if cap_est_idx is not None else 0.0
+                reception_capacity[cda] = safe_parse_numeric(row[cap_rec_idx]) if cap_rec_idx is not None else 0.0
+                shipping_capacity[cda] = safe_parse_numeric(row[cap_ship_idx]) if cap_ship_idx is not None else 0.0
+            else:
+                candidate_warehouses_list.append(cda)
+                opening_cost[cda] = safe_parse_numeric(row[cust_ab_idx]) if cust_ab_idx is not None else 0.0
+                max_cand_static_capacity[cda] = safe_parse_numeric(row[cap_est_max_idx]) if cap_est_max_idx is not None else 0.0
+    except (ValueError, IndexError):
+        # Fallback to iterrows
+        for _, row in df_warehouses.iterrows():
+            cda = str(row['CDA']).strip()
+            status = str(row['Status']).strip()
+            all_warehouses_list.append(cda)
+            warehouse_type[cda] = str(row['Tipo']).strip()
+            warehouse_uf[cda] = str(row['UF']).strip()
+            
+            parts = []
+            if pd.notna(row['CDA']):
+                parts.append(str(row['CDA']).strip())
+            if armaz_col and armaz_col in row and pd.notna(row[armaz_col]):
+                parts.append(str(row[armaz_col]).strip())
+            if mun_col and mun_col in row and pd.notna(row[mun_col]):
+                parts.append(str(row[mun_col]).strip())
+                
+            cda_to_name[cda] = " - ".join(parts) if parts else cda
+
+            trans_cost_col = 'Custo de Transbordo ($/t)'
+            if trans_cost_col in row and pd.notna(row[trans_cost_col]):
+                transshipment_cost_dict[cda] = safe_parse_numeric(row[trans_cost_col])
+            else:
+                transshipment_cost_dict[cda] = 0.0
+
+            if status == 'Existente':
+                existing_warehouses_list.append(cda)
+                static_capacity[cda] = safe_parse_numeric(row['Cap. Estática (t)'])
+                reception_capacity[cda] = safe_parse_numeric(row['Cap. Recepção (t)'])
+                shipping_capacity[cda] = safe_parse_numeric(row['Cap. Expedição (t)'])
+            else: # Candidate
+                candidate_warehouses_list.append(cda)
+                opening_cost[cda] = safe_parse_numeric(row['Custo de Abertura ($)'])
+                max_cand_static_capacity[cda] = safe_parse_numeric(row['Cap. Estática Máxima (t)'])
 
     # 1.3 Product Compatibility
     compat_dict = {}
     if not df_compat.empty:
-        for _, row in df_compat.iterrows():
-            prod = row['Produto']
-            for col in df_compat.columns:
-                if col != 'Produto':
-                    compat_dict[(prod, col)] = (row[col] == '☑')
+        try:
+            cols_compat = list(df_compat.columns)
+            prod_idx = cols_compat.index('Produto')
+            for row in df_compat.itertuples(index=False):
+                prod = row[prod_idx]
+                for idx, col in enumerate(cols_compat):
+                    if idx != prod_idx:
+                        compat_dict[(prod, col)] = (row[idx] == '☑')
+        except (ValueError, IndexError):
+            for _, row in df_compat.iterrows():
+                prod = row['Produto']
+                for col in df_compat.columns:
+                    if col != 'Produto':
+                        compat_dict[(prod, col)] = (row[col] == '☑')
 
     prod_dest_compat = {}
     for prod in all_products:
@@ -174,15 +246,8 @@ def run_deterministic_model(
     Customers = demand_df['Cliente'].unique().tolist()
     
     # Classify Customer nodes into Domestic vs Export
-    Customers_exp = set()
-    for _, row in demand_df.iterrows():
-        if pd.isna(row['Peso (ton)']):
-            Customers_exp.add(row['Cliente'])
-            
-    Customers_dom = set(Customers) - Customers_exp
-    
-    Customers_exp = list(Customers_exp)
-    Customers_dom = list(Customers_dom)
+    Customers_exp = list(set(demand_df[demand_df['Peso (ton)'].isna()]['Cliente'].unique()))
+    Customers_dom = list(set(Customers) - set(Customers_exp))
 
     # Pre-calculate monthly product supply sum for export clearing sinks
     total_supply_pt = {}
@@ -202,21 +267,46 @@ def run_deterministic_model(
             for t in periods:
                 demand_max[(c, p, t)] = total_supply_pt.get((p, t), 0.0)
 
-    for _, row in demand_df.iterrows():
-        c = row['Cliente']
-        p = row['Produto']
-        t = row['Data']
-        val = row['Peso (ton)']
+    # Fast demand parsing using itertuples
+    try:
+        cols_dem = list(demand_df.columns)
+        c_idx = cols_dem.index('Cliente')
+        p_idx = cols_dem.index('Produto')
+        t_idx = cols_dem.index('Data')
+        val_idx = cols_dem.index('Peso (ton)')
         
-        if t not in periods:
-            continue
+        for row in demand_df.itertuples(index=False):
+            c = row[c_idx]
+            p = row[p_idx]
+            t = row[t_idx]
+            val = row[val_idx]
             
-        if c in Customers_dom:
-            if pd.notna(val):
-                demand_min[(c, p, t)] = float(val)
-        else:
-            if pd.notna(val):
-                demand_max[(c, p, t)] = float(val)
+            if t not in periods:
+                continue
+                
+            if c in Customers_dom:
+                if pd.notna(val):
+                    demand_min[(c, p, t)] = float(val)
+            else:
+                if pd.notna(val):
+                    demand_max[(c, p, t)] = float(val)
+    except (ValueError, IndexError):
+        # Fallback to iterrows
+        for _, row in demand_df.iterrows():
+            c = row['Cliente']
+            p = row['Produto']
+            t = row['Data']
+            val = row['Peso (ton)']
+            
+            if t not in periods:
+                continue
+                
+            if c in Customers_dom:
+                if pd.notna(val):
+                    demand_min[(c, p, t)] = float(val)
+            else:
+                if pd.notna(val):
+                    demand_max[(c, p, t)] = float(val)
 
     # Pre-optimization feasibility check: total supply >= total demand in the first period
     if periods:
@@ -235,45 +325,92 @@ def run_deterministic_model(
 
     # 1.7 Parse Distance Matrices
     distance_od = {}
-    for _, row in df_dist_supply_wh.iterrows():
-        orig = row['Origem']
-        for col in df_dist_supply_wh.columns:
-            if col != 'Origem':
-                cda = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
-                val = row[col]
+    try:
+        cols_od = list(df_dist_supply_wh.columns)
+        orig_idx = cols_od.index('Origem')
+        col_cda_map = {idx: (col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()) for idx, col in enumerate(cols_od) if idx != orig_idx}
+        
+        for row in df_dist_supply_wh.itertuples(index=False):
+            orig = row[orig_idx]
+            for idx, cda in col_cda_map.items():
+                val = row[idx]
                 if pd.notna(val) and str(val).strip().upper() != 'N/A':
                     distance_od[(orig, cda)] = safe_parse_numeric(val)
+    except (ValueError, IndexError):
+        for _, row in df_dist_supply_wh.iterrows():
+            orig = row['Origem']
+            for col in df_dist_supply_wh.columns:
+                if col != 'Origem':
+                    cda = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
+                    val = row[col]
+                    if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                        distance_od[(orig, cda)] = safe_parse_numeric(val)
 
     distance_dc = {}
-    for _, row in df_dist_wh_demand.iterrows():
-        orig_wh = row['Origem']
-        cda = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
-        for col in df_dist_wh_demand.columns:
-            if col != 'Origem':
-                val = row[col]
-                if pd.notna(val) and str(val).strip().upper() != 'N/A':
-                    distance_dc[(cda, col)] = safe_parse_numeric(val)
-
-    distance_dd = {}
-    for _, row in df_dist_wh_wh.iterrows():
-        orig_wh = row['Origem']
-        cda1 = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
-        for col in df_dist_wh_wh.columns:
-            if col != 'Origem':
-                cda2 = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
-                val = row[col]
-                if pd.notna(val) and str(val).strip().upper() != 'N/A':
-                    distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
-
-    distance_oc = {}
-    if df_dist_supply_demand is not None and not df_dist_supply_demand.empty:
-        for _, row in df_dist_supply_demand.iterrows():
-            orig = row['Origem']
-            for col in df_dist_supply_demand.columns:
+    try:
+        cols_dc = list(df_dist_wh_demand.columns)
+        orig_idx = cols_dc.index('Origem')
+        for row in df_dist_wh_demand.itertuples(index=False):
+            orig_wh = row[orig_idx]
+            cda = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+            for idx, col in enumerate(cols_dc):
+                if idx != orig_idx:
+                    val = row[idx]
+                    if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                        distance_dc[(cda, col)] = safe_parse_numeric(val)
+    except (ValueError, IndexError):
+        for _, row in df_dist_wh_demand.iterrows():
+            orig_wh = row['Origem']
+            cda = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+            for col in df_dist_wh_demand.columns:
                 if col != 'Origem':
                     val = row[col]
                     if pd.notna(val) and str(val).strip().upper() != 'N/A':
-                        distance_oc[(orig, col)] = safe_parse_numeric(val)
+                        distance_dc[(cda, col)] = safe_parse_numeric(val)
+
+    distance_dd = {}
+    try:
+        cols_dd = list(df_dist_wh_wh.columns)
+        orig_idx = cols_dd.index('Origem')
+        col_cda2_map = {idx: (col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()) for idx, col in enumerate(cols_dd) if idx != orig_idx}
+        for row in df_dist_wh_wh.itertuples(index=False):
+            orig_wh = row[orig_idx]
+            cda1 = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+            for idx, cda2 in col_cda2_map.items():
+                val = row[idx]
+                if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                    distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
+    except (ValueError, IndexError):
+        for _, row in df_dist_wh_wh.iterrows():
+            orig_wh = row['Origem']
+            cda1 = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+            for col in df_dist_wh_wh.columns:
+                if col != 'Origem':
+                    cda2 = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
+                    val = row[col]
+                    if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                        distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
+
+    distance_oc = {}
+    if df_dist_supply_demand is not None and not df_dist_supply_demand.empty:
+        try:
+            cols_oc = list(df_dist_supply_demand.columns)
+            orig_idx = cols_oc.index('Origem')
+            for row in df_dist_supply_demand.itertuples(index=False):
+                orig = row[orig_idx]
+                for idx, col in enumerate(cols_oc):
+                    if idx != orig_idx:
+                        val = row[idx]
+                        if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                            distance_oc[(orig, col)] = safe_parse_numeric(val)
+        except (ValueError, IndexError):
+            for _, row in df_dist_supply_demand.iterrows():
+                orig = row['Origem']
+                for col in df_dist_supply_demand.columns:
+                    if col != 'Origem':
+                        val = row[col]
+                        if pd.notna(val) and str(val).strip().upper() != 'N/A':
+                            distance_oc[(orig, col)] = safe_parse_numeric(val)
 
     # 1.8 Parse Freight Rates (Valor_Tonelada_km)
     try:
@@ -321,6 +458,8 @@ def run_deterministic_model(
         for prod in all_products:
             for d in all_warehouses_list:
                 storage_cost[(d, prod)] = 50.0
+
+    log_memory("Parâmetros do modelo carregados...", lang)
 
     # =========================================================================
     # 2. SPARSE ROUTE BUILDING & PARETO FILTER
@@ -387,6 +526,8 @@ def run_deterministic_model(
                     custs = custs[:limit]
                 for c, _ in custs:
                     valid_routes_oc.append((o, c, p))
+
+    log_memory("Rotas válidas construídas...", lang)
 
     # =========================================================================
     # 3. PYOMO CONCRETE MODEL CONSTRUCTION
@@ -505,6 +646,8 @@ def run_deterministic_model(
     model.RatioExpandRec = pyo.Param(initialize=float(ratio_expand_rec) if ratio_expand_rec is not None else 0.0)
     model.RatioExpandShip = pyo.Param(initialize=float(ratio_expand_ship) if ratio_expand_ship is not None else 0.0)
 
+    log_memory("Parâmetros do Pyomo inicializados...", lang)
+
     # Decision Variables
     model.FlowOD = pyo.Var(model.ValidRoutesOD, model.TimePeriods, within=pyo.NonNegativeReals)
     model.FlowDC = pyo.Var(model.ValidRoutesDC, model.TimePeriods, within=pyo.NonNegativeReals)
@@ -518,6 +661,8 @@ def run_deterministic_model(
     model.WarehouseOpen = pyo.Var(model.Destinations_cand, within=pyo.Binary)
     model.IsExpanded = pyo.Var(model.Destinations, within=pyo.Binary)
     model.IsBulkified = pyo.Var(model.Destinations, within=pyo.Binary)
+
+    log_memory("Variáveis do Pyomo inicializadas...", lang)
 
     # Fix variables to 0 if expansion or bulkification is disabled
     if max_expand_capacity is None:
@@ -757,28 +902,29 @@ def run_deterministic_model(
     model.DomesticDemandConstraint = pyo.Constraint(model.Customers_dom, model.Products, model.TimePeriods, rule=domestic_demand_rule, doc="Restrição de Atendimento da Demanda Interna")
     model.ExportDemandConstraint = pyo.Constraint(model.Customers_exp, model.Products, model.TimePeriods, rule=export_demand_rule, doc="Restrição Quota Máxima de Exportação (Sink)")
 
-    # =========================================================================
-    # 6. SOLVER WRAPPER & EXECUTION
-    # =========================================================================
+    log_memory("Modelo pronto. Chamando solver...", lang)
 
     old_stdout = sys.stdout
     log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
     os.makedirs(log_dir, exist_ok=True)
 
-    # Clean old logs to save disk space
-    now = time.time()
-    for filename in os.listdir(log_dir):
-        filepath = os.path.join(log_dir, filename)
-        if os.path.isfile(filepath):
-            if os.stat(filepath).st_mtime < now - 3600:
-                try:
-                    os.remove(filepath)
-                except Exception:
-                    pass
+    if log_path is None:
+        # Clean old logs to save disk space
+        now = time.time()
+        for filename in os.listdir(log_dir):
+            filepath = os.path.join(log_dir, filename)
+            if os.path.isfile(filepath):
+                if os.stat(filepath).st_mtime < now - 3600:
+                    try:
+                        os.remove(filepath)
+                    except Exception:
+                        pass
+        log_fd, log_path = tempfile.mkstemp(suffix='.txt', prefix='optimization_log_', dir=log_dir)
+        new_stdout = os.fdopen(log_fd, 'w', encoding='utf-8')
+    else:
+        new_stdout = open(log_path, 'w', encoding='utf-8', buffering=1)
 
-    log_fd, log_path = tempfile.mkstemp(suffix='.txt', prefix='optimization_log_', dir=log_dir)
     log_filename = os.path.basename(log_path)
-    new_stdout = os.fdopen(log_fd, 'w', encoding='utf-8')
     sys.stdout = new_stdout
 
     try:
@@ -1258,11 +1404,20 @@ def build_stochastic_pyomo_model(
   # Product compatibility
   compat_dict = {}
   if not df_compat.empty:
-    for _, row in df_compat.iterrows():
-      prod = row['Produto']
-      for col in df_compat.columns:
-        if col != 'Produto':
-          compat_dict[(prod, col)] = (row[col] == '☑')
+    try:
+      cols_compat = list(df_compat.columns)
+      prod_idx = cols_compat.index('Produto')
+      for row in df_compat.itertuples(index=False):
+        prod = row[prod_idx]
+        for idx, col in enumerate(cols_compat):
+          if idx != prod_idx:
+            compat_dict[(prod, col)] = (row[idx] == '☑')
+    except (ValueError, IndexError):
+      for _, row in df_compat.iterrows():
+        prod = row['Produto']
+        for col in df_compat.columns:
+          if col != 'Produto':
+            compat_dict[(prod, col)] = (row[col] == '☑')
 
   prod_dest_compat = {}
   for prod in all_products:
@@ -1295,14 +1450,9 @@ def build_stochastic_pyomo_model(
     demand_df['Cliente'] = demand_df.apply(get_city_display, axis=1)
     
   Customers = demand_df['Cliente'].unique().tolist()
-  Customers_exp = set()
-  for _, row in demand_df.iterrows():
-    if pd.isna(row['Peso (ton)']):
-      Customers_exp.add(row['Cliente'])
-      
-  Customers_dom = set(Customers) - Customers_exp
-  Customers_exp = list(Customers_exp)
-  Customers_dom = list(Customers_dom)
+  # Classify Customer nodes into Domestic vs Export
+  Customers_exp = list(set(demand_df[demand_df['Peso (ton)'].isna()]['Cliente'].unique()))
+  Customers_dom = list(set(Customers) - set(Customers_exp))
 
   # Pre-calculate monthly product supply sum for export clearing sinks
   total_supply_pt = {}
@@ -1321,19 +1471,46 @@ def build_stochastic_pyomo_model(
       for t in periods:
         demand_max[(c, p, t)] = total_supply_pt.get((p, t), 0.0)
 
-  for _, row in demand_df.iterrows():
-    c = row['Cliente']
-    p = row['Produto']
-    t = row['Data']
-    val = row['Peso (ton)']
-    if t not in periods:
-      continue
-    if c in Customers_dom:
-      if pd.notna(val):
-        demand_min[(c, p, t)] = float(val)
-    else:
-      if pd.notna(val):
-        demand_max[(c, p, t)] = float(val)
+  # Fast demand parsing using itertuples
+  try:
+    cols_dem = list(demand_df.columns)
+    c_idx = cols_dem.index('Cliente')
+    p_idx = cols_dem.index('Produto')
+    t_idx = cols_dem.index('Data')
+    val_idx = cols_dem.index('Peso (ton)')
+    
+    for row in demand_df.itertuples(index=False):
+      c = row[c_idx]
+      p = row[p_idx]
+      t = row[t_idx]
+      val = row[val_idx]
+      
+      if t not in periods:
+        continue
+        
+      if c in Customers_dom:
+        if pd.notna(val):
+          demand_min[(c, p, t)] = float(val)
+      else:
+        if pd.notna(val):
+          demand_max[(c, p, t)] = float(val)
+  except (ValueError, IndexError):
+    # Fallback to iterrows
+    for _, row in demand_df.iterrows():
+      c = row['Cliente']
+      p = row['Produto']
+      t = row['Data']
+      val = row['Peso (ton)']
+      
+      if t not in periods:
+        continue
+        
+      if c in Customers_dom:
+        if pd.notna(val):
+          demand_min[(c, p, t)] = float(val)
+      else:
+        if pd.notna(val):
+          demand_max[(c, p, t)] = float(val)
 
   # Scenario-dependent supply and demand calculations
   wmapes_supply = {}
@@ -1401,45 +1578,91 @@ def build_stochastic_pyomo_model(
 
   # Distance Matrices
   distance_od = {}
-  for _, row in df_dist_supply_wh.iterrows():
-    orig = row['Origem']
-    for col in df_dist_supply_wh.columns:
-      if col != 'Origem':
-        cda = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
-        val = row[col]
+  try:
+    cols_od = list(df_dist_supply_wh.columns)
+    orig_idx = cols_od.index('Origem')
+    col_cda_map = {idx: (col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()) for idx, col in enumerate(cols_od) if idx != orig_idx}
+    for row in df_dist_supply_wh.itertuples(index=False):
+      orig = row[orig_idx]
+      for idx, cda in col_cda_map.items():
+        val = row[idx]
         if pd.notna(val) and str(val).strip().upper() != 'N/A':
           distance_od[(orig, cda)] = safe_parse_numeric(val)
+  except (ValueError, IndexError):
+    for _, row in df_dist_supply_wh.iterrows():
+      orig = row['Origem']
+      for col in df_dist_supply_wh.columns:
+        if col != 'Origem':
+          cda = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
+          val = row[col]
+          if pd.notna(val) and str(val).strip().upper() != 'N/A':
+            distance_od[(orig, cda)] = safe_parse_numeric(val)
 
   distance_dc = {}
-  for _, row in df_dist_wh_demand.iterrows():
-    orig_wh = row['Origem']
-    cda = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
-    for col in df_dist_wh_demand.columns:
-      if col != 'Origem':
-        val = row[col]
-        if pd.notna(val) and str(val).strip().upper() != 'N/A':
-          distance_dc[(cda, col)] = safe_parse_numeric(val)
-
-  distance_dd = {}
-  for _, row in df_dist_wh_wh.iterrows():
-    orig_wh = row['Origem']
-    cda1 = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
-    for col in df_dist_wh_wh.columns:
-      if col != 'Origem':
-        cda2 = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
-        val = row[col]
-        if pd.notna(val) and str(val).strip().upper() != 'N/A':
-          distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
-
-  distance_oc = {}
-  if df_dist_supply_demand is not None and not df_dist_supply_demand.empty:
-    for _, row in df_dist_supply_demand.iterrows():
-      orig = row['Origem']
-      for col in df_dist_supply_demand.columns:
+  try:
+    cols_dc = list(df_dist_wh_demand.columns)
+    orig_idx = cols_dc.index('Origem')
+    for row in df_dist_wh_demand.itertuples(index=False):
+      orig_wh = row[orig_idx]
+      cda = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+      for idx, col in enumerate(cols_dc):
+        if idx != orig_idx:
+          val = row[idx]
+          if pd.notna(val) and str(val).strip().upper() != 'N/A':
+            distance_dc[(cda, col)] = safe_parse_numeric(val)
+  except (ValueError, IndexError):
+    for _, row in df_dist_wh_demand.iterrows():
+      orig_wh = row['Origem']
+      cda = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+      for col in df_dist_wh_demand.columns:
         if col != 'Origem':
           val = row[col]
           if pd.notna(val) and str(val).strip().upper() != 'N/A':
-            distance_oc[(orig, col)] = safe_parse_numeric(val)
+            distance_dc[(cda, col)] = safe_parse_numeric(val)
+
+  distance_dd = {}
+  try:
+    cols_dd = list(df_dist_wh_wh.columns)
+    orig_idx = cols_dd.index('Origem')
+    col_cda2_map = {idx: (col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()) for idx, col in enumerate(cols_dd) if idx != orig_idx}
+    for row in df_dist_wh_wh.itertuples(index=False):
+      orig_wh = row[orig_idx]
+      cda1 = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+      for idx, cda2 in col_cda2_map.items():
+        val = row[idx]
+        if pd.notna(val) and str(val).strip().upper() != 'N/A':
+          distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
+  except (ValueError, IndexError):
+    for _, row in df_dist_wh_wh.iterrows():
+      orig_wh = row['Origem']
+      cda1 = orig_wh.split(' - ')[0].strip() if ' - ' in str(orig_wh) else str(orig_wh).strip()
+      for col in df_dist_wh_wh.columns:
+        if col != 'Origem':
+          cda2 = col.split(' - ')[0].strip() if ' - ' in str(col) else str(col).strip()
+          val = row[col]
+          if pd.notna(val) and str(val).strip().upper() != 'N/A':
+            distance_dd[(cda1, cda2)] = safe_parse_numeric(val)
+
+  distance_oc = {}
+  if df_dist_supply_demand is not None and not df_dist_supply_demand.empty:
+    try:
+      cols_oc = list(df_dist_supply_demand.columns)
+      orig_idx = cols_oc.index('Origem')
+      for row in df_dist_supply_demand.itertuples(index=False):
+        orig = row[orig_idx]
+        for idx, col in enumerate(cols_oc):
+          if idx != orig_idx:
+            val = row[idx]
+            if pd.notna(val) and str(val).strip().upper() != 'N/A':
+              distance_oc[(orig, col)] = safe_parse_numeric(val)
+    except (ValueError, IndexError):
+      for _, row in df_dist_supply_demand.iterrows():
+        orig = row['Origem']
+        for col in df_dist_supply_demand.columns:
+          if col != 'Origem':
+            val = row[col]
+            if pd.notna(val) and str(val).strip().upper() != 'N/A':
+              distance_oc[(orig, col)] = safe_parse_numeric(val)
 
   # Freight
   try:
@@ -1486,6 +1709,8 @@ def build_stochastic_pyomo_model(
     for prod in all_products:
       for d in all_warehouses_list:
         storage_cost[(d, prod)] = 50.0
+
+  log_memory("Parâmetros do modelo carregados...", lang)
 
   # Sparse Route Building
   valid_routes_od = []
@@ -1549,6 +1774,8 @@ def build_stochastic_pyomo_model(
           custs = custs[:limit]
         for c, _ in custs:
           valid_routes_oc.append((o, c, p))
+
+  log_memory("Rotas válidas construídas...", lang)
 
   # Pyomo Model
   model = pyo.ConcreteModel()
@@ -1669,6 +1896,8 @@ def build_stochastic_pyomo_model(
   model.RatioExpandRec = pyo.Param(initialize=float(ratio_expand_rec) if ratio_expand_rec is not None else 0.0)
   model.RatioExpandShip = pyo.Param(initialize=float(ratio_expand_ship) if ratio_expand_ship is not None else 0.0)
 
+  log_memory("Parâmetros do Pyomo inicializados...", lang)
+
   # First-Stage Decision Variables (Scenario-Independent)
   model.CandStaticCapacity = pyo.Var(model.Destinations_cand, within=pyo.NonNegativeReals)
   model.ExpandedCapacity = pyo.Var(model.Destinations, within=pyo.NonNegativeReals)
@@ -1684,6 +1913,8 @@ def build_stochastic_pyomo_model(
   model.FlowDD = pyo.Var(model.ValidRoutesDD, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
   model.FlowOC = pyo.Var(model.ValidRoutesOC, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
   model.Inventory = pyo.Var(model.Destinations, model.Products, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
+
+  log_memory("Variáveis do Pyomo inicializadas...", lang)
 
   # Lock upgrade vars if disabled
   if max_expand_capacity is None:
@@ -1892,21 +2123,28 @@ def run_stochastic_model(
   bulk_fixed_cost=None,
   bulk_var_cost=None,
   bulk_eligible_types=None,
-  lang="pt"
+  lang="pt",
+  log_path=None
 ):
   """
   Executes the two-stage stochastic programming optimization model.
   Hedging strategic decisions against Low, Expected, and High scenarios.
   """
   start_time = time.time()
+  log_memory("Inicializando parsing de dados...", lang)
   
   # Setup outputs redirection for log capturing
   old_stdout = sys.stdout
   log_dir = os.path.join(tempfile.gettempdir(), 'silodss_logs')
   os.makedirs(log_dir, exist_ok=True)
-  log_fd, log_path = tempfile.mkstemp(suffix='.txt', prefix='stochastic_log_', dir=log_dir)
+
+  if log_path is None:
+    log_fd, log_path = tempfile.mkstemp(suffix='.txt', prefix='stochastic_log_', dir=log_dir)
+    new_stdout = os.fdopen(log_fd, 'w', encoding='utf-8')
+  else:
+    new_stdout = open(log_path, 'w', encoding='utf-8', buffering=1)
+
   log_filename = os.path.basename(log_path)
-  new_stdout = os.fdopen(log_fd, 'w', encoding='utf-8')
   sys.stdout = new_stdout
 
   try:
@@ -1968,6 +2206,8 @@ def run_stochastic_model(
 
     if detailed_log:
       model.pprint()
+
+    log_memory("Modelo pronto. Chamando solver...", lang)
 
     print("\n" + translate("Chamando solver CBC para alocação estocástica...", lang))
     solver = SolverFactory('cbc')
