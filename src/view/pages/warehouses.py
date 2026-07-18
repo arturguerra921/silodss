@@ -57,7 +57,7 @@ def get_tab_warehouses_layout(lang='pt', city_options=None):
                         id="upload-warehouses-data",
                         children=html.Div([
                             html.Div("📂", style={"fontSize": "2rem", "marginBottom": "8px"}),
-                            html.Span(translate("Arraste e solte ou ", lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}),
+                            html.Span(translate("Arraste e solte ou", lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}, className="me-1"),
                             html.A(translate("Selecione", lang), className="fw-bold text-decoration-underline", style={"color": UNB_THEME['UNB_BLUE']}),
                             html.Div(translate("Formatos: .xlsx, .csv", lang), className="text-muted small mt-2")
                         ]),

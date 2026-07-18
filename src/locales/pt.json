@@ -49,7 +49,7 @@
     "Armazéns para Demanda": "Armazéns para Demanda",
     "Arquivo preenchido com todos os dados da tabela em formato .xlsx": "Arquivo preenchido com todos os dados da tabela em formato .xlsx",
     "Arquivo vazio ou inválido.": "Arquivo vazio ou inválido.",
-    "Arraste e solte ou ": "Arraste e solte ou ",
+    "Arraste e solte ou": "Arraste e solte ou",
     "As colunas lidas no seu arquivo foram:": "As colunas lidas no seu arquivo foram:",
     "As tabelas de entrada (Oferta), Armazéns ou Demanda estão vazias.": "As tabelas de entrada (Oferta), Armazéns ou Demanda estão vazias.",
     "As tabelas de entrada ou armazéns estão vazias.": "As tabelas de entrada ou armazéns estão vazias.",
@@ -257,7 +257,7 @@
     "Download do Arquivo Base": "Download do Arquivo Base",
     "ERRO DURANTE A OTIMIZAÇÃO: {err}": "ERRO DURANTE A OTIMIZAÇÃO: {err}",
     "Editar Lat/Long manualmente": "Editar Lat/Long manualmente",
-    "Edited_Demand.xlsx": "Edited_Demand.xlsx",
+    "Edited_Demand.xlsx": "Demanda_Editada.xlsx",
     "Edited_Supply.xlsx": "Oferta_Editada.xlsx",
     "Email": "Email",
     "Endereço": "Endereço",
@@ -717,8 +717,8 @@
     "Você precisa preencher a aba 'Oferta' ou 'Demanda' antes de prever.": "Você precisa preencher a aba 'Oferta' ou 'Demanda' antes de prever.",
     "Você também pode baixar um arquivo de exemplo com o formato esperado e editá-lo antes do envio.": "Você também pode baixar um arquivo de exemplo com o formato esperado e editá-lo antes do envio.",
     "WMAPE (%)": "WMAPE (%)",
-    "Warehouses.xlsx": "Warehouses.xlsx",
-    "Warehouses_Template.xlsx": "Warehouses_Template.xlsx",
+    "Warehouses.xlsx": "Armazens.xlsx",
+    "Warehouses_Template.xlsx": "Modelo_Armazens.xlsx",
     "Weighted Mean Absolute Percentage Error (Erro Percentual Médio Absoluto Ponderado). Mede o desvio médio ponderado pelo volume real. Valores menores indicam maior acurácia.": "Weighted Mean Absolute Percentage Error (Erro Percentual Médio Absoluto Ponderado). Mede o desvio médio ponderado pelo volume real. Valores menores indicam maior acurácia.",
     "rotas realizadas.": "rotas realizadas.",
     "segundos)": "segundos)",
@@ -1054,5 +1054,8 @@
     "Escolha o produto e o armazém para adicionar ou modificar o estoque inicial.": "Escolha o produto e o armazém para adicionar ou modificar o estoque inicial.",
     "Tabela de Estoque Inicial": "Tabela de Estoque Inicial",
     "Remove todos os valores de estoque inicial configurados nesta sessão.": "Remove todos os valores de estoque inicial configurados nesta sessão.",
-    "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).": "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t)."
+    "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).": "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).",
+    "estoque_inicial.xlsx": "Estoque_Inicial.xlsx",
+    "SiloDSS_Previsoes_Consolidadas.xlsx": "SiloDSS_Previsoes_Consolidadas.xlsx",
+    "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).": "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t)."
 }

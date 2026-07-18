@@ -23,3 +23,18 @@ def validate_and_parse_supply_data(stored_supply_data, lang):
     if isinstance(e, ValueError):
       raise e
     raise ValueError(translate("Erro ao ler dados da aba Oferta:", lang) + f" {str(e)}")
+
+
+def safe_parse_numeric(val):
+  """
+  Safely parses a numeric value from string or number format, supporting Brazilian formatting.
+  """
+  if pd.isna(val):
+    return 0.0
+  if isinstance(val, (int, float)):
+    return float(val)
+  val_str = str(val).strip()
+  if not val_str:
+    return 0.0
+  return float(val_str.replace('.', '').replace(',', '.'))
+

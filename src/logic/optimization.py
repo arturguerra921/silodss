@@ -334,7 +334,9 @@ def run_deterministic_model(
     if periods:
         p1 = periods[0]
         for p in all_products:
-            tot_sup = sum(val for (o, prod, t), val in supply_dict.items() if prod == p and t == p1)
+            # Account for initial inventory in the first period feasibility check
+            tot_init_inv = sum(val for (cda, prod), val in initial_inventory_dict.items() if prod == p)
+            tot_sup = sum(val for (o, prod, t), val in supply_dict.items() if prod == p and t == p1) + tot_init_inv
             tot_dem = sum(val for (c, prod, t), val in demand_min.items() if prod == p and t == p1)
             if tot_sup < tot_dem:
                 msg = translate("Erro: Oferta total ({supply:.2f} ton) é menor que a demanda total ({demand:.2f} ton) no primeiro período ({period}) para o produto '{product}'.", lang).format(
@@ -1663,7 +1665,8 @@ def build_stochastic_pyomo_model(
     p1 = periods[0]
     for s in ["esperado", "pessimista", "otimista"]:
       for p in all_products:
-        tot_sup = sum(val for (o, prod, t, scen), val in supply_dict_scenarios.items() if prod == p and t == p1 and scen == s)
+        tot_init_inv = sum(val for (cda, prod), val in initial_inventory_dict.items() if prod == p)
+        tot_sup = sum(val for (o, prod, t, scen), val in supply_dict_scenarios.items() if prod == p and t == p1 and scen == s) + tot_init_inv
         tot_dem = sum(val for (c, prod, t, scen), val in demand_min_scenarios.items() if prod == p and t == p1 and scen == s)
         if tot_sup < tot_dem:
           msg = translate("Erro: Oferta total ({supply:.2f} ton) é menor que a demanda total ({demand:.2f} ton) no primeiro período ({period}) para o produto '{product}' no cenário '{scenario}'.", lang).format(

@@ -28,7 +28,7 @@ from src.logic.prediction import (
 from src.logic.osrm import OSRMClient
 from src.logic.optimization import run_deterministic_model, run_stochastic_model, compute_evpi_vss
 from src.logic.i18n import translate
-from src.logic.utils import validate_and_parse_supply_data
+from src.logic.utils import validate_and_parse_supply_data, safe_parse_numeric
 import dash
 import time
 from dash import DiskcacheManager
@@ -354,7 +354,7 @@ def serve_layout(lang="pt"):
                             id='upload-data',
                             children=html.Div([
                                 html.Div("📂", style={"fontSize": "2rem", "marginBottom": "8px"}),
-                                html.Span(translate('Arraste e solte ou ', lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}),
+                                html.Span(translate('Arraste e solte ou', lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}, className="me-1"),
                                 html.A(translate('Selecione', lang), className="fw-bold text-decoration-underline", style={"color": UNB_THEME['UNB_BLUE']}),
                                 html.Div(translate("Formatos: .xlsx, .csv", lang), className="text-muted small mt-2")
                             ]),
@@ -766,7 +766,7 @@ def serve_layout(lang="pt"):
                             id='upload-demand-data',
                             children=html.Div([
                                 html.Div("📂", style={"fontSize": "2rem", "marginBottom": "8px"}),
-                                html.Span(translate('Arraste e solte ou ', lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}),
+                                html.Span(translate('Arraste e solte ou', lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}, className="me-1"),
                                 html.A(translate('Selecione', lang), className="fw-bold text-decoration-underline", style={"color": UNB_THEME['UNB_BLUE']}),
                                 html.Div(translate("Formatos: .xlsx, .csv", lang), className="text-muted small mt-2")
                             ]),
@@ -1169,7 +1169,7 @@ def serve_layout(lang="pt"):
                             children=html.Div([
                                 html.Div([
                                     html.Span("📂 ", style={"fontSize": "1.2rem", "marginRight": "4px"}),
-                                    html.Span(translate("Arraste e solte ou ", lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}),
+                                    html.Span(translate("Arraste e solte ou", lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}, className="me-1"),
                                     html.A(translate("Selecione", lang), className="fw-bold text-decoration-underline", style={"color": UNB_THEME['UNB_BLUE']}),
                                 ], className="d-flex align-items-center justify-content-center"),
                                 html.Div(translate("Formatos: .xlsx, .csv", lang), className="text-muted small mt-1")
@@ -1303,7 +1303,7 @@ def serve_layout(lang="pt"):
                                             'deletable': False, 
                                             'renamable': False,
                                             'editable': col == 'Estoque Inicial (t)'
-                                        } for col in ['CDA', 'Armazenador', 'Município', 'Produto', 'Estoque Inicial (t)']
+                                        } for col in ['CDA', 'Armazenador', 'Município', 'Cap. Estática (t)', 'Produto', 'Estoque Inicial (t)']
                                     ],
                                     editable=True,
                                     row_deletable=True,
@@ -9235,7 +9235,7 @@ def download_prediction_report(n_clicks, prediction_results, lang='pt'):
         df_metrics.to_excel(writer, sheet_name=translate("Métricas", lang), index=False)
         df_residuals.to_excel(writer, sheet_name=translate("Resíduos", lang), index=False)
 
-    return dcc.send_bytes(to_xlsx, "SiloDSS_Previsoes_Consolidadas.xlsx")
+    return dcc.send_bytes(to_xlsx, translate("SiloDSS_Previsoes_Consolidadas.xlsx", lang))
 
   except Exception as e:
     print(f"Error in download_prediction_report: {e}")
@@ -10088,6 +10088,20 @@ def manage_initial_inventory(active_tab, stored_data, stored_warehouses, upload_
   active_prods = get_active_products()
   df_arm = get_registered_warehouses()
 
+  def check_capacity(df_to_check):
+    if df_to_check.empty or 'Estoque Inicial (t)' not in df_to_check.columns:
+      return None
+    grouped = df_to_check.groupby('CDA')['Estoque Inicial (t)'].sum()
+    for cda, tot in grouped.items():
+      cap_est = 0.0
+      if df_arm is not None and not df_arm.empty:
+        w_row = df_arm[df_arm['CDA'] == cda]
+        if not w_row.empty:
+          cap_est = float(w_row.iloc[0]['Cap. Estática (t)'])
+      if tot > cap_est + 1e-4:
+        return cda, tot, cap_est
+    return None
+
   if trigger_id in ['main-tabs', 'stored-data', 'store-warehouses']:
     if active_tab != 'tab-prod-warehouses':
       return no_update, no_update, no_update, no_update
@@ -10098,22 +10112,25 @@ def manage_initial_inventory(active_tab, stored_data, stored_warehouses, upload_
         cda_idx = df_arm.columns.get_loc('CDA')
         arm_idx = df_arm.columns.get_loc('Armazenador')
         mun_idx = df_arm.columns.get_loc('Município')
+        cap_idx = df_arm.columns.get_loc('Cap. Estática (t)')
         for row in df_arm.itertuples(index=False):
           wh_list.append({
             'CDA': str(row[cda_idx]).strip(),
             'Armazenador': str(row[arm_idx]).strip(),
-            'Município': str(row[mun_idx]).strip()
+            'Município': str(row[mun_idx]).strip(),
+            'Cap. Estática (t)': float(row[cap_idx])
           })
       except Exception:
         for _, row in df_arm.iterrows():
           wh_list.append({
             'CDA': str(row['CDA']).strip(),
             'Armazenador': str(row['Armazenador']).strip(),
-            'Município': str(row['Município']).strip()
+            'Município': str(row['Município']).strip(),
+            'Cap. Estática (t)': float(row['Cap. Estática (t)'])
           })
 
     if not wh_list or not active_prods:
-      empty_df = pd.DataFrame(columns=['CDA', 'Armazenador', 'Município', 'Produto', 'Estoque Inicial (t)'])
+      empty_df = pd.DataFrame(columns=['CDA', 'Armazenador', 'Município', 'Cap. Estática (t)', 'Produto', 'Estoque Inicial (t)'])
       return empty_df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
 
     exist_map = {}
@@ -10142,6 +10159,7 @@ def manage_initial_inventory(active_tab, stored_data, stored_warehouses, upload_
           'CDA': wh['CDA'],
           'Armazenador': wh['Armazenador'],
           'Município': wh['Município'],
+          'Cap. Estática (t)': wh['Cap. Estática (t)'],
           'Produto': prod,
           'Estoque Inicial (t)': val
         })
@@ -10175,33 +10193,50 @@ def manage_initial_inventory(active_tab, stored_data, stored_warehouses, upload_
       return no_update, no_update, no_update, no_update
 
     df = pd.read_json(io.StringIO(stored_init_inv), orient='split')
-    mask = (df['CDA'] == form_warehouse) & (df['Produto'] == form_product)
+    df_temp = df.copy()
+    mask = (df_temp['CDA'] == form_warehouse) & (df_temp['Produto'] == form_product)
     if mask.any():
-      df.loc[mask, 'Estoque Inicial (t)'] = amount
+      df_temp.loc[mask, 'Estoque Inicial (t)'] = amount
     else:
       arm_name = ""
       mun_name = ""
+      cap_est = 0.0
       if df_arm is not None and not df_arm.empty:
         w_row = df_arm[df_arm['CDA'] == form_warehouse]
         if not w_row.empty:
           arm_name = str(w_row.iloc[0]['Armazenador'])
           mun_name = str(w_row.iloc[0]['Município'])
+          cap_est = float(w_row.iloc[0]['Cap. Estática (t)'])
       new_row = pd.DataFrame([{
         'CDA': form_warehouse,
         'Armazenador': arm_name,
         'Município': mun_name,
+        'Cap. Estática (t)': cap_est,
         'Produto': form_product,
         'Estoque Inicial (t)': amount
       }])
-      df = pd.concat([df, new_row], ignore_index=True)
+      df_temp = pd.concat([df_temp, new_row], ignore_index=True)
 
-    return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+    violation = check_capacity(df_temp)
+    if violation:
+      cda, tot, cap_est = violation
+      err_msg = translate("Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).", lang).format(total_init_inv=tot, cda=cda, cap_est=cap_est)
+      return no_update, True, err_msg, no_update
+
+    return df_temp.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
 
   if trigger_id == 'table-initial-inventory':
     if table_data is not None:
       df = pd.DataFrame(table_data)
       if not df.empty and 'Estoque Inicial (t)' in df.columns:
         df['Estoque Inicial (t)'] = df['Estoque Inicial (t)'].apply(lambda x: safe_parse_numeric(x) if pd.notna(x) else 0.0)
+      
+      violation = check_capacity(df)
+      if violation:
+        cda, tot, cap_est = violation
+        err_msg = translate("Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).", lang).format(total_init_inv=tot, cda=cda, cap_est=cap_est)
+        return no_update, True, err_msg, no_update
+
       return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
 
   if trigger_id == 'upload-initial-inventory-data' and upload_contents:
@@ -10253,18 +10288,21 @@ def manage_initial_inventory(active_tab, stored_data, stored_warehouses, upload_
           cda_idx = df_arm.columns.get_loc('CDA')
           arm_idx = df_arm.columns.get_loc('Armazenador')
           mun_idx = df_arm.columns.get_loc('Município')
+          cap_idx = df_arm.columns.get_loc('Cap. Estática (t)')
           for row in df_arm.itertuples(index=False):
             wh_list.append({
               'CDA': str(row[cda_idx]).strip(),
               'Armazenador': str(row[arm_idx]).strip(),
-              'Município': str(row[mun_idx]).strip()
+              'Município': str(row[mun_idx]).strip(),
+              'Cap. Estática (t)': float(row[cap_idx])
             })
         except Exception:
           for _, row in df_arm.iterrows():
             wh_list.append({
               'CDA': str(row['CDA']).strip(),
               'Armazenador': str(row['Armazenador']).strip(),
-              'Município': str(row['Município']).strip()
+              'Município': str(row['Município']).strip(),
+              'Cap. Estática (t)': float(row['Cap. Estática (t)'])
             })
 
       records = []
@@ -10275,10 +10313,18 @@ def manage_initial_inventory(active_tab, stored_data, stored_warehouses, upload_
             'CDA': wh['CDA'],
             'Armazenador': wh['Armazenador'],
             'Município': wh['Município'],
+            'Cap. Estática (t)': wh['Cap. Estática (t)'],
             'Produto': prod,
             'Estoque Inicial (t)': val
           })
       df_new = pd.DataFrame(records)
+
+      violation = check_capacity(df_new)
+      if violation:
+        cda, tot, cap_est = violation
+        err_msg = translate("Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).", lang).format(total_init_inv=tot, cda=cda, cap_est=cap_est)
+        return no_update, True, err_msg, ""
+
       return df_new.to_json(date_format='iso', orient='split'), no_update, no_update, ""
     except Exception as e:
       print(f"Error parsing uploaded initial inventory: {e}")
@@ -10364,8 +10410,8 @@ def export_initial_inventory(n_clicks, stored_init_inv, lang='pt'):
   if not n_clicks or not stored_init_inv:
     return no_update
   df = pd.read_json(io.StringIO(stored_init_inv), orient='split')
-  df_export = df[['CDA', 'Produto', 'Estoque Inicial (t)']]
-  return dcc.send_data_frame(df_export.to_excel, "estoque_inicial.xlsx", index=False)
+  df_export = df[['CDA', 'Cap. Estática (t)', 'Produto', 'Estoque Inicial (t)']]
+  return dcc.send_data_frame(df_export.to_excel, translate("estoque_inicial.xlsx", lang), index=False)
 
 
 def view():

@@ -49,7 +49,7 @@
     "Armazéns para Demanda": "Warehouses to Demand",
     "Arquivo preenchido com todos os dados da tabela em formato .xlsx": "File filled with all table data in .xlsx format",
     "Arquivo vazio ou inválido.": "Empty or invalid file.",
-    "Arraste e solte ou ": "Drag and drop or ",
+    "Arraste e solte ou": "Drag and drop or",
     "As colunas lidas no seu arquivo foram:": "The columns read in your file were:",
     "As tabelas de entrada (Oferta), Armazéns ou Demanda estão vazias.": "The Supply, Warehouses, or Demand tables are empty.",
     "As tabelas de entrada ou armazéns estão vazias.": "The input or warehouse tables are empty.",
@@ -1053,5 +1053,8 @@
     "Escolha o produto e o armazém para adicionar ou modificar o estoque inicial.": "Select product and warehouse to add or edit initial inventory.",
     "Tabela de Estoque Inicial": "Initial Inventory Table",
     "Remove todos os valores de estoque inicial configurados nesta sessão.": "Remove all initial inventory values configured in this session.",
-    "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).": "Upload a spreadsheet (.xlsx or .csv) containing columns CDA, Produto and Estoque Inicial (t)."
+    "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).": "Upload a spreadsheet (.xlsx or .csv) containing columns CDA, Produto and Estoque Inicial (t).",
+    "estoque_inicial.xlsx": "Initial_Inventory.xlsx",
+    "SiloDSS_Previsoes_Consolidadas.xlsx": "SiloDSS_Consolidated_Forecasts.xlsx",
+    "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).": "Error: The sum of initial inventory ({total_init_inv:.2f} t) for warehouse {cda} exceeds its static capacity ({cap_est:.2f} t)."
 }
