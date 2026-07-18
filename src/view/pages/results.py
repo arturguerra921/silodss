@@ -414,6 +414,19 @@ def get_tab_results_layout(lang='pt'):
                         target="help-results-wh-map",
                         placement="right"
                     ),
+                    html.Div([
+                        dbc.RadioItems(
+                            id="wh-global-view-filter",
+                            className="btn-group btn-group-sm wh-filter-group",
+                            input_class_name="btn-check",
+                            label_class_name="btn btn-outline-primary-custom d-flex align-items-center gap-2",
+                            label_checked_class_name="active btn-primary-custom text-white",
+                            options=[
+                                {"label": translate("Mostrar todos os armazéns", lang), "value": "show_all"},
+                            ],
+                            value="show_all",
+                        )
+                    ], className="ms-auto d-flex align-items-center"),
                 ], className="d-flex align-items-center w-100"),
                 className="card-header-custom"
             ),
@@ -444,17 +457,16 @@ def get_tab_results_layout(lang='pt'):
                                         label_class_name="btn btn-outline-primary-custom d-flex align-items-center gap-2",
                                         label_checked_class_name="active btn-primary-custom text-white",
                                         options=[
-                                            {"label": translate("Ver Todos", lang), "value": "all"},
+                                            {"label": translate("Ver todas as rotas", lang), "value": "all"},
                                             {"label": translate("Origem -> Armazém", lang), "value": "inflow"},
                                             {"label": translate("Interhub", lang), "value": "interhub"},
                                             {"label": translate("Armazém -> Cliente Doméstico", lang), "value": "outflow_domestic"},
                                             {"label": translate("Armazém -> Cliente Exportação", lang), "value": "outflow_export"},
-                                            {"label": translate("Origem -> Cliente Doméstico", lang), "value": "direct_domestic"},
-                                            {"label": translate("Origem -> Cliente Exportação", lang), "value": "direct_export"},
+                                            {"label": translate("Origem -> Cliente", lang), "value": "direct_only"},
                                         ],
                                         value="all",
                                     )
-                                ], className="d-flex justify-content-start mb-3"),
+                                ], id="wh-route-type-filter-container", className="d-flex justify-content-start mb-3", style={"display": "flex"}),
                                 dbc.Spinner(
                                     dcc.Graph(
                                         id='graph-results-wh-map',

@@ -468,7 +468,8 @@ small, .small {
 }
 
 /* Colors for each legend circle based on input values */
-.wh-filter-group input[value="all"] + .btn::before {
+.wh-filter-group input[value="all"] + .btn::before,
+.wh-filter-group input[value="show_all"] + .btn::before {
     background-color: #7E7E65;
 }
 
@@ -480,12 +481,24 @@ small, .small {
     background-color: #997A00;
 }
 
-.wh-filter-group input[value="outflow"] + .btn::before {
+.wh-filter-group input[value="outflow"] + .btn::before,
+.wh-filter-group input[value="outflow_domestic"] + .btn::before {
     background-color: #D9534F;
 }
 
-.wh-filter-group input[value="direct"] + .btn::before {
-    background-color: #00A0A7;
+.wh-filter-group input[value="outflow_export"] + .btn::before {
+    background-color: #C0392B;
+}
+
+.wh-filter-group input[value="direct"] + .btn::before,
+.wh-filter-group input[value="direct_domestic"] + .btn::before,
+.wh-filter-group input[value="direct_only"] + .btn::before,
+.wh-filter-group input[value="direct_only"] + label::before {
+    background-color: #00A0A7 !important;
+}
+
+.wh-filter-group input[value="direct_export"] + .btn::before {
+    background-color: #0E6251;
 }
 
 .wh-filter-group .btn-check:checked + .btn {

@@ -6215,27 +6215,23 @@ def update_scenario_network_map(results_data, pess_relayout, esp_relayout, otim_
     [Input("store-model-results", "data"),
      Input("toggle-direct-arcs", "value"),
      Input("radio-results-scenario-select", "value"),
+     Input("table-results-warehouses", "active_cell"),
      Input("store-lang", "data")],
     [State("wh-route-type-filter", "value")],
     prevent_initial_call=False
 )
-def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_select, lang, current_value):
+def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_select, active_cell, lang, current_value):
     lang = lang or 'pt'
     
     default_options = [
-        {"label": translate("Ver Todos", lang), "value": "all"},
+        {"label": translate("Ver todas as rotas", lang), "value": "all"},
         {"label": translate("Origem -> Armazém", lang), "value": "inflow"},
         {"label": translate("Interhub", lang), "value": "interhub"},
         {"label": translate("Armazém -> Cliente Doméstico", lang), "value": "outflow_domestic"},
         {"label": translate("Armazém -> Cliente Exportação", lang), "value": "outflow_export"},
+        {"label": translate("Origem -> Cliente", lang), "value": "direct_only"},
     ]
     
-    if toggle_direct_arcs:
-        default_options.extend([
-            {"label": translate("Origem -> Cliente Doméstico", lang), "value": "direct_domestic"},
-            {"label": translate("Origem -> Cliente Exportação", lang), "value": "direct_export"}
-        ])
-        
     if not results_data or results_data.get("status") != "optimal":
         return default_options, "all"
         
@@ -6249,27 +6245,71 @@ def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_se
     has_outflow_dom = any(r.get("Tipo de Rota") in ["Armazém -> Cliente Doméstico", "Armazém -> Cliente"] for r in routes)
     has_outflow_exp = any(r.get("Tipo de Rota") == "Armazém -> Cliente Exportação" for r in routes)
     has_transbordo = any(r.get("Tipo de Rota") == "Interhub" for r in routes)
-    has_direct_dom = any(r.get("Tipo de Rota") in ["Origem -> Cliente Doméstico", "Origem -> Cliente"] for r in routes)
-    has_direct_exp = any(r.get("Tipo de Rota") == "Origem -> Cliente Exportação" for r in routes)
+    has_direct = any(r.get("Tipo de Rota") in ["Origem -> Cliente Doméstico", "Origem -> Cliente Exportação", "Origem -> Cliente"] for r in routes) and (toggle_direct_arcs is True or toggle_direct_arcs is None or toggle_direct_arcs == [1])
+    
+    allow_direct = (active_cell is None) and has_direct
     
     options = [
-        {"label": translate("Ver Todos", lang), "value": "all"},
+        {"label": translate("Ver todas as rotas", lang), "value": "all"},
         {"label": translate("Origem -> Armazém", lang), "value": "inflow", "disabled": not has_inflow},
         {"label": translate("Interhub", lang), "value": "interhub", "disabled": not has_transbordo},
         {"label": translate("Armazém -> Cliente Doméstico", lang), "value": "outflow_domestic", "disabled": not has_outflow_dom},
         {"label": translate("Armazém -> Cliente Exportação", lang), "value": "outflow_export", "disabled": not has_outflow_exp},
+        {"label": translate("Origem -> Cliente", lang), "value": "direct_only", "disabled": not allow_direct},
     ]
     
-    if toggle_direct_arcs:
-        options.extend([
-            {"label": translate("Origem -> Cliente Doméstico", lang), "value": "direct_domestic", "disabled": not has_direct_dom},
-            {"label": translate("Origem -> Cliente Exportação", lang), "value": "direct_export", "disabled": not has_direct_exp}
-        ])
-        
     valid_values = {opt["value"] for opt in options if not opt.get("disabled", False)}
     new_value = current_value if current_value in valid_values else "all"
     
     return options, new_value
+
+
+@app.callback(
+    Output("wh-global-view-filter", "options"),
+    [Input("store-lang", "data")]
+)
+def update_global_filter_options(lang):
+    lang = lang or 'pt'
+    return [
+        {"label": translate("Mostrar todos os armazéns", lang), "value": "show_all"},
+    ]
+
+
+@app.callback(
+    [Output("table-results-warehouses", "active_cell"),
+     Output("wh-global-view-filter", "value"),
+     Output("wh-route-type-filter-container", "style")],
+    [Input("table-results-warehouses", "active_cell"),
+     Input("wh-global-view-filter", "value"),
+     Input("wh-route-type-filter", "value")],
+    prevent_initial_call=False
+)
+def sync_results_wh_selection(active_cell, global_filter, route_type_filter):
+    ctx = dash.callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    if trigger_id == "wh-route-type-filter":
+        if route_type_filter == "direct_only" and active_cell is not None:
+            return None, "show_all", {"display": "flex"}
+        return no_update, no_update, {"display": "flex"}
+
+    if trigger_id == "table-results-warehouses":
+        if active_cell is not None:
+            return no_update, None, {"display": "flex"}
+        else:
+            return no_update, "show_all", {"display": "flex"}
+            
+    elif trigger_id == "wh-global-view-filter":
+        if global_filter == "show_all":
+            return None, no_update, {"display": "flex"}
+        else:
+            return no_update, "show_all", {"display": "flex"}
+            
+    # Initial load:
+    if active_cell is None:
+        return no_update, "show_all", {"display": "flex"}
+    else:
+        return no_update, None, {"display": "flex"}
 
 
 @app.callback(
@@ -6281,7 +6321,8 @@ def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_se
      Input("wh-route-type-filter", "value"),
      Input("store-model-results", "data"),
      Input("main-tabs", "active_tab"),
-     Input("radio-results-scenario-select", "value")],
+     Input("radio-results-scenario-select", "value"),
+     Input("wh-global-view-filter", "value")],
     [State("table-results-warehouses", "derived_viewport_data"),
      State("stored-data", "data"),
      State("store-warehouses", "data"),
@@ -6289,7 +6330,7 @@ def update_wh_route_filter_options(results_data, toggle_direct_arcs, scenario_se
      State("store-lang", "data")],
     prevent_initial_call=False
 )
-def update_warehouse_results_map(active_cell, filter_value, results_data, active_tab, scenario_map_select, table_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
+def update_warehouse_results_map(active_cell, filter_value, results_data, active_tab, scenario_map_select, global_filter, table_data, stored_data, stored_warehouses, stored_demand_data, lang='pt'):
     # Default map centered on Brazil
     default_fig = go.Figure(go.Scattermapbox())
     default_fig.update_layout(
@@ -6307,6 +6348,27 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
 
     if not stored_data or not stored_warehouses:
         return default_fig, html.P(translate("Faltam dados base para renderizar o mapa.", lang), className="text-muted small"), go.Figure(), {"display": "none"}
+
+    # Define Formatting Helpers early to be available everywhere in the function
+    def fmt_num_only(val, decimal_places=2):
+        if val is None:
+            val = 0.0
+        if abs(val) >= 1e9:
+            s = f"{val:.{decimal_places}e}"
+            if lang != 'en':
+                s = s.replace(".", ",")
+            return s
+        fmt = f"{{:,.{decimal_places}f}}"
+        s = fmt.format(val)
+        if lang != 'en':
+            s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+        return s
+
+    def fmt_n(val, unit='ton'):
+        return f"{fmt_num_only(val)} {translate(unit, lang)}"
+
+    def fmt_c(val):
+        return f"R$ {fmt_num_only(val)}"
 
     # Resolve active routes list and warehouse decisions based on selected scenario if stochastic
     selected_scenario = scenario_map_select or "esperado"
@@ -6419,8 +6481,281 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
     osrm_url = os.environ.get("OSRM_URL", "http://localhost:5000")
     client = OSRMClient(base_url=osrm_url)
 
-    # Initial state: no warehouse selected
+    # Initial state or Global View: no warehouse selected
     if not active_cell or not table_data:
+        if global_filter in ["show_all", "direct_only"]:
+            # Gather routes for global view
+            wh_routes = []
+            for r in routes:
+                r_type = r.get("Tipo de Rota", "")
+                if r_type == "Armazém -> Cliente":
+                    r_type = "Armazém -> Cliente Doméstico"
+                elif r_type == "Origem -> Cliente":
+                    r_type = "Origem -> Cliente Doméstico"
+                
+                is_direct_dom = r_type == "Origem -> Cliente Doméstico"
+                is_direct_exp = r_type == "Origem -> Cliente Exportação"
+                is_direct = is_direct_dom or is_direct_exp
+                
+                if global_filter == "show_all":
+                    if filter_value == "all":
+                        wh_routes.append(r)
+                    elif filter_value == "direct_only" and is_direct:
+                        wh_routes.append(r)
+                    elif filter_value == "inflow" and r_type == "Origem -> Armazém":
+                        wh_routes.append(r)
+                    elif filter_value == "outflow_domestic" and r_type == "Armazém -> Cliente Doméstico":
+                        wh_routes.append(r)
+                    elif filter_value == "outflow_export" and r_type == "Armazém -> Cliente Exportação":
+                        wh_routes.append(r)
+                    elif filter_value == "interhub" and r_type == "Interhub":
+                        wh_routes.append(r)
+
+            grouped_flows = {}
+            for r in wh_routes:
+                k = (r["Origem"], r["Destino"], r["Tipo de Rota"])
+                grouped_flows[k] = grouped_flows.get(k, 0.0) + r["Quantidade (ton)"]
+
+            fig = go.Figure()
+            all_lats, all_lons = [], []
+
+            nodes_to_draw = {}
+            for w in wh_decisions:
+                w_name = w.get("Name", "")
+                w_cda = w.get("CDA", "")
+                coords = dest_mapping.get(w_name, dest_mapping.get(w_cda))
+                if coords:
+                    is_cand = w.get("IsCandidate", False)
+                    is_open = w.get("IsOpen", False)
+                    if is_cand:
+                        n_type = "candidate_open" if is_open else "candidate_closed"
+                    else:
+                        n_type = "existing"
+                    nodes_to_draw[w_name] = {
+                        "coords": (coords['Latitude'], coords['Longitude']),
+                        "type": n_type,
+                        "name": w_name
+                    }
+                    all_lats.append(coords['Latitude'])
+                    all_lons.append(coords['Longitude'])
+
+            for (orig, dest, route_type), qty in grouped_flows.items():
+                if qty < 1e-4:
+                    continue
+                orig_coords, dest_coords = get_coords_optimized(orig, dest)
+                if orig_coords and dest_coords:
+                    all_lats.extend([orig_coords[0], dest_coords[0]])
+                    all_lons.extend([orig_coords[1], dest_coords[1]])
+
+                    orig_cda = orig.split(" - ")[0].strip() if orig else ""
+                    if orig not in nodes_to_draw and orig_cda not in nodes_to_draw:
+                        nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
+
+                    dest_cda = dest.split(" - ")[0].strip() if dest else ""
+                    if dest not in nodes_to_draw and dest_cda not in nodes_to_draw:
+                        n_type = "customer_export" if dest in results_data.get("Customers_exp", []) else "customer_domestic"
+                        nodes_to_draw[dest] = {"coords": dest_coords, "type": n_type, "name": dest}
+
+                    route_type_lookup = route_type
+                    if route_type_lookup == "Armazém -> Cliente":
+                        route_type_lookup = "Armazém -> Cliente Doméstico"
+                    elif route_type_lookup == "Origem -> Cliente":
+                        route_type_lookup = "Origem -> Cliente Doméstico"
+                        
+                    if route_type_lookup == "Origem -> Armazém":
+                        line_color = UNB_THEME['UNB_GREEN']
+                        line_name = translate("Origem -> Armazém", lang)
+                    elif route_type_lookup == "Armazém -> Cliente Doméstico":
+                        line_color = '#D9534F'
+                        line_name = translate(route_type_lookup, lang)
+                    elif route_type_lookup == "Armazém -> Cliente Exportação":
+                        line_color = '#C0392B'
+                        line_name = translate(route_type_lookup, lang)
+                    elif route_type_lookup in ["Origem -> Cliente Doméstico", "Origem -> Cliente Exportação"]:
+                        line_color = UNB_THEME['UNB_BLUE_GREEN']
+                        line_name = translate(route_type_lookup, lang)
+                    else:
+                        line_color = UNB_THEME['UNB_YELLOW_DARK']
+                        line_name = translate("Interhub", lang)
+
+                    route_data = client.get_route(orig_coords, dest_coords)
+                    if route_data:
+                        geom = route_data['geometry']
+                        lats = [p[1] for p in geom['coordinates']]
+                        lons = [p[0] for p in geom['coordinates']]
+                        fig.add_trace(go.Scattermapbox(
+                            mode="lines", lon=lons, lat=lats,
+                            line={'width': 3, 'color': line_color},
+                            opacity=0.8,
+                            name=line_name,
+                            text=f"{qty:,.2f} {translate('ton', lang)}",
+                            hoverinfo='text+name'
+                        ))
+
+            for name, nd in nodes_to_draw.items():
+                n_type = nd["type"]
+                n_coords = nd["coords"]
+                
+                if n_type == "candidate_open":
+                    color = UNB_THEME['UNB_BLUE']
+                    size = 12
+                    lbl = translate("Candidato - Aberto", lang)
+                elif n_type == "candidate_closed":
+                    color = '#888888'
+                    size = 10
+                    lbl = translate("Candidato - Fechado", lang)
+                elif n_type == "existing":
+                    color = UNB_THEME['UNB_GREEN']
+                    size = 12
+                    lbl = translate("Existente - Aberto", lang)
+                elif n_type == "origin":
+                    color = '#2ECC71'
+                    size = 10
+                    lbl = translate("Origem / Produtor", lang)
+                elif n_type == "customer_domestic":
+                    color = '#D9534F'
+                    size = 10
+                    lbl = translate("Cliente Doméstico", lang)
+                elif n_type == "customer_export":
+                    color = '#C0392B'
+                    size = 10
+                    lbl = translate("Cliente Exportação", lang)
+                else:
+                    color = UNB_THEME['UNB_YELLOW_DARK']
+                    size = 12
+                    lbl = translate("Armazém Interhub", lang)
+
+                fig.add_trace(go.Scattermapbox(
+                    mode="markers",
+                    lon=[n_coords[1]],
+                    lat=[n_coords[0]],
+                    marker={'size': size, 'color': color},
+                    text=f"{name}<br>({lbl})",
+                    hoverinfo='text',
+                    showlegend=False
+                ))
+
+            if all_lats:
+                lat_diff = max(all_lats) - min(all_lats)
+                lon_diff = max(all_lons) - min(all_lons)
+                max_diff = max(lat_diff, lon_diff)
+                zoom = 5
+                if max_diff < 0.1: zoom = 11
+                elif max_diff < 0.5: zoom = 9
+                elif max_diff < 2: zoom = 7
+                elif max_diff < 5: zoom = 6
+                elif max_diff < 10: zoom = 5
+                else: zoom = 4
+
+                fig.update_layout(
+                    mapbox_style="open-street-map",
+                    mapbox_zoom=zoom,
+                    mapbox_center={"lat": np.mean(all_lats), "lon": np.mean(all_lons)},
+                    margin={"r": 0, "t": 0, "l": 0, "b": 0},
+                    showlegend=False
+                )
+            else:
+                fig = default_fig
+
+            # Details card for global view
+            total_vol = sum(r["Quantidade (ton)"] for r in wh_routes)
+            num_routes = len(wh_routes)
+            origins_set = set(r["Origem"] for r in wh_routes)
+            dests_set = set(r["Destino"] for r in wh_routes)
+            num_origins = len(origins_set)
+            num_dests = len(dests_set)
+
+            if global_filter == "show_all":
+                title_text = translate("Rede Completa de Fluxos", lang)
+                subtitle_text = translate("Visão Geral do Escopo Logístico", lang)
+                icon_class = "bi bi-globe-americas me-2"
+            else:
+                title_text = translate("Rotas Diretas", lang)
+                subtitle_text = translate("Origem -> Cliente (Bypass)", lang)
+                icon_class = "bi bi-arrow-right-circle-fill me-2"
+
+            details_html = dbc.Card([
+                dbc.CardHeader(
+                    html.Div([
+                        html.I(className=icon_class),
+                        html.Span(title_text, className="fw-bold")
+                    ], className="d-flex align-items-center text-white"),
+                    className="bg-primary-custom"
+                ),
+                dbc.ListGroup([
+                    dbc.ListGroupItem([
+                        html.Div([
+                            html.Strong(subtitle_text),
+                        ], className="py-1")
+                    ], className="py-2"),
+                    dbc.ListGroupItem([
+                        html.H6([html.I(className="bi bi-box-seam text-info-custom me-2"), translate("Fluxo Total", lang)], className="mb-2 fw-bold small text-uppercase d-flex align-items-center"),
+                        html.Div([
+                            html.Span([html.I(className="bi bi-truck me-2 text-muted"), translate("Volume Movimentado:", lang)], className="text-muted small"),
+                            html.Span(fmt_n(total_vol), className="float-end fw-bold")
+                        ], className="mb-1 d-flex justify-content-between align-items-center"),
+                    ], className="py-2"),
+                    dbc.ListGroupItem([
+                        html.H6([html.I(className="bi bi-signpost-split text-primary-custom me-2"), translate("Estrutura da Rede", lang)], className="mb-2 fw-bold small text-uppercase d-flex align-items-center"),
+                        html.Div([
+                            html.Span([html.I(className="bi bi-shuffle me-2 text-muted"), translate("Número de Rotas Ativas:", lang)], className="text-muted small"),
+                            html.Span(str(num_routes), className="float-end fw-bold")
+                        ], className="mb-1 d-flex justify-content-between align-items-center"),
+                        html.Div([
+                            html.Span([html.I(className="bi bi-geo-alt me-2 text-muted"), translate("Origens Ativas:", lang)], className="text-muted small"),
+                            html.Span(str(num_origins), className="float-end")
+                        ], className="mb-1 d-flex justify-content-between align-items-center"),
+                        html.Div([
+                            html.Span([html.I(className="bi bi-people me-2 text-muted"), translate("Destinos Ativos:", lang)], className="text-muted small"),
+                            html.Span(str(num_dests), className="float-end")
+                        ], className="mb-1 d-flex justify-content-between align-items-center"),
+                    ], className="py-2"),
+                ], flush=True, className="flex-grow-1"),
+            ], className="shadow-sm border-0 h-100 d-flex flex-column")
+
+            # Inventory chart for global view (summed aggregate inventory)
+            fig_inv = go.Figure()
+            fig_inv.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+            chart_style = {"display": "none"}
+            try:
+                model_type = results_data.get("model_type", "deterministic")
+                selected_scenario = scenario_map_select or "esperado"
+                if model_type == "stochastic":
+                    inv_data = results_data.get("scenario_inventory", {}).get(selected_scenario, [])
+                else:
+                    inv_data = results_data.get("inventory", [])
+                
+                if inv_data:
+                    df_inv = pd.DataFrame(inv_data)
+                    if not df_inv.empty:
+                        df_grouped = df_inv.groupby("Período")["Quantidade (ton)"].sum().reset_index()
+                        fig_inv.add_trace(go.Bar(
+                            x=df_grouped["Período"],
+                            y=df_grouped["Quantidade (ton)"],
+                            marker=dict(color="#003366"),
+                            showlegend=False,
+                            hovertemplate=f"<b>{translate('Estoque Total', lang)}</b><br>{translate('Período', lang)}: %{{x}}<br>{translate('Quantidade', lang)}: %{{y:,.2f}} t<extra></extra>"
+                        ))
+                        fig_inv.update_layout(
+                            barmode='stack',
+                            height=350,
+                            margin=dict(l=40, r=40, t=40, b=40),
+                            font=dict(family="Roboto, sans-serif", size=14),
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)'
+                        )
+                        fig_inv.update_xaxes(tickfont=dict(size=14))
+                        fig_inv.update_yaxes(gridcolor='#E5E7EB', zeroline=False, tickfont=dict(size=14))
+                        chart_style = {"display": "block"}
+            except Exception as chart_err:
+                print(f"Error drawing aggregate inventory chart: {chart_err}")
+
+            return fig, details_html, fig_inv, chart_style
+
+        # Default fallback view: no filter and no selected warehouse
         fig = go.Figure()
         wh_lats, wh_lons, wh_names, wh_colors, wh_texts = [], [], [], [], []
         
@@ -6526,14 +6861,7 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
         is_direct_exp = r_type == "Origem -> Cliente Exportação"
         is_direct = is_direct_dom or is_direct_exp
         
-        if is_direct:
-            if filter_value == "all":
-                wh_routes.append(r)
-            elif filter_value == "direct_domestic" and is_direct_dom:
-                wh_routes.append(r)
-            elif filter_value == "direct_export" and is_direct_exp:
-                wh_routes.append(r)
-        elif match_orig or match_dest:
+        if not is_direct and (match_orig or match_dest):
             if filter_value == "all":
                 wh_routes.append(r)
             elif filter_value == "inflow" and r_type == "Origem -> Armazém":
@@ -6573,7 +6901,8 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
                 if route_type == "Interhub":
                     nodes_to_draw[dest] = {"coords": dest_coords, "type": "transshipment_wh", "name": dest}
                 else:
-                    nodes_to_draw[dest] = {"coords": dest_coords, "type": "customer", "name": dest}
+                    n_type = "customer_export" if dest in results_data.get("Customers_exp", []) else "customer_domestic"
+                    nodes_to_draw[dest] = {"coords": dest_coords, "type": n_type, "name": dest}
             elif dest == selected_wh_name:
                 if route_type == "Interhub":
                     nodes_to_draw[orig] = {"coords": orig_coords, "type": "transshipment_wh", "name": orig}
@@ -6581,7 +6910,8 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
                     nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
             else:
                 nodes_to_draw[orig] = {"coords": orig_coords, "type": "origin", "name": orig}
-                nodes_to_draw[dest] = {"coords": dest_coords, "type": "customer", "name": dest}
+                n_type = "customer_export" if dest in results_data.get("Customers_exp", []) else "customer_domestic"
+                nodes_to_draw[dest] = {"coords": dest_coords, "type": n_type, "name": dest}
 
             route_type_lookup = route_type
             if route_type_lookup == "Armazém -> Cliente":
@@ -6592,8 +6922,11 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
             if route_type_lookup == "Origem -> Armazém":
                 line_color = UNB_THEME['UNB_GREEN']
                 line_name = translate("Origem -> Armazém", lang)
-            elif route_type_lookup in ["Armazém -> Cliente Doméstico", "Armazém -> Cliente Exportação"]:
+            elif route_type_lookup == "Armazém -> Cliente Doméstico":
                 line_color = '#D9534F'
+                line_name = translate(route_type_lookup, lang)
+            elif route_type_lookup == "Armazém -> Cliente Exportação":
+                line_color = '#C0392B'
                 line_name = translate(route_type_lookup, lang)
             elif route_type_lookup in ["Origem -> Cliente Doméstico", "Origem -> Cliente Exportação"]:
                 line_color = UNB_THEME['UNB_BLUE_GREEN']
@@ -6628,10 +6961,14 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
             color = UNB_THEME['UNB_GREEN']
             size = 10
             lbl = translate("Origem / Produtor", lang)
-        elif n_type == "customer":
+        elif n_type == "customer_domestic":
             color = '#D9534F'
             size = 10
-            lbl = translate("Cliente / Demanda", lang)
+            lbl = translate("Cliente Doméstico", lang)
+        elif n_type == "customer_export":
+            color = '#C0392B'
+            size = 10
+            lbl = translate("Cliente Exportação", lang)
         else:
             color = UNB_THEME['UNB_YELLOW_DARK']
             size = 12
