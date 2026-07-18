@@ -1148,7 +1148,203 @@ def serve_layout(lang="pt"):
 
     # 5. Tab Product and Warehouses Content
     def get_tab_prod_warehouses_layout():
-        # Table Card
+        # Upload Card
+        upload_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Carregar Estoque Inicial", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="help-init-inv-upload", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).", lang),
+                            target="help-init-inv-upload",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dcc.Upload(
+                            id="upload-initial-inventory-data",
+                            children=html.Div([
+                                html.Div([
+                                    html.Span("📂 ", style={"fontSize": "1.2rem", "marginRight": "4px"}),
+                                    html.Span(translate("Arraste e solte ou ", lang), style={"color": UNB_THEME['UNB_GRAY_DARK']}),
+                                    html.A(translate("Selecione", lang), className="fw-bold text-decoration-underline", style={"color": UNB_THEME['UNB_BLUE']}),
+                                ], className="d-flex align-items-center justify-content-center"),
+                                html.Div(translate("Formatos: .xlsx, .csv", lang), className="text-muted small mt-1")
+                            ]),
+                            className="upload-box",
+                            style={"height": "70px", "padding": "6px"},
+                            multiple=False,
+                            accept=".xlsx, .csv"
+                        )
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom mb-16"
+        )
+
+        # Add Initial Inventory Card
+        add_init_inv_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Configurar Estoque Inicial", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="help-init-inv-add", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Escolha o produto e o armazém para adicionar ou modificar o estoque inicial.", lang),
+                            target="help-init-inv-add",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dbc.Row([
+                            dbc.Col([
+                                html.Div([
+                                    dbc.Label(translate("Produto", lang), className="fw-bold small mb-1 me-2"),
+                                ], className="d-flex align-items-center"),
+                                dcc.Dropdown(
+                                    id="input-init-inv-product",
+                                    options=[],
+                                    placeholder=translate("Selecione o produto...", lang),
+                                    className="mb-16"
+                                )
+                            ], width=12),
+                            dbc.Col([
+                                html.Div([
+                                    dbc.Label(translate("Armazém", lang), className="fw-bold small mb-1 me-2"),
+                                ], className="d-flex align-items-center"),
+                                dcc.Dropdown(
+                                    id="input-init-inv-warehouse",
+                                    options=[],
+                                    placeholder=translate("Selecione o armazém...", lang),
+                                    className="mb-16"
+                                )
+                            ], width=12),
+                            dbc.Col([
+                                html.Div([
+                                    dbc.Label(translate("Estoque Inicial (t)", lang), className="fw-bold small mb-1 me-2"),
+                                ], className="d-flex align-items-center"),
+                                dbc.Input(
+                                    id="input-init-inv-amount",
+                                    type="number",
+                                    min=0,
+                                    placeholder=translate("Ex: 100", lang),
+                                    className="mb-16"
+                                )
+                            ], width=12),
+                            dbc.Col([
+                                dbc.Button(
+                                    translate("Adicionar Estoque Inicial", lang),
+                                    id="btn-add-initial-inventory",
+                                    color="none",
+                                    className="btn-primary-custom w-100 mt-8"
+                                )
+                            ], width=12)
+                        ])
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom mb-16"
+        )
+
+        # Export Card
+        export_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    html.Div([
+                        html.Span(translate("Exportar Estoque Inicial", lang), className="me-2"),
+                        html.I(className="bi bi-question-circle-fill text-muted", id="help-init-inv-export", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
+                        dbc.Tooltip(translate("Exporta os dados de estoque inicial configurados em formato Excel.", lang),
+                            target="help-init-inv-export",
+                            placement="right"
+                        ),
+                    ], className="d-flex align-items-center"),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dbc.Button(
+                            translate("Baixar Planilha (.xlsx)", lang),
+                            id="btn-export-initial-inventory-xlsx",
+                            color="none",
+                            className="btn-success-custom w-100"
+                        )
+                    ],
+                    className="card-body-custom"
+                ),
+            ],
+            className="card-custom"
+        )
+
+        # Table Card (Initial Inventory)
+        initial_inventory_table_card = dbc.Card(
+            [
+                dbc.CardHeader(
+                    translate("Tabela de Estoque Inicial", lang),
+                    className="card-header-custom"
+                ),
+                dbc.CardBody(
+                    [
+                        dbc.Spinner(
+                            html.Div(id="table-initial-inventory-container", children=[
+                                dash_table.DataTable(
+                                    id="table-initial-inventory",
+                                    data=[],
+                                    columns=[
+                                        {
+                                            'name': translate(col, lang), 
+                                            'id': col, 
+                                            'deletable': False, 
+                                            'renamable': False,
+                                            'editable': col == 'Estoque Inicial (t)'
+                                        } for col in ['CDA', 'Armazenador', 'Município', 'Produto', 'Estoque Inicial (t)']
+                                    ],
+                                    editable=True,
+                                    row_deletable=True,
+                                    page_size=12,
+                                    style_table={'overflowX': 'auto', 'borderRadius': '8px', 'border': f"1px solid {UNB_THEME['BORDER_LIGHT']}"},
+                                    style_cell={
+                                        'textAlign': 'left',
+                                        'fontFamily': "'Roboto', sans-serif",
+                                        'padding': '12px',
+                                        'fontSize': 'var(--font-size-small)',
+                                        'color': UNB_THEME['UNB_GRAY_DARK']
+                                    },
+                                    style_header={
+                                        'backgroundColor': '#F8F9FA',
+                                        'color': UNB_THEME['UNB_BLUE'],
+                                        'fontWeight': 'bold',
+                                        'border': 'none',
+                                        'padding': '12px',
+                                        'borderBottom': f"2px solid {UNB_THEME['BORDER_LIGHT']}"
+                                    },
+                                    style_data={
+                                        'borderBottom': f"1px solid {UNB_THEME['BORDER_LIGHT']}"
+                                    },
+                                    style_data_conditional=[
+                                        {
+                                            'if': {'row_index': 'odd'},
+                                            'backgroundColor': '#f8f9fa'
+                                        }
+                                    ]
+                                )
+                            ], className="h-100 d-flex flex-column"),
+                            spinner_class_name="text-primary-custom"
+                        )
+                    ],
+                    className="card-body-custom d-flex flex-column flex-grow-1"
+                ),
+            ],
+            className="card-custom h-100 d-flex flex-column"
+        )
+
+        # Existing Product vs Warehouse Type Table Card
         table_card = dbc.Card(
             [
                 dbc.CardHeader(
@@ -1221,7 +1417,7 @@ def serve_layout(lang="pt"):
                 ),
             ],
             className="card-custom h-100",
-            style={"minHeight": "600px"}
+            style={"minHeight": "400px"}
         )
 
         # Missing Data Modal
@@ -1242,7 +1438,22 @@ def serve_layout(lang="pt"):
         return html.Div([
             dbc.Row(
                 [
-                    dbc.Col(table_card, width=12, className="mb-24"),
+                    # Top section: Initial Inventory
+                    dbc.Col([
+                        upload_card,
+                        add_init_inv_card,
+                        export_card
+                    ], width=12, lg=3, className="d-flex flex-column mb-24"),
+                    dbc.Col([
+                        initial_inventory_table_card
+                    ], width=12, lg=9, className="d-flex flex-column mb-24"),
+                ],
+                className="align-items-stretch"
+            ),
+            dbc.Row(
+                [
+                    # Bottom section: Product x Warehouse Type
+                    dbc.Col(table_card, width=12, className="mb-24")
                 ]
             ),
             missing_data_modal
@@ -1291,11 +1502,13 @@ def serve_layout(lang="pt"):
     )
 
     initial_store_df = pd.DataFrame(columns=['Produto', 'Cidade', 'Latitude', 'Longitude', 'Data', 'Peso (ton)'])
+    initial_init_inv_df = pd.DataFrame(columns=['CDA', 'Armazenador', 'Município', 'Produto', 'Estoque Inicial (t)'])
 
     return html.Div(
         [
             dcc.Store(id='stored-data', data=initial_store_df.to_json(date_format='iso', orient='split')),
             dcc.Store(id='stored-demand-data', data=initial_store_df.to_json(date_format='iso', orient='split')),
+            dcc.Store(id='store-initial-inventory', data=initial_init_inv_df.to_json(date_format='iso', orient='split')),
             dcc.Store(id='metrics-store', data={'weight': 0, 'count': 0}),
             dcc.Store(id='demand-metrics-store', data={'weight': 0, 'count': 0}),
             dcc.Store(id='store-warehouses'),
@@ -1351,6 +1564,7 @@ app.layout = html.Div([
     dcc.Download(id='download-matrix-xlsx'),
     dcc.Download(id='download-model-log'),
     dcc.Download(id='download-results-xlsx'),
+    dcc.Download(id='download-initial-inventory'),
 
     dbc.Modal(
         [
@@ -4205,6 +4419,7 @@ def toggle_bulk_collapse(is_enabled):
         Input("btn-run-model", "n_clicks"),
         State('stored-data', 'data'),
         State('store-warehouses', 'data'),
+        State('store-initial-inventory', 'data'),
         State('store-prod-warehouses', 'data'),
         State('store-distance-matrix', 'data'),
         State('stored-demand-data', 'data'),
@@ -4251,7 +4466,7 @@ def toggle_bulk_collapse(is_enabled):
     cancel=[Input("btn-cancel-model", "n_clicks")],
     prevent_initial_call=True
 )
-def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
+def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored_initial_inventory, stored_prod_warehouses, stored_matrix, stored_demand, detailed_log,
                   toggle_pareto, toggle_direct_arcs, input_allocation_days, interhub_factor, solver_gap, solver_time_limit, solver_name,
                   expansion_enabled, bulk_enabled,
                   ratio_expand_rec, ratio_expand_ship, max_expand_capacity, expand_fixed_cost, expand_var_cost,
@@ -4343,6 +4558,13 @@ def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored
         df_warehouses = pd.read_json(io.StringIO(stored_warehouses), orient='split')
         df_compat = pd.read_json(io.StringIO(stored_prod_warehouses), orient='split')
         df_demand = pd.read_json(io.StringIO(stored_demand), orient='split')
+
+        df_initial_inventory = None
+        if stored_initial_inventory:
+            try:
+                df_initial_inventory = pd.read_json(io.StringIO(stored_initial_inventory), orient='split')
+            except Exception as e:
+                print(f"Error loading initial inventory in execute_model: {e}")
 
         # Normalize historical dates to string YYYY-MM
         if not df_supply.empty:
@@ -4477,6 +4699,7 @@ def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored
                     supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
                     demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
                     prediction_results=preds,
+                    df_initial_inventory=df_initial_inventory,
                     df_dist_supply_demand=df_dist_supply_demand,
                     detailed_log=detailed_log,
                     toggle_pareto=toggle_pareto,
@@ -4508,6 +4731,7 @@ def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored
                     df_demand=df_demand,
                     df_freight=df_freight,
                     df_storage=df_storage,
+                    df_initial_inventory=df_initial_inventory,
                     df_dist_supply_demand=df_dist_supply_demand,
                     detailed_log=detailed_log,
                     toggle_pareto=toggle_pareto,
@@ -5197,8 +5421,7 @@ def download_results(n_clicks, results_data, lang='pt'):
                     translate("Período", lang): r.get("Período", ""),
                     translate("Tipo de Rota", lang): translate(r.get("Tipo de Rota", ""), lang),
                     translate("Distancia (km)", lang): r.get("Distancia (km)", 0.0),
-                    translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0),
-                    translate("Custo Total (R$)", lang): r.get("Custo Total (R$)", 0.0)
+                    translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0)
                 }
                 if "Qtd. de Viagens" in r and r["Qtd. de Viagens"] is not None:
                     row[translate("Qtd. de Viagens", lang)] = r["Qtd. de Viagens"]
@@ -5358,8 +5581,7 @@ def download_results(n_clicks, results_data, lang='pt'):
             translate("Período", lang): r.get("Período", ""),
             translate("Tipo de Rota", lang): translate(r.get("Tipo de Rota", ""), lang),
             translate("Distancia (km)", lang): r.get("Distancia (km)", 0.0),
-            translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0),
-            translate("Custo Total (R$)", lang): r.get("Custo Total (R$)", 0.0)
+            translate("Custo Frete (R$)", lang): r.get("Custo Frete (R$)", 0.0)
         }
         if "Qtd. de Viagens" in r and r["Qtd. de Viagens"] is not None:
             row[translate("Qtd. de Viagens", lang)] = r["Qtd. de Viagens"]
@@ -5651,7 +5873,8 @@ def update_results_map(active_cell, btn_all_routes, btn_confirm_all, scenario_ma
         # Formatted currency/numbers
         fmt_freight = f"R$ {route_detail['Custo Frete (R$)']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         fmt_storage = f"R$ {route_detail['Custo Armazenagem (R$)']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        fmt_total = f"R$ {route_detail['Custo Total (R$)']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        total_val = route_detail.get('Custo Total (R$)', route_detail.get('Custo Frete (R$)', 0.0))
+        fmt_total = f"R$ {total_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         fmt_qtd = f"{route_detail['Quantidade (ton)']:,.2f} ton".replace(",", "X").replace(".", ",").replace("X", ".")
         fmt_dist = f"{route_detail['Distancia (km)']:,.2f} km".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -9806,6 +10029,343 @@ def handle_gurobi_lic_upload(contents, filename, current_lic_data, lang="pt"):
         return html.Span(translate("Licença ativa na sessão!", lang), className="text-success fw-bold"), current_lic_data
     
     return html.Span(translate("Nenhuma licença enviada. Usando configurações padrão do sistema (se houver).", lang), className="text-muted"), None
+
+
+# --- Initial Inventory Callbacks ---
+
+@app.callback(
+  Output('store-initial-inventory', 'data'),
+  Output('error-modal', 'is_open', allow_duplicate=True),
+  Output('modal-body-content', 'children', allow_duplicate=True),
+  Output('upload-initial-inventory-data', 'contents'),
+  [Input('main-tabs', 'active_tab'),
+   Input('stored-data', 'data'),
+   Input('store-warehouses', 'data'),
+   Input('upload-initial-inventory-data', 'contents'),
+   Input('btn-add-initial-inventory', 'n_clicks'),
+   Input('table-initial-inventory', 'data_timestamp')],
+  [State('store-initial-inventory', 'data'),
+   State('table-initial-inventory', 'data'),
+   State('input-init-inv-product', 'value'),
+   State('input-init-inv-warehouse', 'value'),
+   State('input-init-inv-amount', 'value'),
+   State('upload-initial-inventory-data', 'filename'),
+   State('store-lang', 'data')],
+  prevent_initial_call=True
+)
+def manage_initial_inventory(active_tab, stored_data, stored_warehouses, upload_contents, n_add, timestamp,
+                             stored_init_inv, table_data, form_product, form_warehouse, form_amount, upload_filename, lang='pt'):
+  ctx = dash.callback_context
+  if not ctx.triggered:
+    return no_update, no_update, no_update, no_update
+
+  trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+  def get_active_products():
+    if not stored_data:
+      return []
+    try:
+      df_prod = pd.read_json(io.StringIO(stored_data), orient='split')
+      if not df_prod.empty and "Produto" in df_prod.columns:
+        return sorted(df_prod["Produto"].dropna().unique().astype(str).tolist())
+    except Exception:
+      pass
+    return []
+
+  def get_registered_warehouses():
+    if not stored_warehouses:
+      return []
+    try:
+      df_arm = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+      if not df_arm.empty:
+        if 'Status' in df_arm.columns:
+          df_arm = df_arm[df_arm['Status'] == 'Existente']
+        return df_arm
+    except Exception:
+      pass
+    return None
+
+  active_prods = get_active_products()
+  df_arm = get_registered_warehouses()
+
+  if trigger_id in ['main-tabs', 'stored-data', 'store-warehouses']:
+    if active_tab != 'tab-prod-warehouses':
+      return no_update, no_update, no_update, no_update
+
+    wh_list = []
+    if df_arm is not None and not df_arm.empty:
+      try:
+        cda_idx = df_arm.columns.get_loc('CDA')
+        arm_idx = df_arm.columns.get_loc('Armazenador')
+        mun_idx = df_arm.columns.get_loc('Município')
+        for row in df_arm.itertuples(index=False):
+          wh_list.append({
+            'CDA': str(row[cda_idx]).strip(),
+            'Armazenador': str(row[arm_idx]).strip(),
+            'Município': str(row[mun_idx]).strip()
+          })
+      except Exception:
+        for _, row in df_arm.iterrows():
+          wh_list.append({
+            'CDA': str(row['CDA']).strip(),
+            'Armazenador': str(row['Armazenador']).strip(),
+            'Município': str(row['Município']).strip()
+          })
+
+    if not wh_list or not active_prods:
+      empty_df = pd.DataFrame(columns=['CDA', 'Armazenador', 'Município', 'Produto', 'Estoque Inicial (t)'])
+      return empty_df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+
+    exist_map = {}
+    if stored_init_inv:
+      try:
+        df_exist = pd.read_json(io.StringIO(stored_init_inv), orient='split')
+        if not df_exist.empty:
+          cda_idx = df_exist.columns.get_loc('CDA')
+          prod_idx = df_exist.columns.get_loc('Produto')
+          val_idx = df_exist.columns.get_loc('Estoque Inicial (t)')
+          for row in df_exist.itertuples(index=False):
+            exist_map[(str(row[cda_idx]).strip(), str(row[prod_idx]).strip())] = float(row[val_idx])
+      except Exception:
+        try:
+          df_exist = pd.read_json(io.StringIO(stored_init_inv), orient='split')
+          for _, row in df_exist.iterrows():
+            exist_map[(str(row['CDA']).strip(), str(row['Produto']).strip())] = float(row['Estoque Inicial (t)'])
+        except Exception:
+          pass
+
+    records = []
+    for wh in wh_list:
+      for prod in active_prods:
+        val = exist_map.get((wh['CDA'], prod), 0.0)
+        records.append({
+          'CDA': wh['CDA'],
+          'Armazenador': wh['Armazenador'],
+          'Município': wh['Município'],
+          'Produto': prod,
+          'Estoque Inicial (t)': val
+        })
+    df_new = pd.DataFrame(records)
+    return df_new.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+
+  if trigger_id == 'btn-clear-initial-inventory':
+    if not stored_init_inv:
+      return no_update, no_update, no_update, no_update
+    try:
+      df = pd.read_json(io.StringIO(stored_init_inv), orient='split')
+      if not df.empty:
+        df['Estoque Inicial (t)'] = 0.0
+        return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+    except Exception:
+      pass
+    return no_update, no_update, no_update, no_update
+
+  if trigger_id == 'btn-add-initial-inventory':
+    if not form_product or not form_warehouse:
+      return no_update, True, translate("Por favor, selecione um produto e um armazém.", lang), no_update
+
+    amount = 0.0
+    if form_amount is not None:
+      try:
+        amount = float(form_amount)
+      except ValueError:
+        return no_update, True, translate("O estoque inicial deve ser um número válido.", lang), no_update
+
+    if not stored_init_inv:
+      return no_update, no_update, no_update, no_update
+
+    df = pd.read_json(io.StringIO(stored_init_inv), orient='split')
+    mask = (df['CDA'] == form_warehouse) & (df['Produto'] == form_product)
+    if mask.any():
+      df.loc[mask, 'Estoque Inicial (t)'] = amount
+    else:
+      arm_name = ""
+      mun_name = ""
+      if df_arm is not None and not df_arm.empty:
+        w_row = df_arm[df_arm['CDA'] == form_warehouse]
+        if not w_row.empty:
+          arm_name = str(w_row.iloc[0]['Armazenador'])
+          mun_name = str(w_row.iloc[0]['Município'])
+      new_row = pd.DataFrame([{
+        'CDA': form_warehouse,
+        'Armazenador': arm_name,
+        'Município': mun_name,
+        'Produto': form_product,
+        'Estoque Inicial (t)': amount
+      }])
+      df = pd.concat([df, new_row], ignore_index=True)
+
+    return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+
+  if trigger_id == 'table-initial-inventory':
+    if table_data is not None:
+      df = pd.DataFrame(table_data)
+      if not df.empty and 'Estoque Inicial (t)' in df.columns:
+        df['Estoque Inicial (t)'] = df['Estoque Inicial (t)'].apply(lambda x: safe_parse_numeric(x) if pd.notna(x) else 0.0)
+      return df.to_json(date_format='iso', orient='split'), no_update, no_update, no_update
+
+  if trigger_id == 'upload-initial-inventory-data' and upload_contents:
+    content_type, content_string = upload_contents.split(',')
+    decoded = base64.b64decode(content_string)
+    try:
+      if 'spreadsheetml' in content_type or (upload_filename and upload_filename.endswith('.xlsx')):
+        df_upload = pd.read_excel(io.BytesIO(decoded))
+      else:
+        df_upload = pd.read_csv(io.StringIO(decoded.decode('utf-8')), sep=None, engine='python')
+
+      df_upload.columns = [c.strip() for c in df_upload.columns]
+
+      required_cols = ['CDA', 'Produto', 'Estoque Inicial (t)']
+      missing_cols = [c for c in required_cols if c not in df_upload.columns]
+      if missing_cols:
+        return no_update, True, translate("Colunas obrigatórias ausentes na planilha de estoque inicial. Esperado: CDA, Produto, Estoque Inicial (t)", lang), ""
+
+      upload_products = set(df_upload['Produto'].dropna().astype(str).str.strip().unique())
+      upload_cdas = set(df_upload['CDA'].dropna().astype(str).str.strip().unique())
+
+      active_products_set = set(active_prods)
+
+      registered_cdas_set = set()
+      if df_arm is not None and not df_arm.empty:
+        registered_cdas_set = set(df_arm['CDA'].dropna().astype(str).str.strip().unique())
+
+      invalid_products = upload_products - active_products_set
+      invalid_cdas = upload_cdas - registered_cdas_set
+
+      if invalid_products or invalid_cdas:
+        err_msg = translate("Os produtos e armazéns informados na planilha não coincidem com os cadastrados no sistema.", lang)
+        if invalid_products:
+          err_msg += f"\n\n{translate('Os seguintes produtos da planilha não existem no sistema:', lang)} {', '.join(sorted(invalid_products))}"
+        if invalid_cdas:
+          err_msg += f"\n\n{translate('Os seguintes CDAs da planilha não existem no sistema:', lang)} {', '.join(sorted(invalid_cdas))}"
+        return no_update, True, err_msg, ""
+
+      upload_map = {}
+      for row in df_upload.itertuples(index=False):
+        cda = str(row[df_upload.columns.get_loc('CDA')]).strip()
+        prod = str(row[df_upload.columns.get_loc('Produto')]).strip()
+        val = safe_parse_numeric(row[df_upload.columns.get_loc('Estoque Inicial (t)')]) if pd.notna(row[df_upload.columns.get_loc('Estoque Inicial (t)')]) else 0.0
+        upload_map[(cda, prod)] = val
+
+      wh_list = []
+      if df_arm is not None and not df_arm.empty:
+        try:
+          cda_idx = df_arm.columns.get_loc('CDA')
+          arm_idx = df_arm.columns.get_loc('Armazenador')
+          mun_idx = df_arm.columns.get_loc('Município')
+          for row in df_arm.itertuples(index=False):
+            wh_list.append({
+              'CDA': str(row[cda_idx]).strip(),
+              'Armazenador': str(row[arm_idx]).strip(),
+              'Município': str(row[mun_idx]).strip()
+            })
+        except Exception:
+          for _, row in df_arm.iterrows():
+            wh_list.append({
+              'CDA': str(row['CDA']).strip(),
+              'Armazenador': str(row['Armazenador']).strip(),
+              'Município': str(row['Município']).strip()
+            })
+
+      records = []
+      for wh in wh_list:
+        for prod in active_prods:
+          val = upload_map.get((wh['CDA'], prod), 0.0)
+          records.append({
+            'CDA': wh['CDA'],
+            'Armazenador': wh['Armazenador'],
+            'Município': wh['Município'],
+            'Produto': prod,
+            'Estoque Inicial (t)': val
+          })
+      df_new = pd.DataFrame(records)
+      return df_new.to_json(date_format='iso', orient='split'), no_update, no_update, ""
+    except Exception as e:
+      print(f"Error parsing uploaded initial inventory: {e}")
+      return no_update, True, f"{translate('Erro ao processar arquivo.', lang)} Details: {str(e)}", ""
+
+  return no_update, no_update, no_update, no_update
+
+
+@app.callback(
+  Output('table-initial-inventory', 'data'),
+  Output('input-init-inv-product', 'options'),
+  Output('input-init-inv-warehouse', 'options'),
+  Input('main-tabs', 'active_tab'),
+  Input('store-initial-inventory', 'data'),
+  Input('stored-data', 'data'),
+  Input('store-warehouses', 'data'),
+  Input('store-lang', 'data')
+)
+def populate_initial_inventory_table(active_tab, stored_init_inv, stored_data, stored_warehouses, lang='pt'):
+  if active_tab != 'tab-prod-warehouses':
+    return no_update, no_update, no_update
+
+  product_options = []
+  if stored_data:
+    try:
+      df_prod = pd.read_json(io.StringIO(stored_data), orient='split')
+      if not df_prod.empty and "Produto" in df_prod.columns:
+        active_prods = sorted(df_prod["Produto"].dropna().unique().astype(str).tolist())
+        product_options = [{'label': p, 'value': p} for p in active_prods]
+    except Exception:
+      pass
+
+  warehouse_options = []
+  if stored_warehouses:
+    try:
+      df_arm = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+      if not df_arm.empty:
+        if 'Status' in df_arm.columns:
+          df_arm = df_arm[df_arm['Status'] == 'Existente']
+        cda_idx = df_arm.columns.get_loc('CDA')
+        arm_idx = df_arm.columns.get_loc('Armazenador')
+        mun_idx = df_arm.columns.get_loc('Município')
+        for row in df_arm.itertuples(index=False):
+          cda = str(row[cda_idx]).strip()
+          arm = str(row[arm_idx]).strip()
+          mun = str(row[mun_idx]).strip()
+          label = f"{cda} - {arm} - {mun}"
+          warehouse_options.append({'label': label, 'value': cda})
+    except Exception:
+      try:
+        df_arm = pd.read_json(io.StringIO(stored_warehouses), orient='split')
+        if 'Status' in df_arm.columns:
+          df_arm = df_arm[df_arm['Status'] == 'Existente']
+        for _, row in df_arm.iterrows():
+          cda = str(row['CDA']).strip()
+          arm = str(row['Armazenador']).strip()
+          mun = str(row['Município']).strip()
+          label = f"{cda} - {arm} - {mun}"
+          warehouse_options.append({'label': label, 'value': cda})
+      except Exception:
+        pass
+
+  if not stored_init_inv:
+    return [], product_options, warehouse_options
+
+  try:
+    df = pd.read_json(io.StringIO(stored_init_inv), orient='split')
+    return df.to_dict('records'), product_options, warehouse_options
+  except Exception:
+    return [], product_options, warehouse_options
+
+
+
+
+@app.callback(
+  Output("download-initial-inventory", "data"),
+  Input("btn-export-initial-inventory-xlsx", "n_clicks"),
+  State('store-initial-inventory', 'data'),
+  State('store-lang', 'data'),
+  prevent_initial_call=True
+)
+def export_initial_inventory(n_clicks, stored_init_inv, lang='pt'):
+  if not n_clicks or not stored_init_inv:
+    return no_update
+  df = pd.read_json(io.StringIO(stored_init_inv), orient='split')
+  df_export = df[['CDA', 'Produto', 'Estoque Inicial (t)']]
+  return dcc.send_data_frame(df_export.to_excel, "estoque_inicial.xlsx", index=False)
 
 
 def view():

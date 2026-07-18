@@ -39,6 +39,7 @@ def run_deterministic_model(
     df_demand,
     df_freight,
     df_storage,
+    df_initial_inventory=None,
     df_dist_supply_demand=None,
     detailed_log=False,
     toggle_pareto=False,
@@ -88,6 +89,26 @@ def run_deterministic_model(
     periods = sorted(df_supply['Data'].dropna().unique().tolist())
     prev_period_map = {p: periods[i-1] for i, p in enumerate(periods) if i > 0}
     all_products = df_supply['Produto'].unique().tolist()
+
+    # Parse Initial Inventory
+    initial_inventory_dict = {}
+    if df_initial_inventory is not None and not df_initial_inventory.empty:
+        try:
+            cols = list(df_initial_inventory.columns)
+            cda_idx = cols.index('CDA')
+            prod_idx = cols.index('Produto')
+            val_idx = cols.index('Estoque Inicial (t)')
+            for row in df_initial_inventory.itertuples(index=False):
+                cda = str(row[cda_idx]).strip()
+                prod = str(row[prod_idx]).strip()
+                val = safe_parse_numeric(row[val_idx]) if pd.notna(row[val_idx]) else 0.0
+                initial_inventory_dict[(cda, prod)] = val
+        except (ValueError, IndexError):
+            for _, row in df_initial_inventory.iterrows():
+                cda = str(row['CDA']).strip()
+                prod = str(row['Produto']).strip()
+                val = safe_parse_numeric(row['Estoque Inicial (t)']) if pd.notna(row['Estoque Inicial (t)']) else 0.0
+                initial_inventory_dict[(cda, prod)] = val
     
     # 1.1 Supply dict: {(origin, product, period): tons}
     supply_dict = df_supply.groupby(['Cidade', 'Produto', 'Data'])['Peso (ton)'].sum().to_dict()
@@ -589,6 +610,10 @@ def run_deterministic_model(
         return storage_cost.get((d, p), 50.0)
     model.StorageTariff = pyo.Param(model.Destinations, model.Products, initialize=storage_tariff_init)
 
+    def initial_inventory_init(m, d, p):
+        return initial_inventory_dict.get((d, p), 0.0)
+    model.InitialInventory = pyo.Param(model.Destinations, model.Products, initialize=initial_inventory_init)
+
     def freight_origin_init(m, o):
         return freight_origin.get(o, avg_freight)
     model.FreightOrigin = pyo.Param(model.Origins, initialize=freight_origin_init)
@@ -789,7 +814,7 @@ def run_deterministic_model(
                   
         # Check index for boundary condition using predecessor map
         if t == periods[0]:
-            prev_inv = 0.0
+            prev_inv = m.InitialInventory[d, p]
         else:
             prev_t = prev_period_map[t]
             prev_inv = m.Inventory[d, p, prev_t]
@@ -1083,40 +1108,19 @@ def run_deterministic_model(
             for d in model.BulkEligible
         )
         
+        total_initial_inventory = sum(
+            pyo.value(model.InitialInventory[d, p])
+            for d in model.Destinations for p in model.Products
+        )
+
         total_tons = sum(
             pyo.value(model.FlowOD[o, d, p, t])
             for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
         ) + sum(
             pyo.value(model.FlowOC[o, c, p, t])
             for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
-        )
+        ) + total_initial_inventory
         
-        total_km = sum(
-            pyo.value(model.FlowOD[o, d, p, t]) * model.DistanceOD[o, d]
-            for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
-        ) + sum(
-            pyo.value(model.FlowDC[d, c, p, t]) * model.DistanceDC[d, c]
-            for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods
-        ) + sum(
-            pyo.value(model.FlowDD[d1, d2, p, t]) * model.DistanceDD[d1, d2]
-            for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
-        ) + sum(
-            pyo.value(model.FlowOC[o, c, p, t]) * model.DistanceOC[o, c]
-            for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
-        )
-
-        results_dict["kpis"] = {
-            "total_tons": total_tons,
-            "total_km": total_km,
-            "total_freight_cost": total_freight_cost,
-            "total_storage_cost": total_storage_cost,
-            "total_transshipment_cost": total_transshipment_cost,
-            "total_opening_cost": total_opening_cost,
-            "total_expand_cost": total_expand_cost,
-            "total_bulk_cost": total_bulk_cost,
-            "execution_time": time.time() - start_time
-        }
-
         # Populate routes for visualization (all levels)
         routes_list = []
         
@@ -1201,8 +1205,23 @@ def run_deterministic_model(
                         "Custo Armazenagem (R$)": 0.0,
                         "Custo Total (R$)": freight
                     })
-                    
+
+        total_km = float(sum(r["Distancia (km)"] for r in routes_list))
+
+        results_dict["kpis"] = {
+            "total_tons": total_tons,
+            "total_km": total_km,
+            "total_freight_cost": total_freight_cost,
+            "total_storage_cost": total_storage_cost,
+            "total_transshipment_cost": total_transshipment_cost,
+            "total_opening_cost": total_opening_cost,
+            "total_expand_cost": total_expand_cost,
+            "total_bulk_cost": total_bulk_cost,
+            "execution_time": time.time() - start_time
+        }
         results_dict["routes"] = routes_list
+        
+
 
         # Warehouse upgrade sizing decisions & computed Turnover post-solve
         wh_decisions_list = []
@@ -1330,6 +1349,7 @@ def build_stochastic_pyomo_model(
   supply_error_pct,
   demand_error_pct,
   prediction_results,
+  df_initial_inventory=None,
   df_dist_supply_demand=None,
   toggle_pareto=False,
   input_allocation_days=None,
@@ -1366,6 +1386,26 @@ def build_stochastic_pyomo_model(
   periods = sorted(df_supply['Data'].dropna().unique().tolist())
   prev_period_map = {periods[i]: periods[i-1] for i in range(1, len(periods))}
   all_products = df_supply['Produto'].unique().tolist()
+
+  # Parse Initial Inventory
+  initial_inventory_dict = {}
+  if df_initial_inventory is not None and not df_initial_inventory.empty:
+    try:
+      cols = list(df_initial_inventory.columns)
+      cda_idx = cols.index('CDA')
+      prod_idx = cols.index('Produto')
+      val_idx = cols.index('Estoque Inicial (t)')
+      for row in df_initial_inventory.itertuples(index=False):
+        cda = str(row[cda_idx]).strip()
+        prod = str(row[prod_idx]).strip()
+        val = safe_parse_numeric(row[val_idx]) if pd.notna(row[val_idx]) else 0.0
+        initial_inventory_dict[(cda, prod)] = val
+    except (ValueError, IndexError):
+      for _, row in df_initial_inventory.iterrows():
+        cda = str(row['CDA']).strip()
+        prod = str(row['Produto']).strip()
+        val = safe_parse_numeric(row['Estoque Inicial (t)']) if pd.notna(row['Estoque Inicial (t)']) else 0.0
+        initial_inventory_dict[(cda, prod)] = val
   
   supply_dict = df_supply.groupby(['Cidade', 'Produto', 'Data'])['Peso (ton)'].sum().to_dict()
 
@@ -1897,6 +1937,10 @@ def build_stochastic_pyomo_model(
     return storage_cost.get((d, p), 50.0)
   model.StorageTariff = pyo.Param(model.Destinations, model.Products, initialize=storage_tariff_init)
 
+  def initial_inventory_init(m, d, p):
+    return initial_inventory_dict.get((d, p), 0.0)
+  model.InitialInventory = pyo.Param(model.Destinations, model.Products, initialize=initial_inventory_init)
+
   def freight_origin_init(m, o):
     return freight_origin.get(o, avg_freight)
   model.FreightOrigin = pyo.Param(model.Origins, initialize=freight_origin_init)
@@ -2012,7 +2056,7 @@ def build_stochastic_pyomo_model(
               sum(m.FlowDD[d, d2, p, t, s] for d2 in valid_trans_out)
               
     if t == periods[0]:
-      prev_inv = 0.0
+      prev_inv = m.InitialInventory[d, p]
     else:
       prev_t = prev_period_map[t]
       prev_inv = m.Inventory[d, p, prev_t, s]
@@ -2166,6 +2210,7 @@ def run_stochastic_model(
   supply_error_pct,
   demand_error_pct,
   prediction_results,
+  df_initial_inventory=None,
   df_dist_supply_demand=None,
   detailed_log=False,
   toggle_pareto=False,
@@ -2226,6 +2271,7 @@ def run_stochastic_model(
        supply_error_pct=supply_error_pct,
        demand_error_pct=demand_error_pct,
        prediction_results=prediction_results,
+       df_initial_inventory=df_initial_inventory,
        df_dist_supply_demand=df_dist_supply_demand,
        toggle_pareto=toggle_pareto,
        input_allocation_days=input_allocation_days,
@@ -2425,44 +2471,19 @@ def run_stochastic_model(
         for d in model.Destinations for p in model.Products for t in model.TimePeriods
       )
       
+      total_initial_inventory = sum(
+        pyo.value(model.InitialInventory[d, p])
+        for d in model.Destinations for p in model.Products
+      )
+
       total_tons_s = sum(
         pyo.value(model.FlowOD[o, d, p, t, s])
         for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
       ) + sum(
         pyo.value(model.FlowOC[o, c, p, t, s])
         for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
-      )
+      ) + total_initial_inventory
       
-      total_km_s = sum(
-        pyo.value(model.FlowOD[o, d, p, t, s]) * model.DistanceOD[o, d]
-        for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods
-      ) + sum(
-        pyo.value(model.FlowDC[d, c, p, t, s]) * model.DistanceDC[d, c]
-        for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods
-      ) + sum(
-        pyo.value(model.FlowDD[d1, d2, p, t, s]) * model.DistanceDD[d1, d2]
-        for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods
-      ) + sum(
-        pyo.value(model.FlowOC[o, c, p, t, s]) * model.DistanceOC[o, c]
-        for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods
-      )
-
-      scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s + total_transshipment_s
-      scenario_objectives[s] = scenario_obj
-
-      scenario_kpis[s] = {
-        "total_cost": scenario_obj,
-        "total_tons": total_tons_s,
-        "total_km": total_km_s,
-        "total_freight_cost": total_freight_s,
-        "total_storage_cost": storage_s,
-        "total_transshipment_cost": total_transshipment_s,
-        "total_opening_cost": total_opening_cost,
-        "total_expand_cost": total_expand_cost,
-        "total_bulk_cost": total_bulk_cost,
-        "execution_time": time.time() - start_time
-      }
-
       # Scenario routes
       routes_list = []
       for (o, d, p) in model.ValidRoutesOD:
@@ -2520,7 +2541,6 @@ def run_stochastic_model(
               "Custo Armazenagem (R$)": 0.0,
               "Custo Total (R$)": freight
             })
-
       for (o, c, p) in model.ValidRoutesOC:
         for t in model.TimePeriods:
           val = pyo.value(model.FlowOC[o, c, p, t, s])
@@ -2540,6 +2560,23 @@ def run_stochastic_model(
               "Custo Armazenagem (R$)": 0.0,
               "Custo Total (R$)": freight
             })
+      scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s + total_transshipment_s
+      scenario_objectives[s] = scenario_obj
+
+      total_km_s = float(sum(r["Distancia (km)"] for r in routes_list))
+
+      scenario_kpis[s] = {
+        "total_cost": scenario_obj,
+        "total_tons": total_tons_s,
+        "total_km": total_km_s,
+        "total_freight_cost": total_freight_s,
+        "total_storage_cost": storage_s,
+        "total_transshipment_cost": total_transshipment_s,
+        "total_opening_cost": total_opening_cost,
+        "total_expand_cost": total_expand_cost,
+        "total_bulk_cost": total_bulk_cost,
+        "execution_time": time.time() - start_time
+      }
       scenario_routes[s] = routes_list
 
       # Scenario inventory
