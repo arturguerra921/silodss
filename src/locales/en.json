@@ -1056,5 +1056,14 @@
     "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).": "Upload a spreadsheet (.xlsx or .csv) containing columns CDA, Produto and Estoque Inicial (t).",
     "estoque_inicial.xlsx": "Initial_Inventory.xlsx",
     "SiloDSS_Previsoes_Consolidadas.xlsx": "SiloDSS_Consolidated_Forecasts.xlsx",
-    "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).": "Error: The sum of initial inventory ({total_init_inv:.2f} t) for warehouse {cda} exceeds its static capacity ({cap_est:.2f} t)."
+    "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).": "Error: The sum of initial inventory ({total_init_inv:.2f} t) for warehouse {cda} exceeds its static capacity ({cap_est:.2f} t).",
+    "Aviso: Uso de Capacidade Temporária de Emergência e Demanda Não Atendida Detectado!": "Warning: Emergency Temporary Storage & Unmet Demand Usage Detected!",
+    "Para manter a viabilidade matemática sob cenários severos, o modelo precisou recorrer a capacidades temporárias de emergência ou não atender integralmente contratos de demanda. Estas ações possuem um custo penalizado significativo no objetivo total.": "To maintain mathematical feasibility under severe scenarios, the model had to use emergency temporary storage capacities or unmet contract demand. These actions carry significant penalty costs in the total objective function.",
+    "Armazém {name} (Período {period}): {tons} ton de capacidade temporária de emergência utilizada (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})": "Warehouse {name} (Period {period}): {tons} tons of emergency temporary storage used (Penalty rate: {rate}/ton, Additional Cost: {cost})",
+    "Cliente {customer} - Produto {product} (Período {period}): {tons} ton de demanda interna não atendida (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})": "Customer {customer} - Product {product} (Period {period}): {tons} tons of unmet domestic demand (Penalty rate: {rate}/ton, Additional Cost: {cost})",
+    "Impacto Financeiro Adicional no Custo Total:": "Additional Financial Impact on Total Cost:",
+    "Penalidades": "Penalties",
+    "Medidas de Recurso": "Penalties",
+    "Recurso": "Penalties",
+    "Custo Total de Penalidades (R$)": "Total Penalties Cost (R$)"
 }

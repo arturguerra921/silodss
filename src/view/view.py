@@ -4991,11 +4991,13 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, selected_sc
         routes = results_data.get("scenario_routes", {}).get(scen, [])
         wh_decisions = results_data.get("scenario_warehouse_metrics", {}).get(scen, [])
         objective = kpis.get("total_cost", 0.0)
+        recourse_used = results_data.get("scenario_recourse_used", {}).get(scen, results_data.get("scenario_slack_used", {}).get(scen, {}))
     else:
         kpis = results_data.get("kpis", {})
         routes = results_data.get("routes", [])
         wh_decisions = results_data.get("warehouse_decisions", [])
         objective = results_data.get("objective", 0.0)
+        recourse_used = results_data.get("recourse_used", results_data.get("slack_used", {}))
 
     warnings = results_data.get("warnings", {})
 
@@ -5084,6 +5086,59 @@ def update_results_kpis_and_table(results_data, show_all_warehouses, selected_sc
 
     # Render warnings
     warnings_html = []
+
+    # Emergency capacity and unmet demand recourse warnings red container
+    if recourse_used and recourse_used.get("has_slack", False):
+        emerg_static_items = recourse_used.get("emerg_static", recourse_used.get("slack_static", {})).get("items", [])
+        unmet_demand_items = recourse_used.get("unmet_demand", recourse_used.get("slack_demand", {})).get("items", [])
+        
+        static_li = []
+        for item in emerg_static_items:
+            dest_name = item.get("destination_name", item.get("destination"))
+            period = item.get("period")
+            tons = item.get("tons")
+            penalty_rate = item.get("penalty_rate")
+            cost = item.get("cost")
+            
+            tons_str = fmt_num(tons)
+            rate_str = fmt_curr(penalty_rate)
+            cost_str = fmt_curr(cost)
+            
+            msg = translate("Armazém {name} (Período {period}): {tons} ton de capacidade temporária de emergência utilizada (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})", lang).format(
+                name=dest_name, period=period, tons=tons_str, rate=rate_str, cost=cost_str
+            )
+            static_li.append(html.Li(msg))
+            
+        demand_li = []
+        for item in unmet_demand_items:
+            customer = item.get("customer")
+            product = item.get("product")
+            period = item.get("period")
+            tons = item.get("tons")
+            penalty_rate = item.get("penalty_rate")
+            cost = item.get("cost")
+            
+            tons_str = fmt_num(tons)
+            rate_str = fmt_curr(penalty_rate)
+            cost_str = fmt_curr(cost)
+            
+            msg = translate("Cliente {customer} - Produto {product} (Período {period}): {tons} ton de demanda interna não atendida (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})", lang).format(
+                customer=customer, product=product, period=period, tons=tons_str, rate=rate_str, cost=cost_str
+            )
+            demand_li.append(html.Li(msg))
+            
+        recourse_total_cost = recourse_used.get("total_recourse_cost", recourse_used.get("total_slack_cost", 0.0))
+        
+        warnings_html.append(dbc.Alert([
+            html.H5([html.I(className="bi bi-exclamation-octagon-fill me-2"), translate("Aviso: Uso de Capacidade Temporária de Emergência e Demanda Não Atendida Detectado!", lang)], className="alert-heading"),
+            html.P(translate("Para manter a viabilidade matemática sob cenários severos, o modelo precisou recorrer a capacidades temporárias de emergência ou não atender integralmente contratos de demanda. Estas ações possuem um custo penalizado significativo no objetivo total.", lang)),
+            html.Hr(),
+            html.Ul(static_li + demand_li, className="mb-3"),
+            html.P([
+                html.B(translate("Impacto Financeiro Adicional no Custo Total:", lang) + " "),
+                html.Span(fmt_curr(recourse_total_cost), className="fw-bold text-danger")
+            ], className="mb-0")
+        ], className="alert-danger-custom shadow-sm mb-3"))
 
     if isinstance(warnings, list):
         if warnings:
@@ -5397,14 +5452,26 @@ def download_results(n_clicks, results_data, lang='pt'):
             ("total_transshipment_cost", translate("Custo Total de Transbordo (R$)", lang)),
             ("total_opening_cost", translate("Custo Total de Abertura (R$)", lang)),
             ("total_expand_cost", translate("Custo Total de Expansão (R$)", lang)),
-            ("total_bulk_cost", translate("Custo Total de Granelização (R$)", lang))
+            ("total_bulk_cost", translate("Custo Total de Granelização (R$)", lang)),
+            ("emerg_static_cost", translate("Custo Total de Capacidade de Emergência (R$)", lang)),
+            ("unmet_demand_cost", translate("Custo Total de Demanda Não Atendida (R$)", lang)),
+            ("total_recourse_cost", translate("Custo Total de Penalidades (R$)", lang))
         ]
         
         for key, label in metrics_def:
             row = {"Métrica" if lang == "pt" else "Metric": label}
             for s in scenarios:
                 s_kpi = results_data.get("scenario_kpis", {}).get(s, {})
-                row[scenario_names_map[s]] = s_kpi.get(key, 0.0)
+                recourse_s = results_data.get("scenario_recourse_used", {}).get(s, results_data.get("scenario_slack_used", {}).get(s, {}))
+                if key == "emerg_static_cost":
+                    val = recourse_s.get("emerg_static", recourse_s.get("slack_static", {})).get("total_cost", 0.0)
+                elif key == "unmet_demand_cost":
+                    val = recourse_s.get("unmet_demand", recourse_s.get("slack_demand", {})).get("total_cost", 0.0)
+                elif key == "total_recourse_cost":
+                    val = recourse_s.get("total_recourse_cost", recourse_s.get("total_slack_cost", 0.0))
+                else:
+                    val = s_kpi.get(key, 0.0)
+                row[scenario_names_map[s]] = val
             comparison_rows.append(row)
         df_comparison = pd.DataFrame(comparison_rows)
 
@@ -5485,6 +5552,32 @@ def download_results(n_clicks, results_data, lang='pt'):
                 })
             df_inv_by_scen[s] = pd.DataFrame(inv_rows)
 
+        df_recourse_by_scen = {}
+        for s in scenarios:
+            recourse_s = results_data.get("scenario_recourse_used", {}).get(s, results_data.get("scenario_slack_used", {}).get(s, {}))
+            recourse_rows = []
+            for item in recourse_s.get("emerg_static", recourse_s.get("slack_static", {})).get("items", []):
+                recourse_rows.append({
+                    translate("Categoria", lang): translate("Capacidade de Emergência", lang),
+                    translate("Local / Entidade", lang): item.get("destination_name", item.get("destination")),
+                    translate("Produto", lang): "-",
+                    translate("Período", lang): item.get("period", ""),
+                    translate("Quantidade (ton)", lang): item.get("tons", 0.0),
+                    translate("Tarifa de Penalidade (R$/ton)", lang): item.get("penalty_rate", 0.0),
+                    translate("Custo Penalizado (R$)", lang): item.get("cost", 0.0)
+                })
+            for item in recourse_s.get("unmet_demand", recourse_s.get("slack_demand", {})).get("items", []):
+                recourse_rows.append({
+                    translate("Categoria", lang): translate("Demanda Não Atendida", lang),
+                    translate("Local / Entidade", lang): item.get("customer", ""),
+                    translate("Produto", lang): item.get("product", ""),
+                    translate("Período", lang): item.get("period", ""),
+                    translate("Quantidade (ton)", lang): item.get("tons", 0.0),
+                    translate("Tarifa de Penalidade (R$/ton)", lang): item.get("penalty_rate", 0.0),
+                    translate("Custo Penalizado (R$)", lang): item.get("cost", 0.0)
+                })
+            df_recourse_by_scen[s] = pd.DataFrame(recourse_rows)
+
         stats_rows = [
             {"Métrica" if lang == "pt" else "Metric": translate("Status da Solução", lang), "Valor" if lang == "pt" else "Value": translate(results_data.get("status", ""), lang)},
             {"Métrica" if lang == "pt" else "Metric": translate("Tempo de Execução (segundos)", lang), "Valor" if lang == "pt" else "Value": results_data.get("scenario_kpis", {}).get("esperado", {}).get("execution_time", 0.0)},
@@ -5504,6 +5597,8 @@ def download_results(n_clicks, results_data, lang='pt'):
                     df_wh_by_scen[s].to_excel(writer, sheet_name=f"{translate('Armazéns', lang)} ({s_label})", index=False)
                     df_routes_by_scen[s].to_excel(writer, sheet_name=f"{translate('Rotas', lang)} ({s_label})", index=False)
                     df_inv_by_scen[s].to_excel(writer, sheet_name=f"{translate('Estoque', lang)} ({s_label})", index=False)
+                    if not df_recourse_by_scen[s].empty:
+                        df_recourse_by_scen[s].to_excel(writer, sheet_name=f"{translate('Penalidades', lang)} ({s_label})", index=False)
                 df_config.to_excel(writer, sheet_name=translate("Configurações", lang), index=False)
                 df_stats.to_excel(writer, sheet_name=translate("Estatísticas do Modelo", lang), index=False)
 
@@ -5516,6 +5611,10 @@ def download_results(n_clicks, results_data, lang='pt'):
     wh_decisions = results_data.get("warehouse_decisions", [])
     inventory = results_data.get("inventory", [])
     objective = results_data.get("objective", 0.0)
+    recourse_used = results_data.get("recourse_used", results_data.get("slack_used", {}))
+    emerg_static_cost = recourse_used.get("emerg_static", recourse_used.get("slack_static", {})).get("total_cost", 0.0)
+    unmet_demand_cost = recourse_used.get("unmet_demand", recourse_used.get("slack_demand", {})).get("total_cost", 0.0)
+    recourse_total_cost = recourse_used.get("total_recourse_cost", recourse_used.get("total_slack_cost", 0.0))
 
     # 1. Sheet 1: KPIs
     kpi_rows = [
@@ -5528,6 +5627,9 @@ def download_results(n_clicks, results_data, lang='pt'):
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Abertura (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_opening_cost", 0.0)},
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Expansão (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_expand_cost", 0.0)},
         {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Granelização (R$)", lang), "Valor" if lang == "pt" else "Value": kpis.get("total_bulk_cost", 0.0)},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Capacidade de Emergência (R$)", lang), "Valor" if lang == "pt" else "Value": emerg_static_cost},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Demanda Não Atendida (R$)", lang), "Valor" if lang == "pt" else "Value": unmet_demand_cost},
+        {"Métrica" if lang == "pt" else "Metric": translate("Custo Total de Penalidades (R$)", lang), "Valor" if lang == "pt" else "Value": recourse_total_cost},
     ]
     df_kpi = pd.DataFrame(kpi_rows)
 
@@ -5602,7 +5704,33 @@ def download_results(n_clicks, results_data, lang='pt'):
         })
     df_inv = pd.DataFrame(inv_rows)
 
-    # 5. Sheet 5: Estatísticas do Modelo
+    # 5. Sheet 5: Penalidades
+    recourse_rows = []
+    emerg_items = recourse_used.get("emerg_static", recourse_used.get("slack_static", {})).get("items", [])
+    for item in emerg_items:
+        recourse_rows.append({
+            translate("Categoria", lang): translate("Capacidade de Emergência", lang),
+            translate("Local / Entidade", lang): item.get("destination_name", item.get("destination")),
+            translate("Produto", lang): "-",
+            translate("Período", lang): item.get("period", ""),
+            translate("Quantidade (ton)", lang): item.get("tons", 0.0),
+            translate("Tarifa de Penalidade (R$/ton)", lang): item.get("penalty_rate", 0.0),
+            translate("Custo Penalizado (R$)", lang): item.get("cost", 0.0)
+        })
+    unmet_items = recourse_used.get("unmet_demand", recourse_used.get("slack_demand", {})).get("items", [])
+    for item in unmet_items:
+        recourse_rows.append({
+            translate("Categoria", lang): translate("Demanda Não Atendida", lang),
+            translate("Local / Entidade", lang): item.get("customer", ""),
+            translate("Produto", lang): item.get("product", ""),
+            translate("Período", lang): item.get("period", ""),
+            translate("Quantidade (ton)", lang): item.get("tons", 0.0),
+            translate("Tarifa de Penalidade (R$/ton)", lang): item.get("penalty_rate", 0.0),
+            translate("Custo Penalizado (R$)", lang): item.get("cost", 0.0)
+        })
+    df_recourse = pd.DataFrame(recourse_rows)
+
+    # 6. Sheet 6: Estatísticas do Modelo
     stats_rows = [
         {"Métrica" if lang == "pt" else "Metric": translate("Status da Solução", lang), "Valor" if lang == "pt" else "Value": translate(results_data.get("status", ""), lang)},
         {"Métrica" if lang == "pt" else "Metric": translate("Tempo de Execução (segundos)", lang), "Valor" if lang == "pt" else "Value": kpis.get("execution_time", 0.0)},
@@ -5620,6 +5748,8 @@ def download_results(n_clicks, results_data, lang='pt'):
             df_wh.to_excel(writer, sheet_name=translate("Decisões Armazéns", lang), index=False)
             df_routes.to_excel(writer, sheet_name=translate("Rotas", lang), index=False)
             df_inv.to_excel(writer, sheet_name=translate("Estoque por Período", lang), index=False)
+            if not df_recourse.empty:
+                df_recourse.to_excel(writer, sheet_name=translate("Penalidades", lang), index=False)
             df_config.to_excel(writer, sheet_name=translate("Configurações", lang), index=False)
             df_stats.to_excel(writer, sheet_name=translate("Estatísticas do Modelo", lang), index=False)
 

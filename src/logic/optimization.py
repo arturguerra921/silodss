@@ -690,6 +690,10 @@ def run_deterministic_model(
     model.IsExpanded = pyo.Var(model.Destinations, within=pyo.Binary)
     model.IsBulkified = pyo.Var(model.Destinations, within=pyo.Binary)
 
+    # Emergency capacity and unmet demand recourse variables
+    model.EmergStaticCap = pyo.Var(model.Destinations, model.TimePeriods, within=pyo.NonNegativeReals)
+    model.UnmetDemand = pyo.Var(model.Customers_dom, model.Products, model.TimePeriods, within=pyo.NonNegativeReals)
+
     log_memory("Variáveis do Pyomo inicializadas...", lang)
 
     # Fix variables to 0 if expansion or bulkification is disabled
@@ -779,8 +783,51 @@ def run_deterministic_model(
         for d in model.BulkEligible
     )
     
+    # Calculate recourse penalties
+    emerg_static_penalty = {}
+    for d in model.Destinations:
+        val = pyo.value(model.ExpandVarCost[d])
+        emerg_static_penalty[d] = 5.0 * (val if (val is not None and val > 1e-4) else 1000.0)
+        
+    unmet_demand_penalty = {}
+    for c in model.Customers_dom:
+        candidate_freights = []
+        for (o, c_ref, p) in model.ValidRoutesOC:
+            if c_ref == c:
+                dist = pyo.value(model.DistanceOC[o, c])
+                freight = pyo.value(model.FreightOrigin[o])
+                candidate_freights.append(dist * freight)
+        for (d, c_ref, p) in model.ValidRoutesDC:
+            if c_ref == c:
+                dist = pyo.value(model.DistanceDC[d, c])
+                freight = pyo.value(model.FreightDest[d])
+                candidate_freights.append(dist * freight)
+        max_f = max(candidate_freights) if candidate_freights else 100.0
+        if max_f <= 0.0:
+            max_f = 100.0
+        unmet_demand_penalty[c] = 10.0 * max_f
+
+    # Attach to model for post-optimization access
+    model.EmergStaticPenalty = emerg_static_penalty
+    model.UnmetDemandPenalty = unmet_demand_penalty
+
+    # Recourse cost expressions
+    emerg_static_cost_expr = sum(
+        model.EmergStaticCap[d, t] * emerg_static_penalty[d]
+        for d in model.Destinations
+        for t in model.TimePeriods
+    )
+    unmet_demand_cost_expr = sum(
+        model.UnmetDemand[c, p, t] * unmet_demand_penalty[c]
+        for c in model.Customers_dom
+        for p in model.Products
+        for t in model.TimePeriods
+    )
+
     def obj_rule(m):
-        return freight_od_expr + freight_dc_expr + freight_dd_expr + freight_oc_expr + transshipment_cost_expr + storage_cost_expr + opening_cost_expr + expand_cost_expr + bulk_cost_expr
+        return (freight_od_expr + freight_dc_expr + freight_dd_expr + freight_oc_expr + 
+                transshipment_cost_expr + storage_cost_expr + opening_cost_expr + 
+                expand_cost_expr + bulk_cost_expr + emerg_static_cost_expr + unmet_demand_cost_expr)
         
     model.Objective = pyo.Objective(rule=obj_rule, sense=pyo.minimize, doc="Total Supply Chain Minimization Objective")
 
@@ -829,9 +876,9 @@ def run_deterministic_model(
     def static_capacity_rule(m, d, t):
         total_inv = sum(m.Inventory[d, p, t] for p in m.Products)
         if d in m.Destinations_exist:
-            return total_inv <= m.StaticCapacity[d] + m.ExpandedCapacity[d]
+            return total_inv <= m.StaticCapacity[d] + m.ExpandedCapacity[d] + m.EmergStaticCap[d, t]
         else:
-            return total_inv <= m.CandStaticCapacity[d] + m.ExpandedCapacity[d]
+            return total_inv <= m.CandStaticCapacity[d] + m.ExpandedCapacity[d] + m.EmergStaticCap[d, t]
             
     model.StaticCapacityConstraint = pyo.Constraint(model.Destinations, model.TimePeriods, rule=static_capacity_rule, doc="Restrição de Capacidade Estática Efetiva")
 
@@ -850,7 +897,7 @@ def run_deterministic_model(
         else: # Candidate
             max_inflow = (m.RatioExpandRec * m.CandStaticCapacity[d] + m.RatioExpandRec * m.ExpandedCapacity[d] + bulk_increase) * m.Days
             
-        return inflow_sum <= max_inflow
+        return inflow_sum <= max_inflow + m.EmergStaticCap[d, t, s]
 
     # 5.5 Physical Shipping Handling Bound
     def shipping_handling_rule(m, d, t):
@@ -918,7 +965,7 @@ def run_deterministic_model(
         valid_origins = [o for o in m.Origins if (o, c, p) in m.ValidRoutesOC]
         if not valid_dests and not valid_origins:
             return pyo.Constraint.Skip
-        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) + sum(m.FlowOC[o, c, p, t] for o in valid_origins) == m.DemandMin[c, p, t]
+        return sum(m.FlowDC[d, c, p, t] for d in valid_dests) + sum(m.FlowOC[o, c, p, t] for o in valid_origins) + m.UnmetDemand[c, p, t] == m.DemandMin[c, p, t]
 
     def export_demand_rule(m, c, p, t):
         valid_dests = [d for d in m.Destinations if (d, c, p) in m.ValidRoutesDC]
@@ -1048,6 +1095,11 @@ def run_deterministic_model(
             "total_opening_cost": 0.0,
             "total_expand_cost": 0.0,
             "total_bulk_cost": 0.0,
+            "total_opening_cost": 0.0,
+            "total_expand_cost": 0.0,
+            "total_bulk_cost": 0.0,
+            "total_slack_cost": 0.0,
+            "total_recourse_cost": 0.0,
             "execution_time": time.time() - start_time,
         },
         "model_stats": {
@@ -1061,10 +1113,91 @@ def run_deterministic_model(
         "warehouse_decisions": [],
         "inventory": [],
         "Customers_exp": Customers_exp,
-        "Customers_dom": Customers_dom
+        "Customers_dom": Customers_dom,
+        "recourse_used": {
+            "has_slack": False,
+            "total_recourse_cost": 0.0,
+            "total_slack_cost": 0.0,
+            "emerg_static": {"total_tons": 0.0, "total_cost": 0.0, "items": []},
+            "slack_static": {"total_tons": 0.0, "total_cost": 0.0, "items": []},
+            "unmet_demand": {"total_tons": 0.0, "total_cost": 0.0, "items": []},
+            "slack_demand": {"total_tons": 0.0, "total_cost": 0.0, "items": []}
+        }
     }
+    results_dict["slack_used"] = results_dict["recourse_used"]
 
     if is_optimal:
+        # Extract recourse emergency capacity & unmet demand usage
+        total_emerg_static_tons = 0.0
+        total_emerg_static_cost = 0.0
+        emerg_static_items = []
+        for d in model.Destinations:
+            for t in model.TimePeriods:
+                val = pyo.value(model.EmergStaticCap[d, t])
+                if val > 1e-4:
+                    penalty_rate = emerg_static_penalty[d]
+                    cost = val * penalty_rate
+                    total_emerg_static_tons += val
+                    total_emerg_static_cost += cost
+                    emerg_static_items.append({
+                        "destination": d,
+                        "destination_name": cda_to_name.get(d, d),
+                        "period": t,
+                        "tons": val,
+                        "penalty_rate": penalty_rate,
+                        "cost": cost
+                    })
+
+        total_unmet_demand_tons = 0.0
+        total_unmet_demand_cost = 0.0
+        unmet_demand_items = []
+        for c in model.Customers_dom:
+            for p in model.Products:
+                for t in model.TimePeriods:
+                    val = pyo.value(model.UnmetDemand[c, p, t])
+                    if val > 1e-4:
+                        penalty_rate = unmet_demand_penalty[c]
+                        cost = val * penalty_rate
+                        total_unmet_demand_tons += val
+                        total_unmet_demand_cost += cost
+                        unmet_demand_items.append({
+                            "customer": c,
+                            "product": p,
+                            "period": t,
+                            "tons": val,
+                            "penalty_rate": penalty_rate,
+                            "cost": cost
+                        })
+
+        total_recourse_cost = total_emerg_static_cost + total_unmet_demand_cost
+        recourse_dict = {
+            "has_slack": total_recourse_cost > 1e-4,
+            "total_recourse_cost": total_recourse_cost,
+            "total_slack_cost": total_recourse_cost,
+            "emerg_static": {
+                "total_tons": total_emerg_static_tons,
+                "total_cost": total_emerg_static_cost,
+                "items": emerg_static_items
+            },
+            "slack_static": {
+                "total_tons": total_emerg_static_tons,
+                "total_cost": total_emerg_static_cost,
+                "items": emerg_static_items
+            },
+            "unmet_demand": {
+                "total_tons": total_unmet_demand_tons,
+                "total_cost": total_unmet_demand_cost,
+                "items": unmet_demand_items
+            },
+            "slack_demand": {
+                "total_tons": total_unmet_demand_tons,
+                "total_cost": total_unmet_demand_cost,
+                "items": unmet_demand_items
+            }
+        }
+        results_dict["recourse_used"] = recourse_dict
+        results_dict["slack_used"] = recourse_dict
+
         # Populate optimal costs
         results_dict["objective"] = pyo.value(model.Objective)
         
@@ -1219,6 +1352,8 @@ def run_deterministic_model(
             "total_opening_cost": total_opening_cost,
             "total_expand_cost": total_expand_cost,
             "total_bulk_cost": total_bulk_cost,
+            "total_slack_cost": total_recourse_cost,
+            "total_recourse_cost": total_recourse_cost,
             "execution_time": time.time() - start_time
         }
         results_dict["routes"] = routes_list
@@ -2019,6 +2154,10 @@ def build_stochastic_pyomo_model(
   model.FlowDD = pyo.Var(model.ValidRoutesDD, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
   model.FlowOC = pyo.Var(model.ValidRoutesOC, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
   model.Inventory = pyo.Var(model.Destinations, model.Products, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
+  
+  # Recourse emergency capacity and unmet demand variables per scenario
+  model.EmergStaticCap = pyo.Var(model.Destinations, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
+  model.UnmetDemand = pyo.Var(model.Customers_dom, model.Products, model.TimePeriods, model.Scenarios, within=pyo.NonNegativeReals)
 
   log_memory("Variáveis do Pyomo inicializadas...", lang)
 
@@ -2070,8 +2209,8 @@ def build_stochastic_pyomo_model(
   def static_capacity_rule(m, d, t, s):
     total_inv = sum(m.Inventory[d, p, t, s] for p in m.Products)
     if d in m.Destinations_exist:
-      return total_inv <= m.StaticCapacity[d] + m.ExpandedCapacity[d]
-    return total_inv <= m.CandStaticCapacity[d] + m.ExpandedCapacity[d]
+      return total_inv <= m.StaticCapacity[d] + m.ExpandedCapacity[d] + m.EmergStaticCap[d, t, s]
+    return total_inv <= m.CandStaticCapacity[d] + m.ExpandedCapacity[d] + m.EmergStaticCap[d, t, s]
   model.StaticCapacityConstraint = pyo.Constraint(model.Destinations, model.TimePeriods, model.Scenarios, rule=static_capacity_rule)
 
   def reception_handling_rule(m, d, t, s):
@@ -2085,7 +2224,7 @@ def build_stochastic_pyomo_model(
       max_inflow = (m.ReceptionCapacity[d] + m.RatioExpandRec * m.ExpandedCapacity[d] + bulk_increase) * m.Days
     else:
       max_inflow = (m.RatioExpandRec * m.CandStaticCapacity[d] + m.RatioExpandRec * m.ExpandedCapacity[d] + bulk_increase) * m.Days
-    return inflow_sum <= max_inflow
+    return inflow_sum <= max_inflow + m.EmergStaticCap[d, t, s]
   model.ReceptionHandlingConstraint = pyo.Constraint(model.Destinations, model.TimePeriods, model.Scenarios, rule=reception_handling_rule)
 
   def shipping_handling_rule(m, d, t, s):
@@ -2107,7 +2246,7 @@ def build_stochastic_pyomo_model(
     valid_origins = [o for o in m.Origins if (o, c, p) in m.ValidRoutesOC]
     if not valid_dests and not valid_origins:
       return pyo.Constraint.Skip
-    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) + sum(m.FlowOC[o, c, p, t, s] for o in valid_origins) == m.DemandMin[c, p, t, s]
+    return sum(m.FlowDC[d, c, p, t, s] for d in valid_dests) + sum(m.FlowOC[o, c, p, t, s] for o in valid_origins) + m.UnmetDemand[c, p, t, s] == m.DemandMin[c, p, t, s]
   model.DomesticDemandConstraint = pyo.Constraint(model.Customers_dom, model.Products, model.TimePeriods, model.Scenarios, rule=domestic_demand_rule)
 
   def export_demand_rule(m, c, p, t, s):
@@ -2150,6 +2289,34 @@ def build_stochastic_pyomo_model(
     return model.ExpandedCapacity[d] <= model.IsExpanded[d] * model.MaxExpandCapacity[d]
   model.ExpandBoundingConstraint = pyo.Constraint(model.Destinations, rule=expand_bounding_rule)
 
+  # Calculate recourse penalties
+  emerg_static_penalty = {}
+  for d in model.Destinations:
+    val = pyo.value(model.ExpandVarCost[d])
+    emerg_static_penalty[d] = 5.0 * (val if (val is not None and val > 1e-4) else 1000.0)
+    
+  unmet_demand_penalty = {}
+  for c in model.Customers_dom:
+    candidate_freights = []
+    for (o, c_ref, p) in model.ValidRoutesOC:
+      if c_ref == c:
+        dist = pyo.value(model.DistanceOC[o, c])
+        freight = pyo.value(model.FreightOrigin[o])
+        candidate_freights.append(dist * freight)
+    for (d, c_ref, p) in model.ValidRoutesDC:
+      if c_ref == c:
+        dist = pyo.value(model.DistanceDC[d, c])
+        freight = pyo.value(model.FreightDest[d])
+        candidate_freights.append(dist * freight)
+    max_f = max(candidate_freights) if candidate_freights else 100.0
+    if max_f <= 0.0:
+      max_f = 100.0
+    unmet_demand_penalty[c] = 10.0 * max_f
+
+  # Attach to model for post-optimization access
+  model.EmergStaticPenalty = emerg_static_penalty
+  model.UnmetDemandPenalty = unmet_demand_penalty
+
   # Expected objective
   first_stage_cost = sum(
     model.WarehouseOpen[d] * model.OpeningCost[d] for d in model.Destinations_cand
@@ -2187,7 +2354,15 @@ def build_stochastic_pyomo_model(
       model.Inventory[d, p, t, s] * model.StorageTariff[d, p]
       for d in model.Destinations for p in model.Products for t in model.TimePeriods
     )
-    return freight_od_expr + freight_dc_expr + freight_dd_expr + freight_oc_expr + transshipment_cost_expr + storage_cost_expr
+    emerg_static_cost_s = sum(
+      model.EmergStaticCap[d, t, s] * emerg_static_penalty[d]
+      for d in model.Destinations for t in model.TimePeriods
+    )
+    unmet_demand_cost_s = sum(
+      model.UnmetDemand[c, p, t, s] * unmet_demand_penalty[c]
+      for c in model.Customers_dom for p in model.Products for t in model.TimePeriods
+    )
+    return freight_od_expr + freight_dc_expr + freight_dd_expr + freight_oc_expr + transshipment_cost_expr + storage_cost_expr + emerg_static_cost_s + unmet_demand_cost_s
 
   def obj_rule(m):
     return first_stage_cost + sum(m.ScenarioProb[s] * get_second_stage_cost_expr(s) for s in m.Scenarios)
@@ -2414,7 +2589,14 @@ def run_stochastic_model(
     "inventory": [],
     "scenario_inventory": {},
     "Customers_exp": Customers_exp,
-    "Customers_dom": Customers_dom
+    "Customers_dom": Customers_dom,
+    "slack_used": {
+      "has_slack": False,
+      "total_slack_cost": 0.0,
+      "slack_static": {"total_tons": 0.0, "total_cost": 0.0, "items": []},
+      "slack_demand": {"total_tons": 0.0, "total_cost": 0.0, "items": []}
+    },
+    "scenario_slack_used": {}
   }
 
   if is_optimal:
@@ -2441,6 +2623,7 @@ def run_stochastic_model(
     scenario_routes = {}
     scenario_inventory = {}
     scenario_warehouse_metrics = {}
+    scenario_slack_used = {}
 
     for s in ['pessimista', 'esperado', 'otimista']:
       freight_od_s = sum(
@@ -2563,7 +2746,77 @@ def run_stochastic_model(
               "Custo Armazenagem (R$)": 0.0,
               "Custo Total (R$)": freight
             })
-      scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s + total_transshipment_s
+      # Extract scenario-specific recourse usage
+      total_emerg_static_tons_s = 0.0
+      total_emerg_static_cost_s = 0.0
+      emerg_static_items_s = []
+      for d in model.Destinations:
+        for t in model.TimePeriods:
+          val = pyo.value(model.EmergStaticCap[d, t, s])
+          if val > 1e-4:
+            penalty_rate = model.EmergStaticPenalty[d]
+            cost = val * penalty_rate
+            total_emerg_static_tons_s += val
+            total_emerg_static_cost_s += cost
+            emerg_static_items_s.append({
+              "destination": d,
+              "destination_name": cda_to_name.get(d, d),
+              "period": t,
+              "tons": val,
+              "penalty_rate": penalty_rate,
+              "cost": cost
+            })
+
+      total_unmet_demand_tons_s = 0.0
+      total_unmet_demand_cost_s = 0.0
+      unmet_demand_items_s = []
+      for c in model.Customers_dom:
+        for p in model.Products:
+          for t in model.TimePeriods:
+            val = pyo.value(model.UnmetDemand[c, p, t, s])
+            if val > 1e-4:
+              penalty_rate = model.UnmetDemandPenalty[c]
+              cost = val * penalty_rate
+              total_unmet_demand_tons_s += val
+              total_unmet_demand_cost_s += cost
+              unmet_demand_items_s.append({
+                "customer": c,
+                "product": p,
+                "period": t,
+                "tons": val,
+                "penalty_rate": penalty_rate,
+                "cost": cost
+              })
+
+      total_recourse_cost_s = total_emerg_static_cost_s + total_unmet_demand_cost_s
+      recourse_info_s = {
+        "has_slack": total_recourse_cost_s > 1e-4,
+        "total_recourse_cost": total_recourse_cost_s,
+        "total_slack_cost": total_recourse_cost_s,
+        "emerg_static": {
+          "total_tons": total_emerg_static_tons_s,
+          "total_cost": total_emerg_static_cost_s,
+          "items": emerg_static_items_s
+        },
+        "slack_static": {
+          "total_tons": total_emerg_static_tons_s,
+          "total_cost": total_emerg_static_cost_s,
+          "items": emerg_static_items_s
+        },
+        "unmet_demand": {
+          "total_tons": total_unmet_demand_tons_s,
+          "total_cost": total_unmet_demand_cost_s,
+          "items": unmet_demand_items_s
+        },
+        "slack_demand": {
+          "total_tons": total_unmet_demand_tons_s,
+          "total_cost": total_unmet_demand_cost_s,
+          "items": unmet_demand_items_s
+        }
+      }
+      scenario_slack_used[s] = recourse_info_s
+
+      scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s + total_transshipment_s + total_recourse_cost_s
       scenario_objectives[s] = scenario_obj
 
       total_km_s = float(sum(r["Distancia (km)"] for r in routes_list))
@@ -2578,6 +2831,8 @@ def run_stochastic_model(
         "total_opening_cost": total_opening_cost,
         "total_expand_cost": total_expand_cost,
         "total_bulk_cost": total_bulk_cost,
+        "total_slack_cost": total_recourse_cost_s,
+        "total_recourse_cost": total_recourse_cost_s,
         "execution_time": time.time() - start_time
       }
       scenario_routes[s] = routes_list
@@ -2684,10 +2939,14 @@ def run_stochastic_model(
     results_dict["scenario_routes"] = scenario_routes
     results_dict["scenario_inventory"] = scenario_inventory
     results_dict["scenario_warehouse_metrics"] = scenario_warehouse_metrics
+    results_dict["scenario_recourse_used"] = scenario_slack_used
+    results_dict["scenario_slack_used"] = scenario_slack_used
 
     results_dict["routes"] = scenario_routes["esperado"]
     results_dict["inventory"] = scenario_inventory["esperado"]
     results_dict["kpis"] = scenario_kpis["esperado"]
+    results_dict["recourse_used"] = scenario_slack_used["esperado"]
+    results_dict["slack_used"] = scenario_slack_used["esperado"]
 
     # Reconstruct warehouse decisions list for deterministic tab display
     wh_decisions_list = []

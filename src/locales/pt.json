@@ -1057,5 +1057,14 @@
     "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).": "Carregue uma planilha (.xlsx ou .csv) contendo as colunas CDA, Produto e Estoque Inicial (t).",
     "estoque_inicial.xlsx": "Estoque_Inicial.xlsx",
     "SiloDSS_Previsoes_Consolidadas.xlsx": "SiloDSS_Previsoes_Consolidadas.xlsx",
-    "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).": "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t)."
+    "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).": "Erro: A soma do estoque inicial ({total_init_inv:.2f} t) do armazém {cda} excede a capacidade estática ({cap_est:.2f} t).",
+    "Aviso: Uso de Capacidade Temporária de Emergência e Demanda Não Atendida Detectado!": "Aviso: Uso de Capacidade Temporária de Emergência e Demanda Não Atendida Detectado!",
+    "Para manter a viabilidade matemática sob cenários severos, o modelo precisou recorrer a capacidades temporárias de emergência ou não atender integralmente contratos de demanda. Estas ações possuem um custo penalizado significativo no objetivo total.": "Para manter a viabilidade matemática sob cenários severos, o modelo precisou recorrer a capacidades temporárias de emergência ou não atender integralmente contratos de demanda. Estas ações possuem um custo penalizado significativo no objetivo total.",
+    "Armazém {name} (Período {period}): {tons} ton de capacidade temporária de emergência utilizada (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})": "Armazém {name} (Período {period}): {tons} ton de capacidade temporária de emergência utilizada (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})",
+    "Cliente {customer} - Produto {product} (Período {period}): {tons} ton de demanda interna não atendida (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})": "Cliente {customer} - Produto {product} (Período {period}): {tons} ton de demanda interna não atendida (Tarifa de Penalidade: {rate}/ton, Custo Adicional: {cost})",
+    "Impacto Financeiro Adicional no Custo Total:": "Impacto Financeiro Adicional no Custo Total:",
+    "Penalidades": "Penalidades",
+    "Medidas de Recurso": "Penalidades",
+    "Recurso": "Penalidades",
+    "Custo Total de Penalidades (R$)": "Custo Total de Penalidades (R$)"
 }
