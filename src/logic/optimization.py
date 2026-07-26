@@ -3460,10 +3460,7 @@ def compute_evpi_vss(
   if tot_eev_unmet_cost_weighted <= 1e-4:
     print("[EEV PENALTY LOG] UnmetDemand: No unmet domestic demand across any scenario (0.00 t).", flush=True)
 
-  # Clean VSS: remove artificial Big-M penalty costs from EEV to obtain a purely economic differential
   total_eev_penalty_weighted = tot_eev_emerg_cost_weighted + tot_eev_unmet_cost_weighted
-  eev_clean = eev_objective - total_eev_penalty_weighted
-  vss_clean = eev_clean - stochastic_objective
   eev_has_penalties = total_eev_penalty_weighted > 1e-4
 
   # Compute cost breakdowns for EVPI and VSS
@@ -3494,23 +3491,20 @@ def compute_evpi_vss(
 
   if eev_has_penalties:
     print(f"[VSS LOG] Total EEV weighted penalty cost: {total_eev_penalty_weighted:.12f}", flush=True)
-    print(f"[VSS LOG] Clean EEV (no penalties): {eev_clean:.12f}", flush=True)
-    print(f"[VSS LOG] Clean VSS (EEV_clean - RP): {vss_clean:.12f}", flush=True)
 
   # Sanity check bound: EEV >= RP must hold mathematically (allowing float tolerance 1e-4)
   if eev_objective < stochastic_objective - 1e-4:
     print(f"[VSS WARNING] EEV ({eev_objective:.12f}) < RP ({stochastic_objective:.12f}). Check solver MIP gap or feasibility.", flush=True)
 
   return {
-    "evpi": max(0.0, float(evpi_value)),
+    "evpi": float(evpi_value),
     "evpi_invest": float(evpi_invest),
     "evpi_oper": float(evpi_oper),
     "evpi_penalty": float(evpi_penalty),
-    "vss": max(0.0, float(vss_value)),
+    "vss": float(vss_value),
     "vss_invest": float(vss_invest),
     "vss_oper": float(vss_oper),
     "vss_penalty": float(vss_penalty),
-    "vss_clean": float(vss_clean),
     "eev": float(eev_objective),
     "ws": float(ws_value),
     "eev_has_penalties": eev_has_penalties,
