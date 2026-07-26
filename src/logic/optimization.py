@@ -1094,10 +1094,10 @@ def run_deterministic_model(
         print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ===", lang), flush=True)
         print(translate("Status do Solver: {status}", lang).format(status=results.solver.status), flush=True)
         print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition), flush=True)
-        print(f"[SOLVER LOG] Valor Objetivo Ótimo: R$ {obj_val:.12f}", flush=True)
+        print(f"[SOLVER LOG] {translate('Valor Objetivo Ótimo', lang)}: R$ {obj_val:.12f}", flush=True)
         if best_bound is not None:
-            print(f"[SOLVER LOG] Limite Teórico (Best Bound): R$ {best_bound:.12f}", flush=True)
-        print(f"[SOLVER LOG] Gap da Solução (MIP Gap): {mip_gap:.4f}%", flush=True)
+            print(f"[SOLVER LOG] {translate('Limite Teórico (Best Bound)', lang)}: R$ {best_bound:.12f}", flush=True)
+        print(f"[SOLVER LOG] {translate('Gap da Solução (MIP Gap)', lang)}: {mip_gap:.4f}%", flush=True)
 
     finally:
         new_stdout.flush()
@@ -2811,10 +2811,10 @@ def run_stochastic_model(
     _log_console_and_file("\n" + translate("=== STATUS DA OTIMIZAÇÃO ESTOCÁSTICA ===", lang))
     _log_console_and_file(translate("Status do Solver: {status}", lang).format(status=results.solver.status))
     _log_console_and_file(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition))
-    _log_console_and_file(f"[STOCHASTIC SOLVER LOG] Valor Objetivo Ótimo RP: R$ {stochastic_obj:.12f}")
+    _log_console_and_file(f"[STOCHASTIC SOLVER LOG] {translate('Valor Objetivo Ótimo RP', lang)}: R$ {stochastic_obj:.12f}")
     if best_bound is not None:
-        _log_console_and_file(f"[STOCHASTIC SOLVER LOG] Limite Teórico (Best Bound): R$ {best_bound:.12f}")
-    _log_console_and_file(f"[STOCHASTIC SOLVER LOG] Gap da Solução (MIP Gap): {mip_gap:.4f}%")
+        _log_console_and_file(f"[STOCHASTIC SOLVER LOG] {translate('Limite Teórico (Best Bound)', lang)}: R$ {best_bound:.12f}")
+    _log_console_and_file(f"[STOCHASTIC SOLVER LOG] {translate('Gap da Solução (MIP Gap)', lang)}: {mip_gap:.4f}%")
 
   finally:
     new_stdout.flush()
@@ -3405,7 +3405,7 @@ def compute_evpi_vss(
     ws_penalty += prob * s_pen
     ws_oper += prob * s_oper
 
-    _log_console_and_file(f"[WS SOLVER LOG] [{s.capitalize()}] Optimal Objective: R$ {det_obj:,.2f} (Prob: {prob:.2f}) | Status: {det_res['status']}")
+    _log_console_and_file(f"[WS SOLVER LOG] [{translate(s, lang).capitalize()}] {translate('Valor Objetivo Ótimo', lang)}: R$ {det_obj:,.2f} (Prob: {prob:.2f}) | Status: {det_res['status"]}")
 
   evpi_value = stochastic_objective - ws_value
   _log_console_and_file(f"[WS SOLVER SUMMARY] Weighted WS Objective (Expected WS): R$ {ws_value:,.2f} | EVPI: R$ {evpi_value:,.2f}")
@@ -3470,9 +3470,9 @@ def compute_evpi_vss(
   )
 
   if ev_res["status"] != "optimal":
-    raise ValueError("Solver failed to find optimal solution for expected-value problem")
+    raise ValueError(translate("O solver não conseguiu encontrar uma solução ótima para o modelo de valor esperado (EV).", lang))
 
-  _log_console_and_file(f"[EV SOLVER LOG] Expected Value (EV) Baseline Optimal Objective: R$ {ev_res['objective']:,.2f} | Status: {ev_res['status']}")
+  _log_console_and_file(f"[EV SOLVER LOG] {translate('Valor Objetivo Ótimo Modelo de Valor Esperado (EV)', lang)}: R$ {ev_res['objective']:,.2f} | Status: {ev_res['status"]}")
 
   ev_wh_decisions = ev_res["warehouse_decisions"]
 
