@@ -1746,11 +1746,6 @@ def build_stochastic_pyomo_model(
     for p in all_products:
       for t in periods:
         demand_min[(c, p, t)] = 0.0
-        
-  for c in Customers_exp:
-    for p in all_products:
-      for t in periods:
-        demand_max[(c, p, t)] = total_supply_pt.get((p, t), 0.0)
 
   # Fast demand parsing using itertuples
   try:
@@ -1830,8 +1825,12 @@ def build_stochastic_pyomo_model(
   for c in Customers_exp:
     for p in all_products:
       for t in periods:
+        custom_cap = demand_max.get((c, p, t))
         for s in ['pessimista', 'esperado', 'otimista']:
-          demand_max_scenarios[(c, p, t, s)] = total_supply_pt_scenarios.get((p, t, s), 0.0)
+          if custom_cap is not None:
+            demand_max_scenarios[(c, p, t, s)] = custom_cap
+          else:
+            demand_max_scenarios[(c, p, t, s)] = total_supply_pt_scenarios.get((p, t, s), 0.0)
 
   demand_min_scenarios = {}
   for (c, p, t), val in demand_min.items():
@@ -2432,6 +2431,188 @@ def build_stochastic_pyomo_model(
           candidate_warehouses_list, bulk_eligible_list, static_capacity, demand_min, wmapes_supply, wmapes_demand)
 
 
+def compare_pyomo_models(model_rp, model_eev, tol=1e-6):
+  """
+  Exhaustively compares all Pyomo Param components between the RP model and the EEV model.
+  Prints any key set differences or value mismatches beyond `tol`.
+  Does NOT modify any model variables, constraints, or values.
+  """
+  def _print_both(msg):
+    print(msg, flush=True)
+    if sys.stdout is not sys.__stdout__:
+      try:
+        sys.__stdout__.write(msg + "\n")
+        sys.__stdout__.flush()
+      except Exception:
+        pass
+
+  _print_both("\n==================== [EXHAUSTIVE MODEL PARAMETER COMPARISON: RP vs EEV] ====================")
+  
+  rp_params = {c.local_name: c for c in model_rp.component_objects(pyo.Param, active=True)}
+  eev_params = {c.local_name: c for c in model_eev.component_objects(pyo.Param, active=True)}
+  
+  all_param_names = sorted(set(rp_params.keys()).union(set(eev_params.keys())))
+  
+  total_mismatches = 0
+  
+  for name in all_param_names:
+    if name not in rp_params:
+      _print_both(f"[PARAM DIFFERENCE] Parameter '{name}' present in EEV model but MISSING in RP model.")
+      total_mismatches += 1
+      continue
+    if name not in eev_params:
+      _print_both(f"[PARAM DIFFERENCE] Parameter '{name}' present in RP model but MISSING in EEV model.")
+      total_mismatches += 1
+      continue
+        
+    rp_p = rp_params[name]
+    eev_p = eev_params[name]
+    
+    rp_keys = set(rp_p.keys())
+    eev_keys = set(eev_p.keys())
+    
+    missing_in_eev = rp_keys - eev_keys
+    missing_in_rp = eev_keys - rp_keys
+    
+    if missing_in_eev:
+      _print_both(f"[PARAM INDEX MISMATCH] Param '{name}': {len(missing_in_eev)} keys in RP missing from EEV: {list(missing_in_eev)[:5]}...")
+      total_mismatches += len(missing_in_eev)
+    if missing_in_rp:
+      _print_both(f"[PARAM INDEX MISMATCH] Param '{name}': {len(missing_in_rp)} keys in EEV missing from RP: {list(missing_in_rp)[:5]}...")
+      total_mismatches += len(missing_in_rp)
+        
+    common_keys = sorted(rp_keys.intersection(eev_keys), key=lambda x: str(x))
+    
+    param_mismatches = 0
+    for idx in common_keys:
+      try:
+        v_rp = pyo.value(rp_p[idx])
+        v_eev = pyo.value(eev_p[idx])
+        
+        if abs(v_rp - v_eev) > tol:
+          _print_both(f"  [VALUE MISMATCH] Param '{name}' at Index {idx} -> RP: {v_rp} | EEV: {v_eev} (Diff: {v_rp - v_eev:.6f})")
+          param_mismatches += 1
+      except Exception as e:
+        _print_both(f"  [ERROR READING PARAM] Param '{name}' at Index {idx}: {e}")
+        param_mismatches += 1
+            
+    total_mismatches += param_mismatches
+    if param_mismatches == 0 and not missing_in_eev and not missing_in_rp:
+      _print_both(f"[PARAM MATCH] Param '{name}': All {len(common_keys)} entries match perfectly.")
+        
+  _print_both(f"==================== COMPARISON COMPLETE: Total Mismatches Found: {total_mismatches} ====================\n")
+
+
+
+
+
+def _log_scenario_cost_breakdown(model, tag="RP"):
+  """
+  Helper to log per-scenario recourse cost breakdown, continuous first-stage variables,
+  and sample parameter values (Supply, DemandMax) for RP vs EEV diagnostic comparison.
+  Does NOT modify any model variables, constraints, or values.
+  Prints to both sys.stdout (log file if redirected) and sys.__stdout__ (console).
+  """
+  def _print_both(msg):
+    print(msg, flush=True)
+    if sys.stdout is not sys.__stdout__:
+      try:
+        sys.__stdout__.write(msg + "\n")
+        sys.__stdout__.flush()
+      except Exception:
+        pass
+
+  # 1. First-Stage Continuous and Binary Variables Diagnostics
+  cand_static_vals = {d: pyo.value(model.CandStaticCapacity[d]) for d in model.Destinations_cand}
+  exp_cap_vals = {d: pyo.value(model.ExpandedCapacity[d]) for d in model.Destinations}
+  bulk_cap_vals = {d: pyo.value(model.BulkCapacity[d]) for d in model.Destinations}
+  open_vals = {d: pyo.value(model.WarehouseOpen[d]) for d in model.Destinations_cand}
+  is_exp_vals = {d: pyo.value(model.IsExpanded[d]) for d in model.Destinations}
+  is_bulk_vals = {d: pyo.value(model.IsBulkified[d]) for d in model.Destinations}
+
+  first_stage_cost = pyo.value(
+    sum(model.WarehouseOpen[d] * model.OpeningCost[d] for d in model.Destinations_cand) +
+    sum(model.IsExpanded[d] * model.ExpandFixedCost[d] + model.ExpandedCapacity[d] * model.ExpandVarCost[d] for d in model.Destinations) +
+    sum(model.IsBulkified[d] * model.BulkFixedCost[d] + model.BulkCapacity[d] * model.BulkVarCost[d] for d in model.BulkEligible)
+  )
+
+  init_inv_map = {(d, p): pyo.value(model.InitialInventory[d, p]) for d in model.Destinations for p in model.Products}
+  total_init_inv = sum(init_inv_map.values())
+  non_zero_init_inv = {k: v for k, v in init_inv_map.items() if v > 0}
+
+  _print_both(f"\n==================== [{tag} SCENARIO COST BREAKDOWN & DIAGNOSTICS] ====================")
+  _print_both(f"[{tag} FIRST-STAGE CONTINUOUS VARS] CandStaticCapacity: {cand_static_vals}")
+  _print_both(f"[{tag} FIRST-STAGE CONTINUOUS VARS] ExpandedCapacity: {exp_cap_vals}")
+  _print_both(f"[{tag} FIRST-STAGE CONTINUOUS VARS] BulkCapacity: {bulk_cap_vals}")
+  _print_both(f"[{tag} FIRST-STAGE BINARY VARS] WarehouseOpen: {open_vals}")
+  _print_both(f"[{tag} FIRST-STAGE BINARY VARS] IsExpanded: {is_exp_vals}")
+  _print_both(f"[{tag} FIRST-STAGE BINARY VARS] IsBulkified: {is_bulk_vals}")
+  _print_both(f"[{tag} INITIAL INVENTORY CONFIRMATION] Total Initial Inventory: {total_init_inv:.2f} t | Shared across all scenarios: YES (model.InitialInventory parameter has no scenario index). Non-zero entries: {non_zero_init_inv}")
+  _print_both(f"[{tag} FIRST STAGE COST] Total First-Stage Investment/Opening Cost: R$ {first_stage_cost:,.2f}")
+
+  # 2. Sample Parameter Diagnostics for Supply and DemandMax across scenarios
+  sample_origins = list(model.Origins)[:3]
+  sample_prods = list(model.Products)[:2]
+  sample_periods = list(model.TimePeriods)[:2]
+  sample_exp_custs = list(model.Customers_exp)[:3] if len(model.Customers_exp) > 0 else []
+
+  _print_both(f"[{tag} SAMPLE SUPPLY PARAMS] (Sample Origins: {sample_origins}, Prods: {sample_prods}, Periods: {sample_periods}):")
+  for o in sample_origins:
+    for p in sample_prods:
+      for t in sample_periods:
+        sup_vals = {s: pyo.value(model.Supply[o, p, t, s]) for s in model.Scenarios}
+        _print_both(f"  Supply[{o}, {p}, {t}]: {sup_vals}")
+
+  if sample_exp_custs:
+    _print_both(f"[{tag} SAMPLE DEMAND MAX PARAMS] (Sample Exp Custs: {sample_exp_custs}, Prods: {sample_prods}, Periods: {sample_periods}):")
+    for c in sample_exp_custs:
+      for p in sample_prods:
+        for t in sample_periods:
+          dmax_vals = {s: pyo.value(model.DemandMax[c, p, t, s]) for s in model.Scenarios}
+          _print_both(f"  DemandMax[{c}, {p}, {t}]: {dmax_vals}")
+
+  scenarios = list(model.Scenarios)
+  weighted_total = first_stage_cost
+  for s in scenarios:
+    s_cap = s.capitalize()
+    prob = pyo.value(model.ScenarioProb[s])
+    
+    freight_cost_s = pyo.value(
+      sum(model.FlowOD[o, d, p, t, s] * (model.DistanceOD[o, d] * model.FreightOrigin[o]) for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods) +
+      sum(model.FlowDC[d, c, p, t, s] * (model.DistanceDC[d, c] * model.FreightDest[d]) for (d, c, p) in model.ValidRoutesDC for t in model.TimePeriods) +
+      sum(model.FlowDD[d1, d2, p, t, s] * (model.InterhubFactor * model.DistanceDD[d1, d2] * model.FreightDest[d1]) for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods) +
+      sum(model.FlowOC[o, c, p, t, s] * (model.DistanceOC[o, c] * model.FreightOrigin[o]) for (o, c, p) in model.ValidRoutesOC for t in model.TimePeriods)
+    )
+    
+    transshipment_cost_s = pyo.value(
+      sum(model.FlowOD[o, d, p, t, s] * model.TransshipmentCost[d] for (o, d, p) in model.ValidRoutesOD for t in model.TimePeriods) +
+      sum(model.FlowDD[d1, d2, p, t, s] * model.TransshipmentCost[d2] for (d1, d2, p) in model.ValidRoutesDD for t in model.TimePeriods)
+    )
+    
+    storage_cost_s = pyo.value(
+      sum(model.Inventory[d, p, t, s] * model.StorageTariff[d, p] for d in model.Destinations for p in model.Products for t in model.TimePeriods)
+    )
+    
+    emerg_static_cost_s = pyo.value(
+      sum(model.EmergStaticCap[d, t, s] * model.EmergStaticPenalty[d] for d in model.Destinations for t in model.TimePeriods)
+    )
+    
+    unmet_demand_cost_s = pyo.value(
+      sum(model.UnmetDemand[c, p, t, s] * model.UnmetDemandPenalty[c] for c in model.Customers_dom for p in model.Products for t in model.TimePeriods)
+    )
+    
+    second_stage_total = freight_cost_s + transshipment_cost_s + storage_cost_s + emerg_static_cost_s + unmet_demand_cost_s
+    total_scenario_cost = first_stage_cost + second_stage_total
+    weighted_total += prob * second_stage_total
+    
+    _print_both(f"[{tag} COST BREAKDOWN] [{s_cap}] Freight: R$ {freight_cost_s:,.2f} | Transshipment: R$ {transshipment_cost_s:,.2f} | Storage: R$ {storage_cost_s:,.2f} | EmergPenalty: R$ {emerg_static_cost_s:,.2f} | UnmetPenalty: R$ {unmet_demand_cost_s:,.2f} | Total: R$ {total_scenario_cost:,.2f}")
+
+  obj_val = pyo.value(model.Objective)
+  _print_both(f"[{tag} OBJECTIVE VERIFICATION] Weighted Expected Objective (FirstStage + sum(prob * Recourse)): R$ {weighted_total:,.2f} | model.Objective: R$ {obj_val:,.2f}")
+  _print_both(f"========================================================================\n")
+
+
+
 def run_stochastic_model(
   df_supply,
   df_warehouses,
@@ -2608,6 +2789,7 @@ def run_stochastic_model(
     results = solver.solve(model, tee=True)
     
     stochastic_obj = pyo.value(model.Objective)
+    _log_scenario_cost_breakdown(model, tag="RP")
     best_bound = None
     mip_gap = 0.0
     try:
@@ -3402,6 +3584,7 @@ def compute_evpi_vss(
     raise ValueError(translate("O solver não conseguiu encontrar uma solução ótima para o modelo estocástico com decisões determinísticas fixadas.", lang))
 
   eev_objective = pyo.value(model.Objective)
+  _log_scenario_cost_breakdown(model, tag="EEV")
   vss_value = eev_objective - stochastic_objective
 
   eev_best_bound = None
