@@ -9888,7 +9888,16 @@ def update_warehouse_utilization_chart(results_data, selected_warehouses, card_s
 @app.callback(
   output=(
     Output("res-evpi-value", "children"),
-    Output("res-vss-value", "children")
+    Output("res-vss-value", "children"),
+    Output("res-evpi-invest", "children"),
+    Output("res-evpi-oper", "children"),
+    Output("res-evpi-penalty", "children"),
+    Output("res-vss-invest", "children"),
+    Output("res-vss-oper", "children"),
+    Output("res-vss-penalty", "children"),
+    Output("res-evpi-decomp-container", "style"),
+    Output("res-vss-decomp-container", "style"),
+    Output("res-decomp-warning-container", "style"),
   ),
   inputs=[
     Input("store-model-results", "data")
@@ -9940,7 +9949,7 @@ def run_evpi_vss(results_data,
                  supply_error_pct, demand_error_pct, prediction_results_json, gurobi_lic_data, lang='pt'):
 
   if not results_data or results_data.get("model_type") != "stochastic" or results_data.get("status") != "optimal":
-    return "R$ -", "R$ -"
+    return "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", {"display": "none"}, {"display": "none"}, {"display": "none"}
 
   stochastic_objective = results_data.get("objective", 0.0)
 
@@ -9986,7 +9995,7 @@ def run_evpi_vss(results_data,
     temp_lic_path = None
     if solver_name == 'gurobi':
       if not gurobi_lic_data:
-        return "R$ -", "R$ -"
+        return "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", {"display": "none"}, {"display": "none"}, {"display": "none"}
       try:
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.lic', encoding='utf-8') as temp_lic:
           temp_lic.write(gurobi_lic_data)
@@ -9994,9 +10003,10 @@ def run_evpi_vss(results_data,
         os.environ["GRB_LICENSE_FILE"] = temp_lic_path
       except Exception as e:
         print(f"Error preparing Gurobi license in run_evpi_vss: {e}")
-        return "R$ -", "R$ -"
+        return "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", {"display": "none"}, {"display": "none"}, {"display": "none"}
 
     try:
+      stochastic_kpis = results_data.get("kpis", {})
       evpi_vss_results = compute_evpi_vss(
         df_supply=df_supply,
         df_warehouses=df_warehouses,
@@ -10029,7 +10039,8 @@ def run_evpi_vss(results_data,
         bulk_var_cost=bulk_var_cost if bulk_enabled else None,
         bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
         lang=lang,
-        solver_name=solver_name
+        solver_name=solver_name,
+        stochastic_kpis=stochastic_kpis
       )
     finally:
       if temp_lic_path:
@@ -10051,16 +10062,76 @@ def run_evpi_vss(results_data,
       return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
     evpi_val = evpi_vss_results.get("evpi", 0.0)
+    evpi_invest = evpi_vss_results.get("evpi_invest", 0.0)
+    evpi_oper = evpi_vss_results.get("evpi_oper", 0.0)
+    evpi_penalty = evpi_vss_results.get("evpi_penalty", 0.0)
+
     vss_val = evpi_vss_results.get("vss", 0.0)
+    vss_invest = evpi_vss_results.get("vss_invest", 0.0)
+    vss_oper = evpi_vss_results.get("vss_oper", 0.0)
+    vss_penalty = evpi_vss_results.get("vss_penalty", 0.0)
+
+    evpi_has_penalties = evpi_vss_results.get("evpi_has_penalties", False)
+    vss_has_penalties = evpi_vss_results.get("vss_has_penalties", False) or evpi_vss_results.get("eev_has_penalties", False)
+    has_penalties = evpi_vss_results.get("has_penalties", False) or evpi_has_penalties or vss_has_penalties
 
     evpi_formatted = fmt_curr(evpi_val)
-    vss_formatted = fmt_curr(vss_val)
+    evpi_invest_fmt = fmt_curr(evpi_invest)
+    evpi_oper_fmt = fmt_curr(evpi_oper)
+    evpi_penalty_fmt = fmt_curr(evpi_penalty)
 
-    return evpi_formatted, vss_formatted
+    vss_formatted = fmt_curr(vss_val)
+    vss_invest_fmt = fmt_curr(vss_invest)
+    vss_oper_fmt = fmt_curr(vss_oper)
+    vss_penalty_fmt = fmt_curr(vss_penalty)
+
+    evpi_decomp_style = {"display": "block"} if evpi_has_penalties else {"display": "none"}
+    vss_decomp_style = {"display": "block"} if vss_has_penalties else {"display": "none"}
+    warning_style = {"display": "block"} if has_penalties else {"display": "none"}
+
+    return (
+      evpi_formatted,
+      vss_formatted,
+      evpi_invest_fmt,
+      evpi_oper_fmt,
+      evpi_penalty_fmt,
+      vss_invest_fmt,
+      vss_oper_fmt,
+      vss_penalty_fmt,
+      evpi_decomp_style,
+      vss_decomp_style,
+      warning_style
+    )
 
   except Exception as e:
     print(f"Error computing EVPI/VSS: {e}")
-    return "R$ -", "R$ -"
+    return "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", {"display": "none"}, {"display": "none"}, {"display": "none"}
+
+
+# Callback to toggle help modal for EVPI penalty decomposition
+@app.callback(
+    Output("modal-help-evpi-decomp", "is_open"),
+    [Input("help-evpi-decomp-icon", "n_clicks"),
+     Input("close-help-evpi-decomp", "n_clicks")],
+    State("modal-help-evpi-decomp", "is_open")
+)
+def toggle_help_evpi_decomp(n_open, n_close, is_open):
+    if n_open or n_close:
+        return not is_open
+    return is_open
+
+
+# Callback to toggle help modal for VSS penalty decomposition
+@app.callback(
+    Output("modal-help-vss-decomp", "is_open"),
+    [Input("help-vss-decomp-icon", "n_clicks"),
+     Input("close-help-vss-decomp", "n_clicks")],
+    State("modal-help-vss-decomp", "is_open")
+)
+def toggle_help_vss_decomp(n_open, n_close, is_open):
+    if n_open or n_close:
+        return not is_open
+    return is_open
 
 
 # Callback to toggle help modal for direct arcs

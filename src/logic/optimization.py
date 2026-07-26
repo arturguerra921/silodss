@@ -784,11 +784,23 @@ def run_deterministic_model(
     )
     
     # Calculate recourse penalties
+    # Dynamic Big-M: derive the upper bound on per-ton cost from all model cost components
+    # so that both penalties always dominate any infrastructure investment, guaranteeing EEV >= RP.
+    _max_expand_cost = max(
+        (pyo.value(model.ExpandVarCost[d]) for d in model.Destinations),
+        default=0.0
+    )
+    _max_storage_tariff = max(
+        (pyo.value(model.StorageTariff[d, p]) for d in model.Destinations for p in model.Products),
+        default=50.0
+    )
+    _big_m_base = max(_max_expand_cost, _max_storage_tariff, 100.0)
+
     emerg_static_penalty = {}
     for d in model.Destinations:
-        val = pyo.value(model.ExpandVarCost[d])
-        emerg_static_penalty[d] = 5.0 * (val if (val is not None and val > 1e-4) else 1000.0)
-        
+        # Big-M for capacity overflow: 50x base, below UnmetDemand to preserve severity hierarchy
+        emerg_static_penalty[d] = 50.0 * _big_m_base
+
     unmet_demand_penalty = {}
     for c in model.Customers_dom:
         candidate_freights = []
@@ -805,7 +817,9 @@ def run_deterministic_model(
         max_f = max(candidate_freights) if candidate_freights else 100.0
         if max_f <= 0.0:
             max_f = 100.0
-        unmet_demand_penalty[c] = 10.0 * max_f
+        # Big-M = 100x the maximum per-ton cost across freight, expansion, and storage
+        big_m_base = max(max_f, _max_expand_cost, _max_storage_tariff, 100.0)
+        unmet_demand_penalty[c] = 100.0 * big_m_base
 
     # Attach to model for post-optimization access
     model.EmergStaticPenalty = emerg_static_penalty
@@ -897,7 +911,7 @@ def run_deterministic_model(
         else: # Candidate
             max_inflow = (m.RatioExpandRec * m.CandStaticCapacity[d] + m.RatioExpandRec * m.ExpandedCapacity[d] + bulk_increase) * m.Days
             
-        return inflow_sum <= max_inflow + m.EmergStaticCap[d, t, s]
+        return inflow_sum <= max_inflow + m.EmergStaticCap[d, t]
 
     # 5.5 Physical Shipping Handling Bound
     def shipping_handling_rule(m, d, t):
@@ -1039,10 +1053,7 @@ def run_deterministic_model(
                 
             if solver_gap is not None:
                 try:
-                    gap_val = float(solver_gap)
-                    if gap_val > 1.0:
-                        gap_val = gap_val / 100.0
-                    solver.options['MIPGap'] = gap_val
+                    solver.options['MIPGap'] = float(solver_gap) / 100.0
                 except Exception:
                     solver.options['MIPGap'] = 0.01
         else:
@@ -1056,19 +1067,37 @@ def run_deterministic_model(
                 
             if solver_gap is not None:
                 try:
-                    gap_val = float(solver_gap)
-                    if gap_val > 1.0:
-                        gap_val = gap_val / 100.0
-                    solver.options['ratioGap'] = gap_val
+                    solver.options['ratioGap'] = float(solver_gap) / 100.0
                 except Exception:
                     solver.options['ratioGap'] = 0.01
 
         # Run solver
         results = solver.solve(model, tee=True)
         
-        print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ===", lang))
-        print(translate("Status do Solver: {status}", lang).format(status=results.solver.status))
-        print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition))
+        obj_val = pyo.value(model.Objective)
+        best_bound = None
+        mip_gap = 0.0
+        try:
+            if hasattr(results.problem, 'lower_bound') and results.problem.lower_bound is not None:
+                best_bound = float(results.problem.lower_bound)
+            elif hasattr(results.problem, 'upper_bound') and results.problem.upper_bound is not None:
+                best_bound = float(results.problem.upper_bound)
+            
+            if best_bound is not None and best_bound != 0 and not math.isnan(best_bound) and best_bound != float('-inf'):
+                mip_gap = abs(obj_val - best_bound) / max(abs(obj_val), 1e-9) * 100.0
+            elif results.solver.termination_condition == pyo.TerminationCondition.optimal:
+                mip_gap = 0.0
+                best_bound = obj_val
+        except Exception:
+            pass
+
+        print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ===", lang), flush=True)
+        print(translate("Status do Solver: {status}", lang).format(status=results.solver.status), flush=True)
+        print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition), flush=True)
+        print(f"[SOLVER LOG] Valor Objetivo Ótimo: R$ {obj_val:.12f}", flush=True)
+        if best_bound is not None:
+            print(f"[SOLVER LOG] Limite Teórico (Best Bound): R$ {best_bound:.12f}", flush=True)
+        print(f"[SOLVER LOG] Gap da Solução (MIP Gap): {mip_gap:.4f}%", flush=True)
 
     finally:
         new_stdout.flush()
@@ -1197,6 +1226,22 @@ def run_deterministic_model(
         }
         results_dict["recourse_used"] = recourse_dict
         results_dict["slack_used"] = recourse_dict
+
+        # Print penalty variable logging to stdout
+        if total_emerg_static_cost > 1e-4:
+            print(f"[PENALTY LOG] EmergStaticCap active: {total_emerg_static_tons:.2f} t total | Cost: R$ {total_emerg_static_cost:.2f}", flush=True)
+            for item in emerg_static_items:
+                print(f"   -> Hub: {item['destination_name']} | Period: {item['period']} | Tons: {item['tons']:.2f} t | Penalty Rate: R$ {item['penalty_rate']:.2f}/t | Cost: R$ {item['cost']:.2f}", flush=True)
+        else:
+            print("[PENALTY LOG] EmergStaticCap: No emergency static capacity used (0.00 t).", flush=True)
+
+        if total_unmet_demand_cost > 1e-4:
+            print(f"[PENALTY LOG] UnmetDemand active: {total_unmet_demand_tons:.2f} t total | Cost: R$ {total_unmet_demand_cost:.2f}", flush=True)
+            for item in unmet_demand_items:
+                print(f"   -> Customer: {item['customer']} | Product: {item['product']} | Period: {item['period']} | Tons: {item['tons']:.2f} t | Penalty Rate: R$ {item['penalty_rate']:.2f}/t | Cost: R$ {item['cost']:.2f}", flush=True)
+        else:
+            print("[PENALTY LOG] UnmetDemand: No unmet domestic demand (0.00 t).", flush=True)
+
 
         # Populate optimal costs
         results_dict["objective"] = pyo.value(model.Objective)
@@ -2290,11 +2335,23 @@ def build_stochastic_pyomo_model(
   model.ExpandBoundingConstraint = pyo.Constraint(model.Destinations, rule=expand_bounding_rule)
 
   # Calculate recourse penalties
+  # Dynamic Big-M: derive the upper bound on per-ton cost from all model cost components
+  # so that both penalties always dominate any infrastructure investment, guaranteeing EEV >= RP.
+  _max_expand_cost = max(
+    (pyo.value(model.ExpandVarCost[d]) for d in model.Destinations),
+    default=0.0
+  )
+  _max_storage_tariff = max(
+    (pyo.value(model.StorageTariff[d, p]) for d in model.Destinations for p in model.Products),
+    default=50.0
+  )
+  _big_m_base = max(_max_expand_cost, _max_storage_tariff, 100.0)
+
   emerg_static_penalty = {}
   for d in model.Destinations:
-    val = pyo.value(model.ExpandVarCost[d])
-    emerg_static_penalty[d] = 5.0 * (val if (val is not None and val > 1e-4) else 1000.0)
-    
+    # Big-M for capacity overflow: 50x base, below UnmetDemand to preserve severity hierarchy
+    emerg_static_penalty[d] = 50.0 * _big_m_base
+
   unmet_demand_penalty = {}
   for c in model.Customers_dom:
     candidate_freights = []
@@ -2311,7 +2368,9 @@ def build_stochastic_pyomo_model(
     max_f = max(candidate_freights) if candidate_freights else 100.0
     if max_f <= 0.0:
       max_f = 100.0
-    unmet_demand_penalty[c] = 10.0 * max_f
+    # Big-M = 100x the maximum per-ton cost across freight, expansion, and storage
+    big_m_base = max(max_f, _max_expand_cost, _max_storage_tariff, 100.0)
+    unmet_demand_penalty[c] = 100.0 * big_m_base
 
   # Attach to model for post-optimization access
   model.EmergStaticPenalty = emerg_static_penalty
@@ -2528,10 +2587,7 @@ def run_stochastic_model(
         
       if solver_gap is not None:
         try:
-          gap_val = float(solver_gap)
-          if gap_val > 1.0:
-            gap_val = gap_val / 100.0
-          solver.options['MIPGap'] = gap_val
+          solver.options['MIPGap'] = float(solver_gap) / 100.0
         except Exception:
           solver.options['MIPGap'] = 0.01
     else:
@@ -2545,18 +2601,36 @@ def run_stochastic_model(
         
       if solver_gap is not None:
         try:
-          gap_val = float(solver_gap)
-          if gap_val > 1.0:
-            gap_val = gap_val / 100.0
-          solver.options['ratioGap'] = gap_val
+          solver.options['ratioGap'] = float(solver_gap) / 100.0
         except Exception:
           solver.options['ratioGap'] = 0.01
 
     results = solver.solve(model, tee=True)
     
-    print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ESTOCÁSTICA ===", lang))
-    print(translate("Status do Solver: {status}", lang).format(status=results.solver.status))
-    print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition))
+    stochastic_obj = pyo.value(model.Objective)
+    best_bound = None
+    mip_gap = 0.0
+    try:
+        if hasattr(results.problem, 'lower_bound') and results.problem.lower_bound is not None:
+            best_bound = float(results.problem.lower_bound)
+        elif hasattr(results.problem, 'upper_bound') and results.problem.upper_bound is not None:
+            best_bound = float(results.problem.upper_bound)
+        
+        if best_bound is not None and best_bound != 0 and not math.isnan(best_bound) and best_bound != float('-inf'):
+            mip_gap = abs(stochastic_obj - best_bound) / max(abs(stochastic_obj), 1e-9) * 100.0
+        elif results.solver.termination_condition == pyo.TerminationCondition.optimal:
+            mip_gap = 0.0
+            best_bound = stochastic_obj
+    except Exception:
+        pass
+
+    print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ESTOCÁSTICA ===", lang), flush=True)
+    print(translate("Status do Solver: {status}", lang).format(status=results.solver.status), flush=True)
+    print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition), flush=True)
+    print(f"[STOCHASTIC SOLVER LOG] Valor Objetivo Ótimo RP: R$ {stochastic_obj:.12f}", flush=True)
+    if best_bound is not None:
+        print(f"[STOCHASTIC SOLVER LOG] Limite Teórico (Best Bound): R$ {best_bound:.12f}", flush=True)
+    print(f"[STOCHASTIC SOLVER LOG] Gap da Solução (MIP Gap): {mip_gap:.4f}%", flush=True)
 
   finally:
     new_stdout.flush()
@@ -2816,6 +2890,20 @@ def run_stochastic_model(
       }
       scenario_slack_used[s] = recourse_info_s
 
+      if total_emerg_static_cost_s > 1e-4:
+        print(f"[STOCHASTIC PENALTY LOG] [{s.capitalize()}] EmergStaticCap active: {total_emerg_static_tons_s:.2f} t total | Cost: R$ {total_emerg_static_cost_s:.2f}", flush=True)
+        for item in emerg_static_items_s:
+          print(f"   -> [{s.capitalize()}] Hub: {item['destination_name']} | Period: {item['period']} | Tons: {item['tons']:.2f} t | Penalty Rate: R$ {item['penalty_rate']:.2f}/t | Cost: R$ {item['cost']:.2f}", flush=True)
+      else:
+        print(f"[STOCHASTIC PENALTY LOG] [{s.capitalize()}] EmergStaticCap: No emergency static capacity used (0.00 t).", flush=True)
+
+      if total_unmet_demand_cost_s > 1e-4:
+        print(f"[STOCHASTIC PENALTY LOG] [{s.capitalize()}] UnmetDemand active: {total_unmet_demand_tons_s:.2f} t total | Cost: R$ {total_unmet_demand_cost_s:.2f}", flush=True)
+        for item in unmet_demand_items_s:
+          print(f"   -> [{s.capitalize()}] Customer: {item['customer']} | Product: {item['product']} | Period: {item['period']} | Tons: {item['tons']:.2f} t | Penalty Rate: R$ {item['penalty_rate']:.2f}/t | Cost: R$ {item['cost']:.2f}", flush=True)
+      else:
+        print(f"[STOCHASTIC PENALTY LOG] [{s.capitalize()}] UnmetDemand: No unmet domestic demand (0.00 t).", flush=True)
+
       scenario_obj = total_opening_cost + total_expand_cost + total_bulk_cost + total_freight_s + storage_s + total_transshipment_s + total_recourse_cost_s
       scenario_objectives[s] = scenario_obj
 
@@ -3006,6 +3094,8 @@ def compute_evpi_vss(
   demand_error_pct,
   prediction_results,
   stochastic_objective,
+  df_initial_inventory=None,
+  df_dist_supply_demand=None,
   detailed_log=False,
   toggle_pareto=False,
   input_allocation_days=None,
@@ -3022,13 +3112,17 @@ def compute_evpi_vss(
   bulk_var_cost=None,
   bulk_eligible_types=None,
   lang="pt",
-  solver_name="cbc"
+  solver_name="cbc",
+  stochastic_kpis=None
 ):
   """
   Computes EVPI and VSS by running deterministic solves and fixing variables.
   """
   # 1. EVPI Calculations: Run 3 independent deterministic models (Low, Expected, High)
   ws_value = 0.0
+  ws_invest = 0.0
+  ws_oper = 0.0
+  ws_penalty = 0.0
   scenario_objectives = {}
 
   # Pre-calculate WMAPEs for perturbation
@@ -3086,6 +3180,8 @@ def compute_evpi_vss(
       df_demand=df_demand_s,
       df_freight=df_freight,
       df_storage=df_storage,
+      df_initial_inventory=df_initial_inventory,
+      df_dist_supply_demand=df_dist_supply_demand,
       detailed_log=False,
       toggle_pareto=toggle_pareto,
       input_allocation_days=input_allocation_days,
@@ -3109,10 +3205,22 @@ def compute_evpi_vss(
       raise ValueError(f"Solver failed to find optimal solution for scenario {s}")
 
     prob = scenario_probabilities[s]
-    ws_value += prob * det_res["objective"]
-    scenario_objectives[s] = det_res["objective"]
+    det_obj = det_res["objective"]
+    ws_value += prob * det_obj
+    scenario_objectives[s] = det_obj
+
+    kpis_s = det_res.get("kpis", {})
+    s_inv = kpis_s.get("total_opening_cost", 0.0) + kpis_s.get("total_expand_cost", 0.0) + kpis_s.get("total_bulk_cost", 0.0)
+    s_pen = kpis_s.get("total_recourse_cost", 0.0)
+    s_oper = det_obj - s_inv - s_pen
+    ws_invest += prob * s_inv
+    ws_penalty += prob * s_pen
+    ws_oper += prob * s_oper
+
+    print(f"[WS SOLVER LOG] [{s.capitalize()}] Optimal Objective: R$ {det_obj:.12f} (Prob: {prob:.2f}) | Status: {det_res['status']}", flush=True)
 
   evpi_value = stochastic_objective - ws_value
+  print(f"[WS SOLVER SUMMARY] Weighted WS Objective (Expected WS): R$ {ws_value:.12f} | EVPI: R$ {evpi_value:.12f}", flush=True)
 
   # 2. VSS Calculations
   # 2a. Solve EV problem with true expected-value parameters ξ̄ = E(ξ)
@@ -3151,6 +3259,8 @@ def compute_evpi_vss(
     df_demand=df_demand_ev,
     df_freight=df_freight,
     df_storage=df_storage,
+    df_initial_inventory=df_initial_inventory,
+    df_dist_supply_demand=df_dist_supply_demand,
     detailed_log=False,
     toggle_pareto=toggle_pareto,
     input_allocation_days=input_allocation_days,
@@ -3173,6 +3283,8 @@ def compute_evpi_vss(
   if ev_res["status"] != "optimal":
     raise ValueError("Solver failed to find optimal solution for expected-value problem")
 
+  print(f"[EV SOLVER LOG] Expected Value (EV) Baseline Optimal Objective: R$ {ev_res['objective']:.12f} | Status: {ev_res['status']}", flush=True)
+
   ev_wh_decisions = ev_res["warehouse_decisions"]
 
   # 2b. Fix EV first-stage decisions into stochastic model and re-solve
@@ -3188,6 +3300,8 @@ def compute_evpi_vss(
      df_demand=df_demand,
      df_freight=df_freight,
      df_storage=df_storage,
+     df_initial_inventory=df_initial_inventory,
+     df_dist_supply_demand=df_dist_supply_demand,
      scenario_probabilities=scenario_probabilities,
      error_source=error_source,
      supply_error_pct=supply_error_pct,
@@ -3266,10 +3380,7 @@ def compute_evpi_vss(
       
     if solver_gap is not None:
       try:
-        gap_val = float(solver_gap)
-        if gap_val > 1.0:
-          gap_val = gap_val / 100.0
-        solver.options['MIPGap'] = gap_val
+        solver.options['MIPGap'] = float(solver_gap) / 100.0
       except Exception:
         solver.options['MIPGap'] = 0.01
   else:
@@ -3282,24 +3393,129 @@ def compute_evpi_vss(
       
     if solver_gap is not None:
       try:
-        gap_val = float(solver_gap)
-        if gap_val > 1.0:
-          gap_val = gap_val / 100.0
-        solver.options['ratioGap'] = gap_val
+        solver.options['ratioGap'] = float(solver_gap) / 100.0
       except Exception:
         solver.options['ratioGap'] = 0.01
 
-  results = solver.solve(model)
+  results = solver.solve(model, tee=True)
   if results.solver.termination_condition != pyo.TerminationCondition.optimal:
-    raise ValueError("Solver failed to solve stochastic model with fixed deterministic decisions")
+    raise ValueError(translate("O solver não conseguiu encontrar uma solução ótima para o modelo estocástico com decisões determinísticas fixadas.", lang))
 
   eev_objective = pyo.value(model.Objective)
   vss_value = eev_objective - stochastic_objective
 
-  # EVPI and VSS cannot be negative (enforced mathematically, but float precision could cause -0.0)
+  eev_best_bound = None
+  eev_mip_gap = 0.0
+  try:
+    if hasattr(results.problem, 'lower_bound') and results.problem.lower_bound is not None:
+      eev_best_bound = float(results.problem.lower_bound)
+    elif hasattr(results.problem, 'upper_bound') and results.problem.upper_bound is not None:
+      eev_best_bound = float(results.problem.upper_bound)
+    
+    if eev_best_bound is not None and eev_best_bound != 0 and not math.isnan(eev_best_bound) and eev_best_bound != float('-inf'):
+      eev_mip_gap = abs(eev_objective - eev_best_bound) / max(abs(eev_objective), 1e-9) * 100.0
+    elif results.solver.termination_condition == pyo.TerminationCondition.optimal:
+      eev_mip_gap = 0.0
+      eev_best_bound = eev_objective
+  except Exception:
+    pass
+
+  print("\n" + translate("=== STATUS DA OTIMIZAÇÃO EEV (DECISÕES FIXADAS) ===", lang), flush=True)
+  print(translate("Status do Solver: {status}", lang).format(status=results.solver.status), flush=True)
+  print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition), flush=True)
+  print(f"[EEV SOLVER LOG] {translate('Valor Objetivo Recurso EEV Fixado', lang)}: R$ {eev_objective:.12f}", flush=True)
+  if eev_best_bound is not None:
+    print(f"[EEV SOLVER LOG] {translate('Limite Teórico (Best Bound)', lang)}: R$ {eev_best_bound:.12f}", flush=True)
+  print(f"[EEV SOLVER LOG] {translate('Gap da Solução (MIP Gap)', lang)}: {eev_mip_gap:.4f}%", flush=True)
+
+  print(f"[VSS LOG] EEV raw objective: {eev_objective:.12f}", flush=True)
+  print(f"[VSS LOG] RP raw objective: {stochastic_objective:.12f}", flush=True)
+  print(f"[VSS LOG] Raw VSS (EEV - RP): {vss_value:.12f}", flush=True)
+
+  # Log EEV penalty slack usage per scenario
+  tot_eev_emerg_cost_weighted = 0.0
+  tot_eev_unmet_cost_weighted = 0.0
+  for s in model.Scenarios:
+    prob_s = pyo.value(model.ScenarioProb[s])
+    for d in model.Destinations:
+      for t in model.TimePeriods:
+        val = pyo.value(model.EmergStaticCap[d, t, s])
+        if val > 1e-4:
+          rate = model.EmergStaticPenalty[d]
+          cost = val * rate
+          tot_eev_emerg_cost_weighted += prob_s * cost
+          print(f"[EEV PENALTY LOG] [{s.capitalize()}] EmergStaticCap active @ {cda_to_name.get(d, d)} (Period {t}): {val:.2f} t | Penalty Rate: R$ {rate:.2f}/t | Cost: R$ {cost:.2f}", flush=True)
+    for c in model.Customers_dom:
+      for p in model.Products:
+        for t in model.TimePeriods:
+          val = pyo.value(model.UnmetDemand[c, p, t, s])
+          if val > 1e-4:
+            rate = model.UnmetDemandPenalty[c]
+            cost = val * rate
+            tot_eev_unmet_cost_weighted += prob_s * cost
+            print(f"[EEV PENALTY LOG] [{s.capitalize()}] UnmetDemand active @ {c} ({p}, Period {t}): {val:.2f} t | Penalty Rate: R$ {rate:.2f}/t | Cost: R$ {cost:.2f}", flush=True)
+
+  if tot_eev_emerg_cost_weighted <= 1e-4:
+    print("[EEV PENALTY LOG] EmergStaticCap: No emergency static capacity used across any scenario (0.00 t).", flush=True)
+  if tot_eev_unmet_cost_weighted <= 1e-4:
+    print("[EEV PENALTY LOG] UnmetDemand: No unmet domestic demand across any scenario (0.00 t).", flush=True)
+
+  # Clean VSS: remove artificial Big-M penalty costs from EEV to obtain a purely economic differential
+  total_eev_penalty_weighted = tot_eev_emerg_cost_weighted + tot_eev_unmet_cost_weighted
+  eev_clean = eev_objective - total_eev_penalty_weighted
+  vss_clean = eev_clean - stochastic_objective
+  eev_has_penalties = total_eev_penalty_weighted > 1e-4
+
+  # Compute cost breakdowns for EVPI and VSS
+  stk = stochastic_kpis or {}
+  rp_invest = stk.get("total_opening_cost", 0.0) + stk.get("total_expand_cost", 0.0) + stk.get("total_bulk_cost", 0.0)
+  rp_penalty = stk.get("total_recourse_cost", 0.0)
+  rp_oper = stochastic_objective - rp_invest - rp_penalty
+
+  eev_invest = pyo.value(
+    sum(model.WarehouseOpen[d] * model.OpeningCost[d] for d in model.Destinations_cand) +
+    sum(model.IsExpanded[d] * model.ExpandFixedCost[d] + model.ExpandedCapacity[d] * model.ExpandVarCost[d] for d in model.Destinations) +
+    sum(model.IsBulkified[d] * model.BulkFixedCost[d] + model.BulkCapacity[d] * model.BulkVarCost[d] for d in model.BulkEligible)
+  )
+  eev_penalty = total_eev_penalty_weighted
+  eev_oper = eev_objective - eev_invest - eev_penalty
+
+  evpi_invest = rp_invest - ws_invest
+  evpi_oper = rp_oper - ws_oper
+  evpi_penalty = rp_penalty - ws_penalty
+
+  vss_invest = eev_invest - rp_invest
+  vss_oper = eev_oper - rp_oper
+  vss_penalty = eev_penalty - rp_penalty
+
+  evpi_has_penalties = (abs(rp_penalty) > 1e-4) or (abs(ws_penalty) > 1e-4)
+  vss_has_penalties = eev_has_penalties or (abs(rp_penalty) > 1e-4)
+  has_penalties = evpi_has_penalties or vss_has_penalties
+
+  if eev_has_penalties:
+    print(f"[VSS LOG] Total EEV weighted penalty cost: {total_eev_penalty_weighted:.12f}", flush=True)
+    print(f"[VSS LOG] Clean EEV (no penalties): {eev_clean:.12f}", flush=True)
+    print(f"[VSS LOG] Clean VSS (EEV_clean - RP): {vss_clean:.12f}", flush=True)
+
+  # Sanity check bound: EEV >= RP must hold mathematically (allowing float tolerance 1e-4)
+  if eev_objective < stochastic_objective - 1e-4:
+    print(f"[VSS WARNING] EEV ({eev_objective:.12f}) < RP ({stochastic_objective:.12f}). Check solver MIP gap or feasibility.", flush=True)
+
   return {
     "evpi": max(0.0, float(evpi_value)),
+    "evpi_invest": float(evpi_invest),
+    "evpi_oper": float(evpi_oper),
+    "evpi_penalty": float(evpi_penalty),
     "vss": max(0.0, float(vss_value)),
+    "vss_invest": float(vss_invest),
+    "vss_oper": float(vss_oper),
+    "vss_penalty": float(vss_penalty),
+    "vss_clean": float(vss_clean),
+    "eev": float(eev_objective),
     "ws": float(ws_value),
-    "eev": float(eev_objective)
+    "eev_has_penalties": eev_has_penalties,
+    "evpi_has_penalties": evpi_has_penalties,
+    "vss_has_penalties": vss_has_penalties,
+    "has_penalties": has_penalties,
   }
+

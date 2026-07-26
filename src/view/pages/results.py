@@ -658,12 +658,58 @@ def get_tab_stochastic_results_layout(lang='pt'):
                     html.Div([
                         html.Div([
                           html.H6(translate("EVPI", lang), className="text-muted small text-uppercase mb-1 fw-bold", style={"fontSize": "12px"}),
-                          html.H5(id="res-evpi-value", children="R$ -", className="text-info-custom fw-bold mb-0", style={"fontSize": "22px"})
+                          html.H5(id="res-evpi-value", children="R$ -", className="text-info-custom fw-bold mb-0", style={"fontSize": "22px"}),
+                          html.Div([
+                            html.Div([
+                              html.Span(translate("Investimento", lang) + ": ", className="text-muted small me-1"),
+                              html.Span(id="res-evpi-invest", children="R$ -", className="fw-semibold small me-3"),
+                              html.Span(translate("Operacional", lang) + ": ", className="text-muted small me-1"),
+                              html.Span(id="res-evpi-oper", children="R$ -", className="fw-semibold small me-3"),
+                              html.Span(translate("Penalidades", lang) + ": ", className="text-muted small me-1"),
+                              html.Span(id="res-evpi-penalty", children="R$ -", className="fw-semibold small text-danger-custom me-1"),
+                              html.I(
+                                className="bi bi-question-circle-fill text-muted",
+                                id="help-evpi-decomp-icon",
+                                style={"cursor": "pointer", "fontSize": "var(--font-size-small)"}
+                              ),
+                            ], className="d-flex flex-wrap align-items-center justify-content-center mt-2 pt-2 border-top")
+                          ], id="res-evpi-decomp-container", style={"display": "none"})
                         ], className="text-center p-3 bg-light rounded border mb-3"),
                         html.Div([
                           html.H6(translate("VSS", lang), className="text-muted small text-uppercase mb-1 fw-bold", style={"fontSize": "12px"}),
-                          html.H5(id="res-vss-value", children="R$ -", className="text-success-custom fw-bold mb-0", style={"fontSize": "22px"})
-                        ], className="text-center p-3 bg-light rounded border")
+                          html.H5(id="res-vss-value", children="R$ -", className="text-success-custom fw-bold mb-0", style={"fontSize": "22px"}),
+                          html.Div([
+                            html.Div([
+                              html.Span(translate("Investimento", lang) + ": ", className="text-muted small me-1"),
+                              html.Span(id="res-vss-invest", children="R$ -", className="fw-semibold small me-3"),
+                              html.Span(translate("Operacional", lang) + ": ", className="text-muted small me-1"),
+                              html.Span(id="res-vss-oper", children="R$ -", className="fw-semibold small me-3"),
+                              html.Span(translate("Penalidades", lang) + ": ", className="text-muted small me-1"),
+                              html.Span(id="res-vss-penalty", children="R$ -", className="fw-semibold small text-danger-custom me-1"),
+                              html.I(
+                                className="bi bi-question-circle-fill text-muted",
+                                id="help-vss-decomp-icon",
+                                style={"cursor": "pointer", "fontSize": "var(--font-size-small)"}
+                              ),
+                            ], className="d-flex flex-wrap align-items-center justify-content-center mt-2 pt-2 border-top")
+                          ], id="res-vss-decomp-container", style={"display": "none"})
+                        ], className="text-center p-3 bg-light rounded border mb-3"),
+                        html.Div([
+                          html.Div([
+                            html.I(className="bi bi-exclamation-triangle-fill text-warning me-2"),
+                            html.Span(translate("Decomposição do EVPI e VSS", lang), className="fw-bold me-1"),
+                            html.I(
+                              className="bi bi-question-circle-fill text-muted ms-1",
+                              id="help-evpi-vss-decomp",
+                              style={"cursor": "help", "fontSize": "var(--font-size-small)"}
+                            ),
+                            dbc.Tooltip(
+                              translate("Tanto o VSS quanto o EVPI incluem custos de penalidade Big-M, portanto ambos são decompostos em componentes de investimento, operacional e penalidade para isolar o valor economicamente significativo dos custos de penalidade Big-M.", lang),
+                              target="help-evpi-vss-decomp",
+                              placement="right"
+                            )
+                          ], className="d-flex align-items-center justify-content-center p-2 rounded bg-warning-subtle border border-warning text-dark small")
+                        ], id="res-decomp-warning-container", style={"display": "none"})
                     ]),
                     spinner_class_name="text-primary-custom"
                 ),
@@ -967,7 +1013,37 @@ def get_tab_stochastic_results_layout(lang='pt'):
         ]
     )
 
+    help_modal_evpi_decomp = dbc.Modal(
+        [
+            dbc.ModalHeader(dbc.ModalTitle(translate("Ajuda - Decomposição de Penalidades do EVPI", lang)), close_button=True),
+            dbc.ModalBody([
+                html.P(translate("Este valor de EVPI incorpora custos de penalidade decorrentes de demanda não atendida ou capacidade excedida, disparados quando uma decisão fixa não satisfaz os requisitos do cenário. Esta decomposição separa o custo de penalidade dos custos subjacentes de investimento e operacionais, para que você possa ver quanto do valor reflete um benefício real de planejamento versus o custo de confiar em penalidades Big-M para manter a viabilidade.", lang)),
+            ]),
+            dbc.ModalFooter(
+                dbc.Button(translate("Fechar", lang), id="close-help-evpi-decomp", className="btn-primary-custom", n_clicks=0)
+            )
+        ],
+        id="modal-help-evpi-decomp",
+        is_open=False,
+    )
+
+    help_modal_vss_decomp = dbc.Modal(
+        [
+            dbc.ModalHeader(dbc.ModalTitle(translate("Ajuda - Decomposição de Penalidades do VSS", lang)), close_button=True),
+            dbc.ModalBody([
+                html.P(translate("Este valor de VSS incorpora custos de penalidade decorrentes de demanda não atendida ou capacidade excedida, disparados quando uma decisão fixa não satisfaz os requisitos do cenário. Esta decomposição separa o custo de penalidade dos custos subjacentes de investimento e operacionais, para que você possa ver quanto do valor reflete um benefício real de planejamento versus o custo de confiar em penalidades Big-M para manter a viabilidade.", lang)),
+            ]),
+            dbc.ModalFooter(
+                dbc.Button(translate("Fechar", lang), id="close-help-vss-decomp", className="btn-primary-custom", n_clicks=0)
+            )
+        ],
+        id="modal-help-vss-decomp",
+        is_open=False,
+    )
+
     return html.Div([
         placeholder_card,
-        stochastic_results_card
+        stochastic_results_card,
+        help_modal_evpi_decomp,
+        help_modal_vss_decomp
     ])
