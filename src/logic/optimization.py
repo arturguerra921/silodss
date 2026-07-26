@@ -2431,20 +2431,28 @@ def build_stochastic_pyomo_model(
           candidate_warehouses_list, bulk_eligible_list, static_capacity, demand_min, wmapes_supply, wmapes_demand)
 
 
+def _log_console_and_file(msg):
+  """
+  Prints high-level progress messages to both sys.stdout (file log/modal viewer) and sys.__stdout__ (Docker console log).
+  """
+  print(msg, flush=True)
+  if sys.stdout is not sys.__stdout__:
+    try:
+      sys.__stdout__.write(str(msg) + "\n")
+      sys.__stdout__.flush()
+    except Exception:
+      pass
+
+
 def compare_pyomo_models(model_rp, model_eev, tol=1e-6):
   """
   Exhaustively compares all Pyomo Param components between the RP model and the EEV model.
   Prints any key set differences or value mismatches beyond `tol`.
   Does NOT modify any model variables, constraints, or values.
+  Prints strictly to sys.stdout (log file).
   """
   def _print_both(msg):
     print(msg, flush=True)
-    if sys.stdout is not sys.__stdout__:
-      try:
-        sys.__stdout__.write(msg + "\n")
-        sys.__stdout__.flush()
-      except Exception:
-        pass
 
   _print_both("\n==================== [EXHAUSTIVE MODEL PARAMETER COMPARISON: RP vs EEV] ====================")
   
@@ -2511,16 +2519,10 @@ def _log_scenario_cost_breakdown(model, tag="RP"):
   Helper to log per-scenario recourse cost breakdown, continuous first-stage variables,
   and sample parameter values (Supply, DemandMax) for RP vs EEV diagnostic comparison.
   Does NOT modify any model variables, constraints, or values.
-  Prints to both sys.stdout (log file if redirected) and sys.__stdout__ (console).
+  Prints strictly to sys.stdout (log file).
   """
   def _print_both(msg):
     print(msg, flush=True)
-    if sys.stdout is not sys.__stdout__:
-      try:
-        sys.__stdout__.write(msg + "\n")
-        sys.__stdout__.flush()
-      except Exception:
-        pass
 
   # 1. First-Stage Continuous and Binary Variables Diagnostics
   cand_static_vals = {d: pyo.value(model.CandStaticCapacity[d]) for d in model.Destinations_cand}
@@ -2806,18 +2808,20 @@ def run_stochastic_model(
     except Exception:
         pass
 
-    print("\n" + translate("=== STATUS DA OTIMIZAÇÃO ESTOCÁSTICA ===", lang), flush=True)
-    print(translate("Status do Solver: {status}", lang).format(status=results.solver.status), flush=True)
-    print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition), flush=True)
-    print(f"[STOCHASTIC SOLVER LOG] Valor Objetivo Ótimo RP: R$ {stochastic_obj:.12f}", flush=True)
+    _log_console_and_file("\n" + translate("=== STATUS DA OTIMIZAÇÃO ESTOCÁSTICA ===", lang))
+    _log_console_and_file(translate("Status do Solver: {status}", lang).format(status=results.solver.status))
+    _log_console_and_file(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition))
+    _log_console_and_file(f"[STOCHASTIC SOLVER LOG] Valor Objetivo Ótimo RP: R$ {stochastic_obj:.12f}")
     if best_bound is not None:
-        print(f"[STOCHASTIC SOLVER LOG] Limite Teórico (Best Bound): R$ {best_bound:.12f}", flush=True)
-    print(f"[STOCHASTIC SOLVER LOG] Gap da Solução (MIP Gap): {mip_gap:.4f}%", flush=True)
+        _log_console_and_file(f"[STOCHASTIC SOLVER LOG] Limite Teórico (Best Bound): R$ {best_bound:.12f}")
+    _log_console_and_file(f"[STOCHASTIC SOLVER LOG] Gap da Solução (MIP Gap): {mip_gap:.4f}%")
 
   finally:
     new_stdout.flush()
     new_stdout.close()
     sys.stdout = old_stdout
+
+  _log_console_and_file("\n" + translate("Organizando resultados para a página de resultados...", lang))
 
   results_status = results.solver.termination_condition
   is_optimal = results_status == pyo.TerminationCondition.optimal
@@ -3301,6 +3305,7 @@ def compute_evpi_vss(
   Computes EVPI and VSS by running deterministic solves and fixing variables.
   """
   # 1. EVPI Calculations: Run 3 independent deterministic models (Low, Expected, High)
+  _log_console_and_file("\n" + translate("=== CÁLCULO DO EVPI E VSS ===", lang))
   ws_value = 0.0
   ws_invest = 0.0
   ws_oper = 0.0
@@ -3329,6 +3334,7 @@ def compute_evpi_vss(
         wmapes_demand[(prod, city)] = float(combo_res.get('wmape', 15.0)) / 100.0
 
   for s in ['pessimista', 'esperado', 'otimista']:
+    _log_console_and_file(translate("Calculando Modelo de Cenário Esperado (WS) [{scenario}]...", lang).format(scenario=s.capitalize()))
     # Perturb supply DataFrame
     df_supply_s = df_supply.copy()
     def perturb_supply(row):
@@ -3399,10 +3405,10 @@ def compute_evpi_vss(
     ws_penalty += prob * s_pen
     ws_oper += prob * s_oper
 
-    print(f"[WS SOLVER LOG] [{s.capitalize()}] Optimal Objective: R$ {det_obj:.12f} (Prob: {prob:.2f}) | Status: {det_res['status']}", flush=True)
+    _log_console_and_file(f"[WS SOLVER LOG] [{s.capitalize()}] Optimal Objective: R$ {det_obj:,.2f} (Prob: {prob:.2f}) | Status: {det_res['status']}")
 
   evpi_value = stochastic_objective - ws_value
-  print(f"[WS SOLVER SUMMARY] Weighted WS Objective (Expected WS): R$ {ws_value:.12f} | EVPI: R$ {evpi_value:.12f}", flush=True)
+  _log_console_and_file(f"[WS SOLVER SUMMARY] Weighted WS Objective (Expected WS): R$ {ws_value:,.2f} | EVPI: R$ {evpi_value:,.2f}")
 
   # 2. VSS Calculations
   # 2a. Solve EV problem with true expected-value parameters ξ̄ = E(ξ)
@@ -3431,6 +3437,7 @@ def compute_evpi_vss(
     return row['Peso (ton)'] * factor
   df_demand_ev['Peso (ton)'] = df_demand_ev.apply(ev_perturb_demand, axis=1)
 
+  _log_console_and_file(translate("Calculando Modelo de Valor Esperado (EV)...", lang))
   _, ev_res = run_deterministic_model(
     df_supply=df_supply_ev,
     df_warehouses=df_warehouses,
@@ -3465,11 +3472,12 @@ def compute_evpi_vss(
   if ev_res["status"] != "optimal":
     raise ValueError("Solver failed to find optimal solution for expected-value problem")
 
-  print(f"[EV SOLVER LOG] Expected Value (EV) Baseline Optimal Objective: R$ {ev_res['objective']:.12f} | Status: {ev_res['status']}", flush=True)
+  _log_console_and_file(f"[EV SOLVER LOG] Expected Value (EV) Baseline Optimal Objective: R$ {ev_res['objective']:,.2f} | Status: {ev_res['status']}")
 
   ev_wh_decisions = ev_res["warehouse_decisions"]
 
   # 2b. Fix EV first-stage decisions into stochastic model and re-solve
+  _log_console_and_file(translate("Calculando Modelo EEV (Decisões Fixadas)...", lang))
   (model, cda_to_name, periods, prev_period_map, all_products, all_warehouses_list, 
    candidate_warehouses_list, bulk_eligible_list, static_capacity, demand_min, 
    wmapes_supply, wmapes_demand) = build_stochastic_pyomo_model(
@@ -3603,13 +3611,15 @@ def compute_evpi_vss(
   except Exception:
     pass
 
-  print("\n" + translate("=== STATUS DA OTIMIZAÇÃO EEV (DECISÕES FIXADAS) ===", lang), flush=True)
-  print(translate("Status do Solver: {status}", lang).format(status=results.solver.status), flush=True)
-  print(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition), flush=True)
-  print(f"[EEV SOLVER LOG] {translate('Valor Objetivo Recurso EEV Fixado', lang)}: R$ {eev_objective:.12f}", flush=True)
+  _log_console_and_file("\n" + translate("=== STATUS DA OTIMIZAÇÃO EEV (DECISÕES FIXADAS) ===", lang))
+  _log_console_and_file(translate("Status do Solver: {status}", lang).format(status=results.solver.status))
+  _log_console_and_file(translate("Condição de Término: {condition}", lang).format(condition=results.solver.termination_condition))
+  _log_console_and_file(f"[EEV SOLVER LOG] {translate('Valor Objetivo Recurso EEV Fixado', lang)}: R$ {eev_objective:,.2f}")
   if eev_best_bound is not None:
-    print(f"[EEV SOLVER LOG] {translate('Limite Teórico (Best Bound)', lang)}: R$ {eev_best_bound:.12f}", flush=True)
-  print(f"[EEV SOLVER LOG] {translate('Gap da Solução (MIP Gap)', lang)}: {eev_mip_gap:.4f}%", flush=True)
+    _log_console_and_file(f"[EEV SOLVER LOG] {translate('Limite Teórico (Best Bound)', lang)}: R$ {eev_best_bound:,.2f}")
+  _log_console_and_file(f"[EEV SOLVER LOG] {translate('Gap da Solução (MIP Gap)', lang)}: {eev_mip_gap:.4f}%")
+
+  _log_console_and_file(f"[EVPI/VSS SUMMARY] EVPI: R$ {evpi_value:,.2f} | VSS: R$ {vss_value:,.2f}")
 
   print(f"[VSS LOG] EEV raw objective: {eev_objective:.12f}", flush=True)
   print(f"[VSS LOG] RP raw objective: {stochastic_objective:.12f}", flush=True)

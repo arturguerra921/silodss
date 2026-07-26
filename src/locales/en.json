@@ -1069,5 +1069,10 @@
     "Penalidades": "Penalties",
     "Medidas de Recurso": "Penalties",
     "Recurso": "Penalties",
-    "Custo Total de Penalidades (R$)": "Total Penalties Cost (R$)"
+    "Custo Total de Penalidades (R$)": "Total Penalties Cost (R$)",
+    "Organizando resultados para a página de resultados...": "Organizing results for the results page...",
+    "=== CÁLCULO DO EVPI E VSS ===": "=== EVPI AND VSS CALCULATION ===",
+    "Calculando Modelo de Cenário Esperado (WS) [{scenario}]...": "Calculating Expected Scenario Model (WS) [{scenario}]...",
+    "Calculando Modelo de Valor Esperado (EV)...": "Calculating Expected Value Model (EV)...",
+    "Calculando Modelo EEV (Decisões Fixadas)...": "Calculating EEV Model (Fixed Decisions)..."
 }

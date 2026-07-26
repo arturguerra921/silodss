@@ -4720,6 +4720,56 @@ def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored
                     log_path=log_path,
                     solver_name=solver_name
                 )
+                if results_dict.get("status") == "optimal":
+                    try:
+                        stochastic_obj = results_dict.get("objective", 0.0)
+                        stochastic_kpis = results_dict.get("kpis", {})
+                        old_stdout = sys.stdout
+                        with open(log_path, 'a', encoding='utf-8', buffering=1) as f_log:
+                            sys.stdout = f_log
+                            try:
+                                evpi_vss_res = compute_evpi_vss(
+                                    df_supply=df_supply,
+                                    df_warehouses=df_warehouses,
+                                    df_compat=df_compat,
+                                    df_dist_supply_wh=df_dist_supply_wh,
+                                    df_dist_wh_demand=df_dist_wh_demand,
+                                    df_dist_wh_wh=df_dist_wh_wh,
+                                    df_demand=df_demand,
+                                    df_freight=df_freight,
+                                    df_storage=df_storage,
+                                    scenario_probabilities=scenario_probabilities,
+                                    error_source=error_source or "prediction",
+                                    supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
+                                    demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
+                                    prediction_results=preds,
+                                    stochastic_objective=stochastic_obj,
+                                    df_initial_inventory=df_initial_inventory,
+                                    df_dist_supply_demand=df_dist_supply_demand,
+                                    detailed_log=detailed_log,
+                                    toggle_pareto=toggle_pareto,
+                                    input_allocation_days=input_allocation_days,
+                                    interhub_factor=interhub_factor,
+                                    solver_gap=solver_gap,
+                                    solver_time_limit=solver_time_limit,
+                                    ratio_expand_rec=ratio_expand_rec,
+                                    ratio_expand_ship=ratio_expand_ship,
+                                    max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+                                    expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+                                    expand_var_cost=expand_var_cost if expansion_enabled else None,
+                                    max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+                                    bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+                                    bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+                                    bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+                                    lang=lang,
+                                    solver_name=solver_name,
+                                    stochastic_kpis=stochastic_kpis
+                                )
+                                results_dict["evpi_vss"] = evpi_vss_res
+                            finally:
+                                sys.stdout = old_stdout
+                    except Exception as e_evpi:
+                        print(f"Error computing EVPI/VSS during execution: {e_evpi}", flush=True)
             else:
                 log_filename, results_dict = run_deterministic_model(
                     df_supply=df_supply,
@@ -10006,42 +10056,45 @@ def run_evpi_vss(results_data,
         return "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", "R$ -", {"display": "none"}, {"display": "none"}, {"display": "none"}
 
     try:
-      stochastic_kpis = results_data.get("kpis", {})
-      evpi_vss_results = compute_evpi_vss(
-        df_supply=df_supply,
-        df_warehouses=df_warehouses,
-        df_compat=df_compat,
-        df_dist_supply_wh=df_dist_supply_wh,
-        df_dist_wh_demand=df_dist_wh_demand,
-        df_dist_wh_wh=df_dist_wh_wh,
-        df_demand=df_demand,
-        df_freight=df_freight,
-        df_storage=df_storage,
-        scenario_probabilities=scenario_probabilities,
-        error_source=error_source or "prediction",
-        supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
-        demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
-        prediction_results=preds,
-        stochastic_objective=stochastic_objective,
-        detailed_log=detailed_log,
-        toggle_pareto=toggle_pareto,
-        input_allocation_days=input_allocation_days,
-        interhub_factor=interhub_factor,
-        solver_gap=solver_gap,
-        solver_time_limit=solver_time_limit,
-        ratio_expand_rec=ratio_expand_rec,
-        ratio_expand_ship=ratio_expand_ship,
-        max_expand_capacity=max_expand_capacity if expansion_enabled else None,
-        expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
-        expand_var_cost=expand_var_cost if expansion_enabled else None,
-        max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
-        bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
-        bulk_var_cost=bulk_var_cost if bulk_enabled else None,
-        bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
-        lang=lang,
-        solver_name=solver_name,
-        stochastic_kpis=stochastic_kpis
-      )
+      if results_data.get("evpi_vss"):
+        evpi_vss_results = results_data["evpi_vss"]
+      else:
+        stochastic_kpis = results_data.get("kpis", {})
+        evpi_vss_results = compute_evpi_vss(
+          df_supply=df_supply,
+          df_warehouses=df_warehouses,
+          df_compat=df_compat,
+          df_dist_supply_wh=df_dist_supply_wh,
+          df_dist_wh_demand=df_dist_wh_demand,
+          df_dist_wh_wh=df_dist_wh_wh,
+          df_demand=df_demand,
+          df_freight=df_freight,
+          df_storage=df_storage,
+          scenario_probabilities=scenario_probabilities,
+          error_source=error_source or "prediction",
+          supply_error_pct=float(supply_error_pct) if supply_error_pct is not None else 15.0,
+          demand_error_pct=float(demand_error_pct) if demand_error_pct is not None else 15.0,
+          prediction_results=preds,
+          stochastic_objective=stochastic_objective,
+          detailed_log=detailed_log,
+          toggle_pareto=toggle_pareto,
+          input_allocation_days=input_allocation_days,
+          interhub_factor=interhub_factor,
+          solver_gap=solver_gap,
+          solver_time_limit=solver_time_limit,
+          ratio_expand_rec=ratio_expand_rec,
+          ratio_expand_ship=ratio_expand_ship,
+          max_expand_capacity=max_expand_capacity if expansion_enabled else None,
+          expand_fixed_cost=expand_fixed_cost if expansion_enabled else None,
+          expand_var_cost=expand_var_cost if expansion_enabled else None,
+          max_bulk_capacity=max_bulk_capacity if bulk_enabled else None,
+          bulk_fixed_cost=bulk_fixed_cost if bulk_enabled else None,
+          bulk_var_cost=bulk_var_cost if bulk_enabled else None,
+          bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
+          lang=lang,
+          solver_name=solver_name,
+          stochastic_kpis=stochastic_kpis
+        )
     finally:
       if temp_lic_path:
         try:

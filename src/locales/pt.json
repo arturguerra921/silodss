@@ -1070,5 +1070,10 @@
     "Penalidades": "Penalidades",
     "Medidas de Recurso": "Penalidades",
     "Recurso": "Penalidades",
-    "Custo Total de Penalidades (R$)": "Custo Total de Penalidades (R$)"
+    "Custo Total de Penalidades (R$)": "Custo Total de Penalidades (R$)",
+    "Organizando resultados para a página de resultados...": "Organizando resultados para a página de resultados...",
+    "=== CÁLCULO DO EVPI E VSS ===": "=== CÁLCULO DO EVPI E VSS ===",
+    "Calculando Modelo de Cenário Esperado (WS) [{scenario}]...": "Calculando Modelo de Cenário Esperado (WS) [{scenario}]...",
+    "Calculando Modelo de Valor Esperado (EV)...": "Calculando Modelo de Valor Esperado (EV)...",
+    "Calculando Modelo EEV (Decisões Fixadas)...": "Calculando Modelo EEV (Decisões Fixadas)..."
 }
