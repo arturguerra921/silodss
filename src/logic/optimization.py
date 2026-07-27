@@ -72,6 +72,18 @@ def run_deterministic_model(
     # 1. DATA PREPARATION & PARSING
     # =========================================================================
 
+    # Make defensive copies of input DataFrames to avoid in-place mutation
+    if df_supply is not None:
+        df_supply = df_supply.copy()
+    if df_warehouses is not None:
+        df_warehouses = df_warehouses.copy()
+    if df_demand is not None:
+        df_demand = df_demand.copy()
+    if df_freight is not None:
+        df_freight = df_freight.copy()
+    if df_storage is not None:
+        df_storage = df_storage.copy()
+
     # Deduplicate supply origin names (same logic as OSRM/distance calculations)
     if 'Latitude' in df_supply.columns and 'Longitude' in df_supply.columns:
         origins_df = df_supply[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
@@ -498,7 +510,7 @@ def run_deterministic_model(
                     dests.append((d, distance_od[(o, d)]))
             if dests:
                 if toggle_pareto:
-                    dests.sort(key=lambda x: x[1])
+                    dests.sort(key=lambda x: (x[1], str(x[0])))
                     limit = max(1, math.ceil(len(dests) * 0.20))
                     dests = dests[:limit]
                 for d, _ in dests:
@@ -514,7 +526,7 @@ def run_deterministic_model(
                         custs.append((c, distance_dc[(d, c)]))
                 if custs:
                     if toggle_pareto:
-                        custs.sort(key=lambda x: x[1])
+                        custs.sort(key=lambda x: (x[1], str(x[0])))
                         limit = max(1, math.ceil(len(custs) * 0.20))
                         custs = custs[:limit]
                     for c, _ in custs:
@@ -530,7 +542,7 @@ def run_deterministic_model(
                         d2s.append((d2, distance_dd[(d1, d2)]))
                 if d2s:
                     if toggle_pareto:
-                        d2s.sort(key=lambda x: x[1])
+                        d2s.sort(key=lambda x: (x[1], str(x[0])))
                         limit = max(1, math.ceil(len(d2s) * 0.20))
                         d2s = d2s[:limit]
                     for d2, _ in d2s:
@@ -545,7 +557,7 @@ def run_deterministic_model(
                     custs.append((c, distance_oc[(o, c)]))
             if custs:
                 if toggle_pareto:
-                    custs.sort(key=lambda x: x[1])
+                    custs.sort(key=lambda x: (x[1], str(x[0])))
                     limit = max(1, math.ceil(len(custs) * 0.20))
                     custs = custs[:limit]
                 for c, _ in custs:
@@ -1552,6 +1564,17 @@ def build_stochastic_pyomo_model(
   Returns the Pyomo model and parsed mappings for routing/result collection.
   """
   # 1. Date and metadata parsing
+  if df_supply is not None:
+    df_supply = df_supply.copy()
+  if df_warehouses is not None:
+    df_warehouses = df_warehouses.copy()
+  if df_demand is not None:
+    df_demand = df_demand.copy()
+  if df_freight is not None:
+    df_freight = df_freight.copy()
+  if df_storage is not None:
+    df_storage = df_storage.copy()
+
   if 'Latitude' in df_supply.columns and 'Longitude' in df_supply.columns:
     origins_df = df_supply[['Cidade', 'Latitude', 'Longitude']].drop_duplicates().dropna()
     city_counts = origins_df['Cidade'].value_counts()
@@ -1562,7 +1585,6 @@ def build_stochastic_pyomo_model(
         return f"{row['Cidade']} ({row['Latitude']:.4f}, {row['Longitude']:.4f})"
       return row['Cidade']
 
-    df_supply = df_supply.copy()
     df_supply['Cidade'] = df_supply.apply(rename_city, axis=1)
 
   periods = sorted(df_supply['Data'].dropna().unique().tolist())
@@ -2003,7 +2025,7 @@ def build_stochastic_pyomo_model(
           dests.append((d, distance_od[(o, d)]))
       if dests:
         if toggle_pareto:
-          dests.sort(key=lambda x: x[1])
+          dests.sort(key=lambda x: (x[1], str(x[0])))
           limit = max(1, math.ceil(len(dests) * 0.20))
           dests = dests[:limit]
         for d, _ in dests:
@@ -2019,7 +2041,7 @@ def build_stochastic_pyomo_model(
             custs.append((c, distance_dc[(d, c)]))
         if custs:
           if toggle_pareto:
-            custs.sort(key=lambda x: x[1])
+            custs.sort(key=lambda x: (x[1], str(x[0])))
             limit = max(1, math.ceil(len(custs) * 0.20))
             custs = custs[:limit]
           for c, _ in custs:
@@ -2035,7 +2057,7 @@ def build_stochastic_pyomo_model(
             d2s.append((d2, distance_dd[(d1, d2)]))
         if d2s:
           if toggle_pareto:
-            d2s.sort(key=lambda x: x[1])
+            d2s.sort(key=lambda x: (x[1], str(x[0])))
             limit = max(1, math.ceil(len(d2s) * 0.20))
             d2s = d2s[:limit]
           for d2, _ in d2s:
@@ -2050,7 +2072,7 @@ def build_stochastic_pyomo_model(
           custs.append((c, distance_oc[(o, c)]))
       if custs:
         if toggle_pareto:
-          custs.sort(key=lambda x: x[1])
+          custs.sort(key=lambda x: (x[1], str(x[0])))
           limit = max(1, math.ceil(len(custs) * 0.20))
           custs = custs[:limit]
         for c, _ in custs:
@@ -2446,7 +2468,7 @@ def _log_console_and_file(msg):
 
 def compare_pyomo_models(model_rp, model_eev, tol=1e-6):
   """
-  Exhaustively compares all Pyomo Param components between the RP model and the EEV model.
+  Exhaustively compares all Pyomo Param and Set components between the RP model and the EEV model.
   Prints any key set differences or value mismatches beyond `tol`.
   Does NOT modify any model variables, constraints, or values.
   Prints strictly to sys.stdout (log file).
@@ -2454,14 +2476,41 @@ def compare_pyomo_models(model_rp, model_eev, tol=1e-6):
   def _print_both(msg):
     print(msg, flush=True)
 
-  _print_both("\n==================== [EXHAUSTIVE MODEL PARAMETER COMPARISON: RP vs EEV] ====================")
+  _print_both("\n==================== [EXHAUSTIVE MODEL PARAMETER & SET COMPARISON: RP vs EEV] ====================")
   
+  # 1. Compare Set components
+  rp_sets = {c.local_name: c for c in model_rp.component_objects(pyo.Set, active=True)}
+  eev_sets = {c.local_name: c for c in model_eev.component_objects(pyo.Set, active=True)}
+  all_set_names = sorted(set(rp_sets.keys()).union(set(eev_sets.keys())))
+  total_mismatches = 0
+
+  for name in all_set_names:
+    if name not in rp_sets:
+      _print_both(f"[SET DIFFERENCE] Set '{name}' present in EEV model but MISSING in RP model.")
+      total_mismatches += 1
+      continue
+    if name not in eev_sets:
+      _print_both(f"[SET DIFFERENCE] Set '{name}' present in RP model but MISSING in EEV model.")
+      total_mismatches += 1
+      continue
+
+    rp_s_val = set(rp_sets[name])
+    eev_s_val = set(eev_sets[name])
+
+    missing_in_eev = rp_s_val - eev_s_val
+    missing_in_rp = eev_s_val - rp_s_val
+
+    if missing_in_eev or missing_in_rp:
+      _print_both(f"[SET MISMATCH] Set '{name}': {len(missing_in_eev)} elements in RP missing from EEV, {len(missing_in_rp)} elements in EEV missing from RP.")
+      total_mismatches += len(missing_in_eev) + len(missing_in_rp)
+    else:
+      _print_both(f"[SET MATCH] Set '{name}': All {len(rp_s_val)} elements match perfectly.")
+
+  # 2. Compare Param components
   rp_params = {c.local_name: c for c in model_rp.component_objects(pyo.Param, active=True)}
   eev_params = {c.local_name: c for c in model_eev.component_objects(pyo.Param, active=True)}
   
   all_param_names = sorted(set(rp_params.keys()).union(set(eev_params.keys())))
-  
-  total_mismatches = 0
   
   for name in all_param_names:
     if name not in rp_params:
@@ -3299,11 +3348,24 @@ def compute_evpi_vss(
   bulk_eligible_types=None,
   lang="pt",
   solver_name="cbc",
-  stochastic_kpis=None
+  stochastic_kpis=None,
+  stochastic_scenario_kpis=None
 ):
   """
   Computes EVPI and VSS by running deterministic solves and fixing variables.
   """
+  # Defensive copies of input DataFrames
+  if df_supply is not None:
+    df_supply = df_supply.copy()
+  if df_warehouses is not None:
+    df_warehouses = df_warehouses.copy()
+  if df_demand is not None:
+    df_demand = df_demand.copy()
+  if df_freight is not None:
+    df_freight = df_freight.copy()
+  if df_storage is not None:
+    df_storage = df_storage.copy()
+
   # 1. EVPI Calculations: Run 3 independent deterministic models (Low, Expected, High)
   _log_console_and_file("\n" + translate("=== CÁLCULO DO EVPI E VSS ===", lang))
   ws_value = 0.0
@@ -3405,7 +3467,7 @@ def compute_evpi_vss(
     ws_penalty += prob * s_pen
     ws_oper += prob * s_oper
 
-    _log_console_and_file(f"[WS SOLVER LOG] [{translate(s, lang).capitalize()}] {translate('Valor Objetivo Ótimo', lang)}: R$ {det_obj:,.2f} (Prob: {prob:.2f}) | Status: {det_res['status"]}")
+    _log_console_and_file(f"[WS SOLVER LOG] [{translate(s, lang).capitalize()}] {translate('Valor Objetivo Ótimo', lang)}: R$ {det_obj:,.2f} (Prob: {prob:.2f}) | Status: {det_res['status']}")
 
   evpi_value = stochastic_objective - ws_value
   _log_console_and_file(f"[WS SOLVER SUMMARY] Weighted WS Objective (Expected WS): R$ {ws_value:,.2f} | EVPI: R$ {evpi_value:,.2f}")
@@ -3472,7 +3534,7 @@ def compute_evpi_vss(
   if ev_res["status"] != "optimal":
     raise ValueError(translate("O solver não conseguiu encontrar uma solução ótima para o modelo de valor esperado (EV).", lang))
 
-  _log_console_and_file(f"[EV SOLVER LOG] {translate('Valor Objetivo Ótimo Modelo de Valor Esperado (EV)', lang)}: R$ {ev_res['objective']:,.2f} | Status: {ev_res['status"]}")
+  _log_console_and_file(f"[EV SOLVER LOG] {translate('Valor Objetivo Ótimo Modelo de Valor Esperado (EV)', lang)}: R$ {ev_res['objective']:,.2f} | Status: {ev_res['status']}")
 
   ev_wh_decisions = ev_res["warehouse_decisions"]
 
@@ -3511,6 +3573,44 @@ def compute_evpi_vss(
      bulk_eligible_types=bulk_eligible_types,
      lang=lang
    )
+
+  # Exhaustively compare RP and EEV model Sets and Params
+  try:
+    (model_rp_ref, _, _, _, _, _, _, _, _, _, _, _) = build_stochastic_pyomo_model(
+      df_supply=df_supply,
+      df_warehouses=df_warehouses,
+      df_compat=df_compat,
+      df_dist_supply_wh=df_dist_supply_wh,
+      df_dist_wh_demand=df_dist_wh_demand,
+      df_dist_wh_wh=df_dist_wh_wh,
+      df_demand=df_demand,
+      df_freight=df_freight,
+      df_storage=df_storage,
+      df_initial_inventory=df_initial_inventory,
+      df_dist_supply_demand=df_dist_supply_demand,
+      scenario_probabilities=scenario_probabilities,
+      error_source=error_source,
+      supply_error_pct=supply_error_pct,
+      demand_error_pct=demand_error_pct,
+      prediction_results=prediction_results,
+      toggle_pareto=toggle_pareto,
+      input_allocation_days=input_allocation_days,
+      interhub_factor=interhub_factor,
+      ratio_expand_rec=ratio_expand_rec,
+      ratio_expand_ship=ratio_expand_ship,
+      max_expand_capacity=max_expand_capacity,
+      expand_fixed_cost=expand_fixed_cost,
+      expand_var_cost=expand_var_cost,
+      max_bulk_capacity=max_bulk_capacity,
+      bulk_fixed_cost=bulk_fixed_cost,
+      bulk_var_cost=bulk_var_cost,
+      bulk_eligible_types=bulk_eligible_types,
+      lang=lang
+    )
+    compare_pyomo_models(model_rp_ref, model)
+    del model_rp_ref
+  except Exception as e_comp:
+    _log_console_and_file(f"[MODEL COMPARISON ERROR] {e_comp}")
 
   # Fix first-stage variables to expected-value (EV) deterministic choices
   for d in model.Destinations_cand:
@@ -3659,7 +3759,16 @@ def compute_evpi_vss(
   # Compute cost breakdowns for EVPI and VSS
   stk = stochastic_kpis or {}
   rp_invest = stk.get("total_opening_cost", 0.0) + stk.get("total_expand_cost", 0.0) + stk.get("total_bulk_cost", 0.0)
-  rp_penalty = stk.get("total_recourse_cost", 0.0)
+  
+  # Recourse/penalty cost must be probability-weighted across all RP scenarios
+  if stochastic_scenario_kpis:
+    rp_penalty = sum(
+      scenario_probabilities.get(s, 0.0) * stochastic_scenario_kpis.get(s, {}).get("total_recourse_cost", 0.0)
+      for s in model.Scenarios
+    )
+  else:
+    rp_penalty = stk.get("total_recourse_cost", 0.0)
+    
   rp_oper = stochastic_objective - rp_invest - rp_penalty
 
   eev_invest = pyo.value(
@@ -3684,6 +3793,10 @@ def compute_evpi_vss(
 
   if eev_has_penalties:
     print(f"[VSS LOG] Total EEV weighted penalty cost: {total_eev_penalty_weighted:.12f}", flush=True)
+
+  # Raw mathematical values for EVPI and VSS (Birge & Louveaux)
+  evpi_value = stochastic_objective - ws_value
+  vss_value = eev_objective - stochastic_objective
 
   # Sanity check bound: EEV >= RP must hold mathematically (allowing float tolerance 1e-4)
   if eev_objective < stochastic_objective - 1e-4:

@@ -1,10 +1,12 @@
 import base64
 import io
 import os
-import uuid
+import sys
 import tempfile
+import time
 import traceback
 import unicodedata
+import uuid
 import pandas as pd
 from dash import Dash, dcc, html, Input, Output, State, dash_table, no_update
 import dash
@@ -4724,6 +4726,7 @@ def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored
                     try:
                         stochastic_obj = results_dict.get("objective", 0.0)
                         stochastic_kpis = results_dict.get("kpis", {})
+                        stochastic_scenario_kpis = results_dict.get("scenario_kpis", {})
                         old_stdout = sys.stdout
                         with open(log_path, 'a', encoding='utf-8', buffering=1) as f_log:
                             sys.stdout = f_log
@@ -4763,7 +4766,8 @@ def execute_model(set_progress, n_clicks, stored_data, stored_warehouses, stored
                                     bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
                                     lang=lang,
                                     solver_name=solver_name,
-                                    stochastic_kpis=stochastic_kpis
+                                    stochastic_kpis=stochastic_kpis,
+                                    stochastic_scenario_kpis=stochastic_scenario_kpis
                                 )
                                 results_dict["evpi_vss"] = evpi_vss_res
                             finally:
@@ -10060,6 +10064,7 @@ def run_evpi_vss(results_data,
         evpi_vss_results = results_data["evpi_vss"]
       else:
         stochastic_kpis = results_data.get("kpis", {})
+        stochastic_scenario_kpis = results_data.get("scenario_kpis", {})
         evpi_vss_results = compute_evpi_vss(
           df_supply=df_supply,
           df_warehouses=df_warehouses,
@@ -10093,7 +10098,8 @@ def run_evpi_vss(results_data,
           bulk_eligible_types=bulk_eligible_types if bulk_enabled else None,
           lang=lang,
           solver_name=solver_name,
-          stochastic_kpis=stochastic_kpis
+          stochastic_kpis=stochastic_kpis,
+          stochastic_scenario_kpis=stochastic_scenario_kpis
         )
     finally:
       if temp_lic_path:
@@ -10128,11 +10134,13 @@ def run_evpi_vss(results_data,
     vss_has_penalties = evpi_vss_results.get("vss_has_penalties", False) or evpi_vss_results.get("eev_has_penalties", False)
     has_penalties = evpi_vss_results.get("has_penalties", False) or evpi_has_penalties or vss_has_penalties
 
+    #evpi_formatted = fmt_curr(max(0.0, evpi_val))
     evpi_formatted = fmt_curr(evpi_val)
     evpi_invest_fmt = fmt_curr(evpi_invest)
     evpi_oper_fmt = fmt_curr(evpi_oper)
     evpi_penalty_fmt = fmt_curr(evpi_penalty)
 
+    #vss_formatted = fmt_curr(max(0.0, vss_val))
     vss_formatted = fmt_curr(vss_val)
     vss_invest_fmt = fmt_curr(vss_invest)
     vss_oper_fmt = fmt_curr(vss_oper)
