@@ -424,7 +424,7 @@ def get_tab_results_layout(lang='pt'):
                             options=[
                                 {"label": translate("Mostrar todos os armazéns", lang), "value": "show_all"},
                             ],
-                            value="show_all",
+                            value=None,
                         )
                     ], className="ms-auto d-flex align-items-center"),
                 ], className="d-flex align-items-center w-100"),
@@ -697,14 +697,14 @@ def get_tab_stochastic_results_layout(lang='pt'):
                         html.Div([
                           html.Div([
                             html.I(className="bi bi-exclamation-triangle-fill text-warning me-2"),
-                            html.Span(translate("Decomposição do EVPI e VSS", lang), className="fw-bold me-1"),
+                            html.Span(translate("Decomposição do Valor Estocástico", lang), className="fw-bold me-1"),
                             html.I(
                               className="bi bi-question-circle-fill text-muted ms-1",
                               id="help-evpi-vss-decomp",
                               style={"cursor": "help", "fontSize": "var(--font-size-small)"}
                             ),
                             dbc.Tooltip(
-                              translate("Tanto o VSS quanto o EVPI incluem custos de penalidade Big-M, portanto ambos são decompostos em componentes de investimento, operacional e penalidade para isolar o valor economicamente significativo dos custos de penalidade Big-M.", lang),
+                              translate("Uma das otimizações para as métricas de valor estocástico incluiu custos de penalidade Big-M, portanto elas são decompostas em componentes de investimento, operacional e penalidade para isolar os custos de investimento e operacionais dos custos de penalidade Big-M.", lang),
                               target="help-evpi-vss-decomp",
                               placement="right"
                             )

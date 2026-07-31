@@ -6704,17 +6704,17 @@ def sync_results_wh_selection(active_cell, global_filter, route_type_filter):
         if active_cell is not None:
             return no_update, None, {"display": "flex"}
         else:
-            return no_update, "show_all", {"display": "flex"}
+            return no_update, None, {"display": "flex"}
             
     elif trigger_id == "wh-global-view-filter":
         if global_filter == "show_all":
             return None, no_update, {"display": "flex"}
         else:
-            return no_update, "show_all", {"display": "flex"}
+            return no_update, None, {"display": "flex"}
             
     # Initial load:
     if active_cell is None:
-        return no_update, "show_all", {"display": "flex"}
+        return no_update, None, {"display": "flex"}
     else:
         return no_update, None, {"display": "flex"}
 
@@ -7163,58 +7163,10 @@ def update_warehouse_results_map(active_cell, filter_value, results_data, active
             return fig, details_html, fig_inv, chart_style
 
         # Default fallback view: no filter and no selected warehouse
-        fig = go.Figure()
-        wh_lats, wh_lons, wh_names, wh_colors, wh_texts = [], [], [], [], []
-        
-        for w in wh_decisions:
-            w_name = w.get("Name", "")
-            w_cda = w.get("CDA", "")
-            coords = dest_mapping.get(w_name, dest_mapping.get(w_cda))
-            if coords:
-                wh_lats.append(coords['Latitude'])
-                wh_lons.append(coords['Longitude'])
-                wh_names.append(w_name)
-                
-                is_cand = w.get("IsCandidate", False)
-                is_open = w.get("IsOpen", False)
-                
-                if is_cand:
-                    if is_open:
-                        color = UNB_THEME['UNB_BLUE']
-                        status_lbl = translate("Candidato - Aberto", lang)
-                    else:
-                        color = '#888888'
-                        status_lbl = translate("Candidato - Fechado", lang)
-                else:
-                    color = UNB_THEME['UNB_GREEN']
-                    status_lbl = translate("Existente - Aberto", lang)
-                
-                wh_colors.append(color)
-                wh_texts.append(f"{w_name}<br>{status_lbl}")
-        
-        if wh_lats:
-            fig.add_trace(go.Scattermapbox(
-                mode="markers",
-                lon=wh_lons,
-                lat=wh_lats,
-                marker={'size': 12, 'color': wh_colors},
-                text=wh_texts,
-                hoverinfo='text'
-            ))
-            fig.update_layout(
-                mapbox_style="open-street-map",
-                mapbox_zoom=4,
-                mapbox_center={"lat": np.mean(wh_lats), "lon": np.mean(wh_lons)},
-                margin={"r": 0, "t": 0, "l": 0, "b": 0},
-                showlegend=False
-            )
-        else:
-            fig = default_fig
-
         placeholder = html.Div([
             html.P(translate("Selecione um armazém na tabela acima para ver os detalhes, indicadores e custos aqui.", lang), className="text-muted small mt-2")
         ])
-        return fig, placeholder, go.Figure(), {"display": "none"}
+        return default_fig, placeholder, go.Figure(), {"display": "none"}
 
     row_idx = active_cell['row']
     if row_idx >= len(table_data):
