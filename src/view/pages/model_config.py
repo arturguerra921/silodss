@@ -159,7 +159,7 @@ def get_tab_model_config_layout(lang='pt'):
                             className="mb-0 mx-2 fw-bold small text-primary-custom cursor-pointer"
                         ),
                         html.I(className="bi bi-question-circle-fill text-muted", id="help-pareto", style={"cursor": "help", "fontSize": "var(--font-size-small)"}),
-                        dbc.Tooltip(translate("Aplica o Princípio de Pareto (Regra 80/20) filtrando apenas as 20% melhores rotas (mais curtas) de cada origem. Isso acelera significativamente o tempo de resolução do modelo matemático.", lang),
+                        dbc.Tooltip(translate("Aplica o Princípio de Pareto (Regra 80/20) filtrando apenas as 20% melhores rotas (mais curtas) de cada origem. Isso acelera significativamente o tempo de resolução do modelo matemático. Atenção: Não recomendado para instâncias pequenas (com poucos nós), pois a redução de rotas pode causar inviabilidade na rede e ativar variáveis de penalidade (big-M).", lang),
                             target="help-pareto",
                             placement="top"
                         )
