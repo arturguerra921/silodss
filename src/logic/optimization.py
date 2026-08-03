@@ -1029,6 +1029,14 @@ def run_deterministic_model(
     sys.stdout = new_stdout
 
     try:
+        binary_vars = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain == pyo.Binary)
+        continuous_vars = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Reals, pyo.NonNegativeReals, pyo.PositiveReals))
+        constraints_count = sum(1 for _ in model.component_data_objects(pyo.Constraint, active=True))
+        sys.__stdout__.write(f"\n=== PYOMO MODEL DIAGNOSTICS ===\n")
+        sys.__stdout__.write(f"Binary variables: {binary_vars}\n")
+        sys.__stdout__.write(f"Continuous variables: {continuous_vars}\n")
+        sys.__stdout__.write(f"Constraints: {constraints_count}\n\n")
+
         if detailed_log:
             model.pprint()
             
@@ -2758,6 +2766,14 @@ def run_stochastic_model(
      )
     Customers_exp = list(model.Customers_exp)
     Customers_dom = list(model.Customers_dom)
+
+    binary_vars = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain == pyo.Binary)
+    continuous_vars = sum(1 for v in model.component_data_objects(pyo.Var, active=True) if v.domain in (pyo.Reals, pyo.NonNegativeReals, pyo.PositiveReals))
+    constraints_count = sum(1 for _ in model.component_data_objects(pyo.Constraint, active=True))
+    sys.__stdout__.write(f"\n=== PYOMO MODEL DIAGNOSTICS ===\n")
+    sys.__stdout__.write(f"Binary variables: {binary_vars}\n")
+    sys.__stdout__.write(f"Continuous variables: {continuous_vars}\n")
+    sys.__stdout__.write(f"Constraints: {constraints_count}\n\n")
 
     # 3. Pre-solve feasibility checks
     pre_solve_warnings = []

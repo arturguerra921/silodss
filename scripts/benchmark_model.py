@@ -443,6 +443,10 @@ def generate_sampled_datasets(config, df_cities, df_sicarm, supply_size, demand_
                             df_supply.loc[mask_gui, 'Peso (ton)'] = round(needed_sup / count_gui, 2)
 
     df_opt_warehouses = df_warehouses.rename(columns=wh_map)
+    if 'Status' in df_opt_warehouses.columns:
+        df_opt_warehouses['Status'] = df_opt_warehouses['Status'].fillna('Existente').astype(str).str.strip().apply(
+            lambda x: 'Candidato' if 'candidato' in x.lower() or 'candidate' in x.lower() else 'Existente'
+        )
     
     return df_opt_supply, df_opt_demand, df_opt_warehouses, df_supply, df_demand, df_warehouses
 

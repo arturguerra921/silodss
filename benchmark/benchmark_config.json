@@ -1,6 +1,6 @@
 {
-  "model_type": "stochastic",
-  "solver_name": "gurobi",
+  "model_type": "deterministic",
+  "solver_name": "cbc",
   "solver_gap": 1.0,
   "solver_time_limit": 1800,
   "error_source": "manual",
@@ -23,13 +23,13 @@
   "expansion_enabled": true,
   "ratio_expand_rec": 0.20,
   "ratio_expand_ship": 0.20,
-  "max_expand_capacity": 500000,
-  "expand_fixed_cost": 10000,
+  "max_expand_capacity": 10000,
+  "expand_fixed_cost": 1000,
   "expand_var_cost": 1050,
   "bulk_enabled": true,
-  "max_bulk_capacity": 40000,
+  "max_bulk_capacity": 4000,
   "bulk_fixed_cost": 5000,
-  "bulk_var_cost": 470,
+  "bulk_var_cost": 680,
   "bulk_eligible_types": [
     "Convencional","Graneleiro"
   ],
@@ -40,10 +40,10 @@
     "warehouses": 20
   },
   "increment_steps": {
-    "supply": 5,
-    "demand_domestic": 5,
+    "supply": 2,
+    "demand_domestic": 2,
     "demand_export": 1,
-    "warehouses": 10
+    "warehouses": 5
   },
   "periods": [
     "2021-01", "2021-02", "2021-03", "2021-04", "2021-05", "2021-06",
