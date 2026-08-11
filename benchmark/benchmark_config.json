@@ -1,0 +1,60 @@
+{
+  "model_type": "deterministic",
+  "solver_name": "cbc",
+  "solver_gap": 1.0,
+  "solver_time_limit": 1800,
+  "error_source": "manual",
+  "prediction_method": "prophet",
+  "validation_period": 12,
+  "forecast_horizon": 12,
+  "enable_feasibility_scaling": true,
+  "feasibility_scaling_factor": 1.5,
+  "supply_error_pct": 15.0,
+  "demand_error_pct": 15.0,
+  "scenario_probabilities": {
+    "pessimista": 0.33,
+    "esperado": 0.34,
+    "otimista": 0.33
+  },
+  "toggle_pareto": false,
+  "input_allocation_days": 30,
+  "interhub_factor": 1.0,
+  "toggle_direct_arcs": false,
+  "expansion_enabled": true,
+  "ratio_expand_rec": 0.20,
+  "ratio_expand_ship": 0.20,
+  "max_expand_capacity": 10000,
+  "expand_fixed_cost": 1000,
+  "expand_var_cost": 1050,
+  "bulk_enabled": true,
+  "max_bulk_capacity": 4000,
+  "bulk_fixed_cost": 5000,
+  "bulk_var_cost": 680,
+  "bulk_eligible_types": [
+    "Convencional","Graneleiro"
+  ],
+  "initial_sizes": {
+    "supply": 5,
+    "demand_domestic": 5,
+    "demand_export": 1,
+    "warehouses": 20
+  },
+  "increment_steps": {
+    "supply": 2,
+    "demand_domestic": 2,
+    "demand_export": 1,
+    "warehouses": 5
+  },
+  "periods": [
+    "2021-01", "2021-02", "2021-03", "2021-04", "2021-05", "2021-06",
+    "2021-07", "2021-08", "2021-09", "2021-10", "2021-11", "2021-12",
+    "2022-01", "2022-02", "2022-03", "2022-04", "2022-05", "2022-06",
+    "2022-07", "2022-08", "2022-09", "2022-10", "2022-11", "2022-12",
+    "2023-01", "2023-02", "2023-03", "2023-04", "2023-05", "2023-06",
+    "2023-07", "2023-08", "2023-09", "2023-10", "2023-11", "2023-12",
+    "2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06",
+    "2024-07", "2024-08", "2024-09", "2024-10", "2024-11", "2024-12",
+    "2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06",
+    "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12"
+  ]
+}
