@@ -225,3 +225,6 @@ examples/ofertas/*
 # Gurobi Secrets
 secrets/
 secrets/*
+
+# Scratch and temporary scripts
+scratch/

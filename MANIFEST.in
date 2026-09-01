@@ -1,2 +1,3 @@
 include src/view/assets/*
 include src/view/assets/data/*
+include src/locales/*.json
