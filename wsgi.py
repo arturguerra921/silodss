@@ -1,4 +1,6 @@
+"""SiloDSS WSGI entry point for production deployments (e.g., Gunicorn / Render)."""
+
 from src.view.view import app
 
-# O Gunicorn procura por uma variável chamada 'application' ou 'server' por padrão
+# Expose WSGI application callable for Gunicorn
 server = app.server

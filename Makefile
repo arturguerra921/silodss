@@ -1,4 +1,4 @@
-# Makefile for SiloDSS Development Workflow
+# Makefile for SiloDSS Development and Build Workflow
 
 # Variables
 VENV_NAME := silodss_env
