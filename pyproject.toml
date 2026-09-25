@@ -17,10 +17,10 @@ authors = [
 maintainers = [
     {name = "arturguerra", email="arturguerra921@hotmail.com"}
 ]
-description = "SiloDSS"
+description = "A Decision Support System for Grain Hub Location Optimization using Deterministic and Stochastic Programming"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = "~=3.10.0"
+requires-python = ">=3.10, <3.13"
 dependencies = [
     "plotly==6.5.2",
     "dash==4.0.0",
